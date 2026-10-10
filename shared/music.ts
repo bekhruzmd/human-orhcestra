@@ -8,7 +8,7 @@
  *   - changing the key/scale on the Stage re-pitches every player instantly,
  *   - melody notes that would grind against the underlying chord are nudged to a neighbouring scale tone.
  */
-import { STEPS_PER_BAR, PROGRESSION_BARS, type Role, type ScaleName, type NoteEvent } from './protocol';
+import { STEPS_PER_BAR, PROGRESSION_BARS, type Role, type ScaleName, type NoteEvent } from './protocol.js';
 
 export const SCALE_INTERVALS: Record<ScaleName, number[]> = {
   minorPent: [0, 3, 5, 7, 10],

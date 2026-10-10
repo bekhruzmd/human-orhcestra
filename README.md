@@ -30,6 +30,7 @@ npm run demo                  # build + server + HTTPS tunnel
 | `npm run demo` | production build + server + cloudflared tunnel (what you want at the table) |
 | `npm start` | build + server only (LAN demo: `http://<laptop-ip>:3000`; **no HTTPS, so no shake/tilt on iOS**) |
 | `npm run dev` | Vite dev server (5173, hot reload) + server (3000); Stage at `localhost:5173/stage.html` |
+| `vercel deploy --prod` | cloud copy at **https://horcha.vercel.app** (see "Vercel deployment") |
 | `npm run tunnel` | tunnel only, if you run the server separately |
 | `npm test` | offline checks: scale-lock + clock-sync accuracy simulation |
 | `npm run typecheck` | `tsc --noEmit` |
@@ -90,6 +91,9 @@ Honest limits: the residual can't detect a *constant* asymmetry (e.g. uplink 2 m
 - **Phone speakers:** the Stage's *PHONES AS SPEAKERS* button (or a phone's own toggle) makes each phone play its own part locally at the same step times. The Stage then stops playing that player (it still draws them). AUTO parts always stay on the Stage.
 - **Reconnect:** each tab keeps an id in `sessionStorage`. After a drop the socket reconnects with back-off, the phone re-hellos and relocks its clock, and the server restores its seat, name, colour and role. The seat is held for 90 s, and a silent socket is declared dead after 9 s. Verified by killing and restarting the server mid-session: phones came back on their own.
 - **Recorder** (`src/common/recorder.ts`): keeps a rolling 30 s of the Stage's final output and saves it as a **WAV**. See "Deviations" below.
+
+## Vercel deployment
+`https://horcha.vercel.app` runs the same server as a Vercel Function (`api/ws.ts`; `/ws` is rewritten to it) and serves the built pages. It works, with one caveat: **the beat clock lives in memory**, and Vercel doesn't guarantee that every WebSocket lands on the same instance. With a handful of connections they do in practice (all connections reported the same transport epoch in testing), and a sync check is visible on the Stage. If the Stage and phones ever show different tempos or an empty roster, reload everything, or use `npm run demo`, which has no such limit. Sockets also close at the function's max duration (5 min on Hobby); clients reconnect and relock on their own. Cloud RTT is higher, so notes get a longer scheduling lead and feel slightly slower than on the local tunnel.
 
 ## Demo script (2 minutes, judges in groups of 2–3)
 

@@ -194,10 +194,10 @@ function updateDebug() {
 }
 
 // ------------------------------------------------------------------ note emit
-/** Lead time: enough for the message to reach every listener before its step. Scales with measured RTT. */
+/** Lead time: a note travels phone -> server -> listener, i.e. about one full RTT, so lead scales with it. */
 function leadMs() {
   const s = clock.stats();
-  return clamp(50 + s.rttMin * 0.6 + s.jitter * 2, 60, 150);
+  return clamp(40 + s.rttMin * 1.1 + s.jitter * 3, 60, 260);
 }
 let lastStep = -1;
 const fires: { at: number; col: number; v: number }[] = []; // visual "your note sounds now" events

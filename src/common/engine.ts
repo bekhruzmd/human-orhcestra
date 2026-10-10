@@ -31,7 +31,7 @@ export class Engine {
   private limiter!: Tone.Limiter;
   private revBus!: Tone.Reverb;
   private delBus!: Tone.FeedbackDelay;
-  private voices = new Map<string, { voice: Voice; role: Role; used: number }>();
+  private voices = new Map<string, { voice: Voice; role: Role; used: number; lastT: number }>();
   private fxKit: DrumKit | null = null;
   private lastDropStart = -1;
   private ts: TransportState | null = null;
@@ -113,7 +113,13 @@ export class Engine {
     const stepSec = 60 / ts.bpm / 4;
     const entry = this.getVoice(ev.pid, ev.role);
     entry.used = performance.now();
-    entry.voice.trigger(r, t, Math.max(0.05, ev.dur * stepSec * 0.95), clamp(ev.v, 0.05, 1));
+    // Web Audio monophonic synths throw if two starts share a time. Late notes all clamp to "now", so
+    // nudge any start that doesn't strictly follow this voice's previous one by 1.5 ms (inaudible).
+    if (t <= entry.lastT) t = entry.lastT + 0.0015;
+    entry.lastT = t;
+    try {
+      entry.voice.trigger(r, t, Math.max(0.05, ev.dur * stepSec * 0.95), clamp(ev.v, 0.05, 1));
+    } catch (err) { console.warn('trigger failed', err); return false; }
     return true;
   }
 
@@ -139,7 +145,7 @@ export class Engine {
       const rev = new Tone.Gain(role === 'pads' ? 0.55 : role === 'melody' ? 0.3 : role === 'drums' ? 0.12 : 0).connect(this.revBus);
       voice.out.connect(rev);
       if (role === 'melody') voice.out.connect(new Tone.Gain(0.22).connect(this.delBus));
-      e = { voice, role, used: performance.now() };
+      e = { voice, role, used: performance.now(), lastT: 0 };
       this.voices.set(k, e);
     }
     return e;

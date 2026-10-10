@@ -16,7 +16,7 @@ import {
   BPM_MAX, BPM_MIN, COLORS, DROP_BUILD_STEPS, ROLES, STEPS_PER_BAR,
   type ClientMsg, type PlayerInfo, type Role, type ScaleName, type ServerMsg, type TransportState,
   stepPos, stepMs,
-} from '../shared/protocol';
+} from '../shared/protocol.js';
 
 const PORT = Number(process.env.PORT ?? 3000);
 const DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist');
@@ -167,7 +167,9 @@ const server = http.createServer((req, res) => {
 });
 
 // -------------------------------------------------------------- WebSocket
-const wss = new WebSocketServer({ server, path: '/ws', perMessageDeflate: false });
+// On Vercel the function lives at /api/ws and the client's /ws is rewritten to it, so don't pin the path there.
+const ON_VERCEL = !!process.env.VERCEL;
+const wss = new WebSocketServer({ server, path: ON_VERCEL ? undefined : '/ws', perMessageDeflate: false });
 
 wss.on('connection', (ws, req) => {
   // Disable Nagle: tiny JSON frames must leave immediately or ping RTTs get sticky/asymmetric.
@@ -291,8 +293,12 @@ setInterval(() => {
 // Sync stats change constantly; push them to everyone at 1 Hz instead of per report.
 setInterval(broadcastRoster, 1000);
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n🎼  Human Orchestra server on :${PORT}`);
-  console.log(`    Stage:  http://localhost:${PORT}/stage`);
-  for (const u of lanUrls()) console.log(`    LAN:    ${u}   (http: motion sensors need HTTPS, use \`npm run demo\`)`);
-});
+export default server; // Vercel Functions run an exported http.Server (api/ws.ts re-exports it)
+
+if (!ON_VERCEL) {
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`\n🎼  Human Orchestra server on :${PORT}`);
+    console.log(`    Stage:  http://localhost:${PORT}/stage`);
+    for (const u of lanUrls()) console.log(`    LAN:    ${u}   (http: motion sensors need HTTPS, use \`npm run demo\`)`);
+  });
+}
