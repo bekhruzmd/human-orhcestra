@@ -3,12 +3,10 @@
  *   - one lane per player (colour + name + instrument); AUTO lanes are dashed and badged
  *   - a 2-bar piano roll per lane; every note fires a burst sized by velocity AT ITS STEP TIME
  *   - drums pulse the whole screen
- *   - a beat grid (16 steps, 4-bar chord loop) with each player's hits marked on it:
- *     if everyone is in time, their dots line up in the same columns
  * Events are queued with their server-time stamp and released by the same synced clock that drives audio.
  */
 import { ROLE_INFO, STEPS_PER_BAR, dropPhase, stepPos, type NoteEvent, type Role, type TransportState } from '../../shared/protocol';
-import { chordAt, resolveEvent } from '../../shared/music';
+import { resolveEvent } from '../../shared/music';
 import { clamp } from '../common/util';
 
 export interface Lane { id: string; name: string; role: Role; color: string; auto: boolean; connected: boolean; speaker: boolean }
@@ -18,7 +16,6 @@ interface Particle { x: number; y: number; vx: number; vy: number; life: number;
 interface Ring { x: number; y: number; t: number; color: string; size: number }
 
 const ROLL_STEPS = STEPS_PER_BAR * 2;
-const GRID_H = 126;
 const INK = '#2b2540';
 const INK_SOFT = '#5c5577';
 const ink = (a: number) => `rgba(43,37,64,${a})`;
@@ -98,7 +95,7 @@ export class Viz {
     ctx.fillStyle = grad; ctx.fillRect(0, 0, w, h);
 
     // ---- lanes
-    const areaTop = 12, areaH = h - GRID_H - 24;
+    const areaTop = 12, areaH = h - 24;
     const n = Math.max(1, lanes.length);
     const maxLaneH = n === 1 ? 180 : n === 2 ? 150 : n <= 4 ? 128 : 100;
     const laneH = Math.min(maxLaneH, Math.max(64, (areaH - (n - 1) * 8) / n));
@@ -147,6 +144,8 @@ export class Viz {
       if (lane.speaker) nameText += ' (SPK)';
       if (!lane.connected && !lane.auto && !isStandby && !isReplay) nameText += ' · offline';
       const maxW = labelW - 32;
+      let fit = nameSize; // shrink the font before cutting the text, so short labels stay whole
+      while (fit > 11 && ctx.measureText(nameText).width > maxW) { fit--; ctx.font = `700 ${fit}px ${PIXEL_FONT}`; }
       while (nameText.length > 4 && ctx.measureText(nameText).width > maxW) {
         nameText = nameText.slice(0, -2) + '…';
       }
@@ -190,7 +189,6 @@ export class Viz {
     this.lastPlayhead = playX;
 
     this.drawParticles();
-    this.drawGrid(ts, pos, lanes, w, h, inBuild, labelW);
 
     // ---- drop overlays
     if (inBuild && ts.drop) {
@@ -248,54 +246,4 @@ export class Viz {
       ctx.fillRect(Math.round(p.x - s / 2), Math.round(p.y - s / 2), s, s);
     }
   }
-
-  /** Bottom strip: 4-bar chord loop + the 16-step grid of the current bar with every player's hits as dots. */
-  private drawGrid(ts: TransportState, pos: number, lanes: Lane[], w: number, h: number, building: boolean, labelW: number) {
-    const { ctx } = this;
-    const top = h - GRID_H, step = Math.floor(pos), bar = Math.floor(step / STEPS_PER_BAR), inBar = step % STEPS_PER_BAR;
-    const gx = labelW + 16, gw = w - gx - 16;
-    // chord loop (left column)
-    const cw = (labelW - 8) / 4;
-    for (let i = 0; i < 4; i++) {
-      const c = chordAt(ts, (bar - (bar % 4) + i) * STEPS_PER_BAR);
-      const cur = i === bar % 4;
-      ctx.fillStyle = cur ? INK : ink(0.06);
-      ctx.fillRect(4 + i * cw, top + 14, cw - 6, 54);
-      ctx.strokeStyle = INK; ctx.lineWidth = 2;
-      ctx.strokeRect(5 + i * cw, top + 15, cw - 8, 52);
-      ctx.fillStyle = cur ? '#ffffff' : INK_SOFT;
-      ctx.font = `700 ${cur ? 18 : 15}px ${PIXEL_FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(c.name, 4 + i * cw + (cw - 6) / 2, top + 41);
-    }
-    ctx.textAlign = 'left';
-    ctx.fillStyle = INK_SOFT; ctx.font = `700 12px ${PIXEL_FONT}`;
-    ctx.fillText('CHORD LOOP', 6, top + 86);
-    ctx.fillText(`BAR ${bar + 1}`, 6, top + 102);
-    // 16 step cells
-    const sw = gw / STEPS_PER_BAR;
-    const barStart = bar * STEPS_PER_BAR;
-    for (let s = 0; s < STEPS_PER_BAR; s++) {
-      const x = gx + s * sw, on = s === inBar, beat = s % 4 === 0;
-      ctx.fillStyle = on ? (building ? '#ff8fab' : INK) : beat ? ink(0.12) : ink(0.04);
-      ctx.fillRect(x + 2, top + 14, sw - 4, 54);
-      ctx.fillStyle = on ? '#ffffff' : ink(0.5);
-      ctx.font = `700 13px ${PIXEL_FONT}`; ctx.textAlign = 'center';
-      ctx.fillText(beat ? String(s / 4 + 1) : '·', x + sw / 2, top + 22);
-    }
-    // each player's hits in this bar, stacked as coloured dots inside the cells
-    lanes.forEach((lane, li) => {
-      for (const hit of this.hits.get(lane.id) ?? []) {
-        const s = hit.step - barStart;
-        if (s < 0 || s >= STEPS_PER_BAR || hit.step > step) continue;
-        const dy = top + 32 + (li % 4) * 9;
-        ctx.fillStyle = rgba(lane.color, hit.muted ? 0.35 : 1);
-        const dx = Math.round(gx + s * sw + sw / 2 - 4);
-        ctx.fillRect(dx, dy - 4, 8, 8);
-        ctx.strokeStyle = INK; ctx.lineWidth = 1;
-        ctx.strokeRect(dx + 0.5, dy - 3.5, 7, 7);
-      }
-    });
-    ctx.textAlign = 'left';
-  }
 }
-
