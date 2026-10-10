@@ -1,0 +1,283 @@
+/**
+ * Stage visuals. Designed to be fully legible with the sound OFF:
+ *   - one lane per player (colour + name + instrument); AUTO lanes are dashed and badged
+ *   - a 2-bar piano roll per lane; every note fires a burst sized by velocity AT ITS STEP TIME
+ *   - drums pulse the whole screen
+ *   - a beat grid (16 steps, 4-bar chord loop) with each player's hits marked on it:
+ *     if everyone is in time, their dots line up in the same columns
+ * Events are queued with their server-time stamp and released by the same synced clock that drives audio.
+ */
+import { ROLE_INFO, STEPS_PER_BAR, dropPhase, stepPos, type NoteEvent, type Role, type TransportState } from '../../shared/protocol';
+import { chordAt, resolveEvent } from '../../shared/music';
+
+export interface Lane { id: string; name: string; role: Role; color: string; auto: boolean; connected: boolean; speaker: boolean }
+
+interface Hit { step: number; dur: number; v: number; yN: number; muted: boolean; voice: number }
+interface Particle { x: number; y: number; vx: number; vy: number; life: number; max: number; size: number; color: string }
+interface Ring { x: number; y: number; t: number; color: string; size: number }
+
+const ROLL_STEPS = STEPS_PER_BAR * 2;
+const LABEL_W = 210;
+const GRID_H = 126;
+
+const rgba = (hex: string, a: number) => {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`;
+};
+
+export class Viz {
+  private ctx: CanvasRenderingContext2D;
+  private w = 0; private h = 0;
+  private pending: { at: number; ev: NoteEvent; muted: boolean }[] = [];
+  private hits = new Map<string, Hit[]>();
+  private glow = new Map<string, number>();
+  private particles: Particle[] = [];
+  private rings: Ring[] = [];
+  private pulse = 0; private pulseColor = '#ffffff';
+  private shock = 0; // drop impact
+  private laneY = new Map<string, { y: number; h: number }>();
+  private lastPlayhead = 0;
+
+  constructor(private canvas: HTMLCanvasElement) {
+    this.ctx = canvas.getContext('2d')!;
+    this.resize();
+    addEventListener('resize', () => this.resize());
+  }
+
+  resize() {
+    const dpr = Math.min(2, devicePixelRatio || 1);
+    this.w = this.canvas.clientWidth; this.h = this.canvas.clientHeight;
+    this.canvas.width = this.w * dpr; this.canvas.height = this.h * dpr;
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  push(ev: NoteEvent, at: number, muted = false) { this.pending.push({ at, ev, muted }); }
+
+  /** Pitch/voice -> vertical position inside the lane (0 bottom .. 1 top). */
+  private yNorm(ev: NoteEvent, ts: TransportState): { yN: number; voice: number } {
+    const r = resolveEvent(ev, ts);
+    if (r.kind === 'drum') return { yN: (r.voice + 0.5) / 4, voice: r.voice };
+    const top = Math.max(...r.midi);
+    if (ev.role === 'bass') return { yN: (top - 28) / 16, voice: 0 };
+    if (ev.role === 'pads') return { yN: 0.5, voice: 0 };
+    return { yN: (top - 55) / 30, voice: 0 };
+  }
+
+  draw(serverMs: number, ts: TransportState, lanes: Lane[], opts: { beatPulse: number; downbeat: boolean }) {
+    const { ctx, w, h } = this;
+    const pos = stepPos(ts, serverMs);
+    const step = Math.floor(pos);
+    const phase = dropPhase(ts, step);
+    const inBuild = phase === 'build';
+
+    // ---- release due events (visual happens at the same server time the sound does)
+    this.pending.sort((a, b) => a.at - b.at);
+    while (this.pending.length && this.pending[0].at <= serverMs) {
+      const { ev, at, muted } = this.pending.shift()!;
+      if (serverMs - at > 400) continue; // stale (tab was hidden)
+      const lane = lanes.find((l) => l.id === ev.pid);
+      if (!lane) continue;
+      const { yN, voice } = this.yNorm(ev, ts);
+      const isMuted = muted || (inBuild && (ev.role === 'drums' || ev.role === 'bass'));
+      const arr = this.hits.get(lane.id) ?? this.hits.set(lane.id, []).get(lane.id)!;
+      arr.push({ step: ev.step, dur: ev.dur, v: ev.v, yN, voice, muted: isMuted });
+      if (!isMuted) this.burst(lane, ev, yN, ts);
+    }
+
+    // ---- background + drum pulse
+    ctx.fillStyle = '#07070d';
+    ctx.fillRect(0, 0, w, h);
+    this.pulse *= 0.9; this.shock *= 0.93; this.glow.forEach((v, k) => this.glow.set(k, v * 0.9));
+    const grad = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) * 0.7);
+    grad.addColorStop(0, rgba(this.pulseColor, 0.28 * this.pulse + (opts.downbeat ? 0.04 : 0)));
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, w, h);
+
+    // ---- lanes
+    const areaTop = 12, areaH = h - GRID_H - 24;
+    const n = Math.max(1, lanes.length);
+    const laneH = Math.min(118, (areaH - (n - 1) * 8) / n);
+    const x0 = LABEL_W + 16, rw = w - x0 - 16, cell = rw / ROLL_STEPS;
+    const playX = x0 + ((pos % ROLL_STEPS) / ROLL_STEPS) * rw;
+    this.laneY.clear();
+    const totalH = n * laneH + (n - 1) * 8;
+    const top0 = areaTop + Math.max(0, (areaH - totalH) / 2);
+
+    lanes.forEach((lane, i) => {
+      const y = top0 + i * (laneH + 8);
+      this.laneY.set(lane.id, { y, h: laneH });
+      const g = this.glow.get(lane.id) ?? 0;
+      ctx.save();
+      ctx.globalAlpha = lane.connected ? 1 : 0.4;
+      // lane body
+      ctx.fillStyle = rgba(lane.color, 0.07 + 0.2 * g);
+      round(ctx, 0, y, w, laneH, 18); ctx.fill();
+      ctx.lineWidth = lane.auto ? 2 : 3;
+      ctx.strokeStyle = rgba(lane.color, lane.auto ? 0.45 : 0.9);
+      if (lane.auto) ctx.setLineDash([10, 8]);
+      round(ctx, 1, y + 1, w - 2, laneH - 2, 18); ctx.stroke();
+      ctx.setLineDash([]);
+      // colour tab
+      ctx.fillStyle = lane.color; ctx.globalAlpha *= lane.auto ? 0.5 : 1;
+      round(ctx, 0, y, 14, laneH, 14); ctx.fill();
+      ctx.globalAlpha = lane.connected ? 1 : 0.4;
+      // label
+      ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle';
+      const big = Math.min(34, laneH * 0.32);
+      ctx.font = `800 ${big}px ui-rounded, system-ui, sans-serif`;
+      ctx.fillText(`${ROLE_INFO[lane.role].icon} ${ROLE_INFO[lane.role].label}`, 30, y + laneH * 0.36);
+      ctx.font = `600 ${Math.min(22, laneH * 0.22)}px ui-rounded, system-ui, sans-serif`;
+      ctx.fillStyle = rgba(lane.color, 1);
+      ctx.fillText(lane.auto ? 'AUTO' : lane.name + (lane.speaker ? '  📢' : '') + (lane.connected ? '' : '  · offline'), 30, y + laneH * 0.7);
+      if (lane.auto) {
+        ctx.font = `800 ${Math.min(16, laneH * 0.15)}px ui-rounded, system-ui, sans-serif`;
+        ctx.fillStyle = 'rgba(255,255,255,.55)';
+        ctx.fillText('generated backing', 30 + ctx.measureText('AUTO').width + 22, y + laneH * 0.7);
+      }
+      // roll grid
+      ctx.lineWidth = 1;
+      for (let k = 0; k <= ROLL_STEPS; k++) {
+        const x = x0 + k * cell;
+        ctx.strokeStyle = k % 16 === 0 ? 'rgba(255,255,255,.28)' : k % 4 === 0 ? 'rgba(255,255,255,.14)' : 'rgba(255,255,255,.05)';
+        ctx.beginPath(); ctx.moveTo(x, y + 8); ctx.lineTo(x, y + laneH - 8); ctx.stroke();
+      }
+      // hits
+      const arr = this.hits.get(lane.id);
+      if (arr) {
+        for (let j = arr.length - 1; j >= 0; j--) {
+          const hit = arr[j];
+          const age = pos - hit.step;
+          if (age > ROLL_STEPS) { arr.splice(j, 1); continue; }
+          const a = Math.pow(Math.max(0, 1 - age / ROLL_STEPS), 0.8);
+          const hx = x0 + ((hit.step % ROLL_STEPS) / ROLL_STEPS) * rw;
+          const hh = lane.role === 'pads' ? laneH - 24 : Math.max(10, laneH * 0.2);
+          const hy = lane.role === 'pads' ? y + 12 : y + 10 + (1 - clamp01(hit.yN)) * (laneH - 20 - hh);
+          const hw = Math.max(8, Math.min(hit.dur, ROLL_STEPS - (hit.step % ROLL_STEPS)) * cell - 3);
+          if (hit.muted) { ctx.strokeStyle = rgba(lane.color, a * 0.6); ctx.lineWidth = 2; round(ctx, hx, hy, hw, hh, 5); ctx.stroke(); }
+          else {
+            ctx.fillStyle = rgba(lane.color, a * (lane.role === 'pads' ? 0.35 : 0.5 + 0.5 * hit.v));
+            round(ctx, hx, hy, hw, hh, 5); ctx.fill();
+          }
+        }
+      }
+      ctx.restore();
+    });
+
+    // playhead
+    if (lanes.length) {
+      ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(playX, top0 - 4); ctx.lineTo(playX, top0 + totalH + 4); ctx.stroke();
+    }
+    this.lastPlayhead = playX;
+
+    this.drawParticles();
+    this.drawGrid(ts, pos, lanes, w, h, inBuild);
+
+    // ---- drop overlays
+    if (inBuild && ts.drop) {
+      const prog = (pos - ts.drop.startStep) / (ts.drop.dropStep - ts.drop.startStep);
+      const flick = 0.35 + 0.35 * Math.sin(pos * Math.PI * (1 + prog * 3));
+      ctx.strokeStyle = `rgba(255,60,90,${flick})`; ctx.lineWidth = 10 + prog * 26;
+      ctx.strokeRect(0, 0, w, h);
+      ctx.fillStyle = `rgba(255,255,255,${0.15 + 0.5 * prog * prog})`;
+      ctx.fillRect(0, h - 10, w * prog, 10);
+    }
+    if (this.shock > 0.02) {
+      ctx.fillStyle = `rgba(255,255,255,${this.shock * 0.7})`; ctx.fillRect(0, 0, w, h);
+    }
+  }
+
+  private burst(lane: Lane, ev: NoteEvent, yN: number, ts: TransportState) {
+    const p = this.laneY.get(lane.id);
+    const y = p ? p.y + p.h * (1 - clamp01(yN)) * 0.8 + p.h * 0.1 : this.h / 2;
+    const x = this.lastPlayhead;
+    const count = Math.round(6 + 26 * ev.v);
+    for (let i = 0; i < count && this.particles.length < 700; i++) {
+      const a = Math.random() * Math.PI * 2, s = (1 + Math.random() * 5) * (0.6 + ev.v);
+      this.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0, max: 24 + Math.random() * 26, size: (2 + Math.random() * 5) * (0.5 + ev.v), color: lane.color });
+    }
+    this.rings.push({ x, y, t: 0, color: lane.color, size: 30 + 90 * ev.v });
+    this.glow.set(lane.id, Math.min(1, (this.glow.get(lane.id) ?? 0) + 0.5 + 0.4 * ev.v));
+    if (ev.role === 'drums') {
+      const r = resolveEvent(ev, ts);
+      const kick = r.kind === 'drum' && r.voice === 0, snare = r.kind === 'drum' && r.voice === 1;
+      this.pulse = Math.max(this.pulse, (kick ? 1 : snare ? 0.8 : 0.35) * (0.5 + 0.5 * ev.v));
+      this.pulseColor = lane.color;
+    }
+  }
+
+  /** Called by main when a drop lands. */
+  impact() { this.shock = 1; this.pulse = 1; this.pulseColor = '#ffffff'; }
+
+  private drawParticles() {
+    const { ctx } = this;
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = this.rings.length - 1; i >= 0; i--) {
+      const r = this.rings[i]; r.t += 1;
+      const k = r.t / 28;
+      if (k >= 1) { this.rings.splice(i, 1); continue; }
+      ctx.strokeStyle = rgba(r.color, 0.8 * (1 - k)); ctx.lineWidth = 6 * (1 - k) + 1;
+      ctx.beginPath(); ctx.arc(r.x, r.y, r.size * (0.25 + k), 0, Math.PI * 2); ctx.stroke();
+    }
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i]; p.life++;
+      if (p.life > p.max) { this.particles.splice(i, 1); continue; }
+      p.x += p.vx; p.y += p.vy; p.vx *= 0.96; p.vy *= 0.96;
+      const k = 1 - p.life / p.max;
+      ctx.fillStyle = rgba(p.color, k);
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size * (0.4 + k), 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  /** Bottom strip: 4-bar chord loop + the 16-step grid of the current bar with every player's hits as dots. */
+  private drawGrid(ts: TransportState, pos: number, lanes: Lane[], w: number, h: number, building: boolean) {
+    const { ctx } = this;
+    const top = h - GRID_H, step = Math.floor(pos), bar = Math.floor(step / STEPS_PER_BAR), inBar = step % STEPS_PER_BAR;
+    const gx = LABEL_W + 16, gw = w - gx - 16;
+    // chord loop (left column)
+    const cw = (LABEL_W - 8) / 4;
+    for (let i = 0; i < 4; i++) {
+      const c = chordAt(ts, (bar - (bar % 4) + i) * STEPS_PER_BAR);
+      const cur = i === bar % 4;
+      ctx.fillStyle = cur ? 'rgba(255,255,255,.95)' : 'rgba(255,255,255,.08)';
+      round(ctx, 4 + i * cw, top + 14, cw - 6, 54, 12); ctx.fill();
+      ctx.fillStyle = cur ? '#0b0b12' : 'rgba(255,255,255,.6)';
+      ctx.font = `800 ${cur ? 20 : 17}px ui-rounded, system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(c.name, 4 + i * cw + (cw - 6) / 2, top + 41);
+    }
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(255,255,255,.45)'; ctx.font = '700 12px ui-rounded, system-ui, sans-serif';
+    ctx.fillText('CHORD LOOP', 6, top + 86);
+    ctx.fillText(`BAR ${bar + 1}`, 6, top + 102);
+    // 16 step cells
+    const sw = gw / STEPS_PER_BAR;
+    const barStart = bar * STEPS_PER_BAR;
+    for (let s = 0; s < STEPS_PER_BAR; s++) {
+      const x = gx + s * sw, on = s === inBar, beat = s % 4 === 0;
+      ctx.fillStyle = on ? (building ? 'rgba(255,70,100,.9)' : 'rgba(255,255,255,.92)') : beat ? 'rgba(255,255,255,.16)' : 'rgba(255,255,255,.07)';
+      round(ctx, x + 2, top + 14, sw - 4, 54, 10); ctx.fill();
+      ctx.fillStyle = on ? '#0b0b12' : 'rgba(255,255,255,.4)';
+      ctx.font = '700 13px ui-rounded, system-ui, sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(beat ? String(s / 4 + 1) : '·', x + sw / 2, top + 22);
+    }
+    // each player's hits in this bar, stacked as coloured dots inside the cells
+    lanes.forEach((lane, li) => {
+      for (const hit of this.hits.get(lane.id) ?? []) {
+        const s = hit.step - barStart;
+        if (s < 0 || s >= STEPS_PER_BAR || hit.step > step) continue;
+        const dy = top + 32 + (li % 4) * 9;
+        ctx.fillStyle = rgba(lane.color, hit.muted ? 0.35 : 1);
+        ctx.beginPath(); ctx.arc(gx + s * sw + sw / 2, dy, 4, 0, Math.PI * 2); ctx.fill();
+      }
+    });
+    ctx.textAlign = 'left';
+  }
+}
+
+const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+function round(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}

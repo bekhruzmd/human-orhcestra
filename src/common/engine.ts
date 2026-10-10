@@ -81,9 +81,11 @@ export class Engine {
   ctxTime(serverMs: number): number {
     const p = this.clock.toLocal(serverMs) + this.trimMs;
     const raw = this.context;
-    const o = raw.getOutputTimestamp?.();
+    // Tone wraps the context (standardized-audio-context) and hides the newer latency APIs; use the native one.
+    const native = ((raw as any)._nativeContext ?? raw) as AudioContext;
+    const o = native.getOutputTimestamp?.();
     if (o && o.performanceTime && o.contextTime) return o.contextTime + (p - o.performanceTime) / 1000;
-    const lat = raw.outputLatency || raw.baseLatency || 0;
+    const lat = native.outputLatency || native.baseLatency || 0;
     return raw.currentTime + (p - performance.now()) / 1000 - lat;
   }
 
