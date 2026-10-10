@@ -132,3 +132,19 @@ const split = parseMidi(toMidi(shortParts).slice().buffer as ArrayBuffer, 'short
 assert.ok(split.events.some((n) => n.midi?.includes(40)), 'short bass parts survive a single-channel split');
 assert.ok(split.events.some((n) => n.midi?.includes(60)), 'short chord parts survive a single-channel split');
 console.log('✓ Short bass and accompaniment parts survive MIDI import');
+
+// Miss feedback: the stronger the loss, the stranger the part sounds; never the timing or the note count.
+import { souring } from '../shared/participation';
+{
+  const steps = Array.from({ length: 400 }, (_, i) => i * 2);
+  const pitchWrong = (loss: number) => steps.filter((s) => Math.abs(souring('melody', loss, s, 0).pitch) >= 0.9).length / steps.length;
+  assert.deepEqual(souring('melody', 0, 17, 0), { pitch: 0, drum: 0, gain: 1, dur: 1 }, 'no misses leaves the written notes untouched');
+  assert.ok(steps.every((s) => souring('melody', 0.25, s, 0).pitch !== 0), 'a single miss already bends the pitch');
+  assert.ok(pitchWrong(0.25) < 0.25, 'one miss mostly bends the pitch; wrong notes are still rare');
+  assert.ok(pitchWrong(1) > 0.4 && pitchWrong(1) > pitchWrong(0.5), 'more misses mean more wrong notes');
+  assert.ok(souring('melody', 1, 4, 0).gain < souring('melody', 0.25, 4, 0).gain, 'misses thin the part');
+  assert.deepEqual(souring('melody', 0.75, 9, 0), souring('melody', 0.75, 9, 0), 'deterministic per step');
+  assert.ok(steps.some((s) => souring('drums', 1, s, 0).drum !== 0), 'a failing drummer plays the wrong pieces');
+  assert.ok(steps.every((s) => souring('drums', 0, s, 1).drum === 1));
+}
+console.log('✓ Miss feedback: bend, wrong notes and thinning scale with misses; drums swap pieces; clean play is untouched');

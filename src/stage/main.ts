@@ -171,6 +171,7 @@ app.innerHTML = `
   <div id="gp-songs"></div>
   <p class="hintp"><b>Play with the band</b>: the song plays and anyone can add drums on top. Players who pick a part on their phone follow its notes and hear how well they are doing. Tap a part to mute it from the song and play it live.</p>
   <div class="parts" id="gp-parts" aria-label="Song parts"></div>
+  <p class="capacity" id="gp-capacity" role="status" aria-live="polite"></p>
   <div class="diffs" id="gp-diffs"></div>
   <div class="row"><button class="btn drop" id="gp-start">Rhythm game</button><button class="btn" id="gp-band">Play with the band</button></div>
   <div class="row"><button class="btn" id="gp-close">Close</button></div>
@@ -230,7 +231,7 @@ net.on('pong', (m) => clock.onPong(m));
 net.on('welcome', (m) => { ts = m.state; wasFree = m.state.freestyle; engine.setTransport(m.state); syncControls(); onGameChange(); syncJam(); });
 net.on('state', (m) => { ts = m.state; engine.setTransport(m.state); syncControls(); onFreestyleChange(); onGameChange(); syncJam(); checkSampleState(); });
 net.on('raw', (r) => onRaw(r));
-net.on('roster', (m) => { roster = m.players; engine.prune(new Set(roster.map((p) => p.id))); renderRoster(); updatePreflight(); });
+net.on('roster', (m) => { roster = m.players; engine.prune(new Set(roster.map((p) => p.id))); renderRoster(); updatePreflight(); if (!$('gamepick').hidden) renderParts(); });
 net.on('ctl', (m) => engine.ctl(m.pid, m.y, m.tilt));
 net.on('note', (ev) => {
   if (ts?.paused != null) return;
@@ -922,6 +923,12 @@ function renderParts() {
     const label = !has ? 'add live' : free ? 'you play it' : 'song plays';
     return `<button class="part ${!has || free ? 'free' : ''}" data-role="${r}" ${has ? '' : 'disabled'} aria-pressed="${free}"><b>${INSTRUMENT[r].name}</b><small>${label}</small></button>`;
   }).join('');
+  const charted = ROLES.filter((r) => song.tracks[r].length > 0);
+  const guided = charted.filter((r) => !freeParts.has(r));
+  const phones = humans().length;
+  $('gp-capacity').innerHTML = charted.length
+    ? `<b>${guided.length} ${guided.length === 1 ? 'phone follows' : 'phones follow'} the notes</b> (${guided.map((r) => INSTRUMENT[r].name).join(', ') || 'none'}). Anyone else plays percussion live. ${phones} ${phones === 1 ? 'phone' : 'phones'} connected${phones > guided.length ? `, so ${phones - guided.length} will play percussion or a muted part` : ''}.`
+    : 'This file has no playable parts.';
   $('gp-parts').querySelectorAll<HTMLElement>('.part:not([disabled])').forEach((b) => (b.onclick = () => {
     const r = b.dataset.role as Role;
     if (freeParts.has(r)) freeParts.delete(r); else freeParts.add(r);
@@ -931,7 +938,7 @@ function renderParts() {
 function openGamePicker() {
   $('gp-info').textContent = 'Choose a tune, preview it, then play together. Audio comes from this Stage.';
   $('gp-songs').innerHTML = allGameSongs().map((s) => `<button class="song ${s.id === pickSong ? 'sel' : ''}" data-id="${esc(s.id)}"><b>${esc(s.title)}</b><small>${esc(s.artist)}</small>
-    <small>${s.bpm} BPM · ${Math.round(songSeconds(s))} s · ${Object.entries(s.tracks).filter(([, notes]) => notes.length).map(([r]) => INSTRUMENT[r as Role].name).join(', ')}</small></button>`).join('');
+    <small>${s.bpm} BPM · ${Math.round(songSeconds(s))} s · ${Object.values(s.tracks).filter((notes) => notes.length).length} playable parts: ${Object.entries(s.tracks).filter(([, notes]) => notes.length).map(([r]) => INSTRUMENT[r as Role].name).join(', ')}</small></button>`).join('');
   $('gp-songs').querySelectorAll<HTMLElement>('.song').forEach((b) => (b.onclick = () => { endPreview(); pickSong = b.dataset.id!; openGamePicker(); }));
   renderParts();
   const desc: Record<Difficulty, string> = { easy: '2 lanes · forgiving', medium: '3 lanes · more notes', hard: '4 lanes · strict' };

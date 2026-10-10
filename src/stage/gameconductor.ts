@@ -2,7 +2,7 @@
 import { stepPos, stepTime, type NoteEvent, type Role, type TransportState } from '../../shared/protocol';
 import { getSong } from '../../shared/songs';
 import { freeRoles, songSteps, type GameSong } from '../../shared/game';
-import { Participation } from '../../shared/participation';
+import { Participation, souring } from '../../shared/participation';
 import type { ClockSync } from '../common/clock';
 
 export class GameConductor {
@@ -84,15 +84,9 @@ export class GameConductor {
     while (this.next <= horizon && this.next < end) {
       for (const { role, n } of this.byStep.get(this.next - ts.game.startStep) ?? []) {
         if (free.includes(role)) continue; // muted on purpose: people play this part live
-        const loss = 1 - strengths.get(role)!;
-        // Preserve the beat and tune, but missed notes weaken articulation and sour the pitch.
-        // Deterministic alternating detune stays below a third of a semitone (32 cents).
-        const alternate = Math.floor(this.next / 4) % 2 === 0 ? 1 : -1;
-        const detune = loss * 0.32 * alternate;
-        const gain = (1 - loss * 0.55) * (role === 'drums' && alternate < 0 ? 1 - loss * 0.35 : 1);
-        this.emit({ pid: `game:${role}`, role, step: this.next, d: n.d ?? 0,
-          v: n.v * gain, dur: n.dur * (1 - loss * 0.45),
-          midi: n.midi?.map((pitch) => Math.max(0, Math.min(127, pitch + detune))) });
+        const sour = souring(role, 1 - strengths.get(role)!, this.next, n.d ?? 0);
+        this.emit({ pid: `game:${role}`, role, step: this.next, d: sour.drum, v: n.v * sour.gain, dur: Math.max(0.5, n.dur * sour.dur),
+          midi: n.midi?.map((pitch) => Math.max(0, Math.min(127, pitch + sour.pitch))) });
       }
       this.next++;
     }

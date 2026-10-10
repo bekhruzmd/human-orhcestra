@@ -103,7 +103,7 @@ export class GameUI {
         <div class="gscore"><b id="g-score">0</b><small id="g-acc">accuracy –</small></div>
         <div class="gcombo"><b id="g-combo">0</b><small>COMBO</small></div>
       </div>
-      <div class="ghelp">Tap each color at the line. Misses weaken your part; hits restore it.</div>
+      <div class="ghelp">Tap each color at the line. A miss makes your part sound wrong; hit the next notes to fix it.</div>
       <div class="grhythm"><span id="g-sound">Ready to play</span><meter id="g-rhythm" min="0" max="1" value="1" aria-label="Your rhythm strength"></meter></div>
       <canvas id="g-canvas" aria-label="Rhythm lanes. Tap a lane when its notes reach the line, or use the lane buttons below."></canvas>
       <div class="glabels">${this.laneLabels(me)}</div>

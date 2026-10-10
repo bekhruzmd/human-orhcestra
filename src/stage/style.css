@@ -1796,3 +1796,5 @@ select:focus-visible {
 }
 .more-controls .mc-4 #play { grid-column: span 2; }
 @media (max-width: 700px) { .more-controls .mc-4 #play { grid-column: 1 / -1; } }
+.capacity { margin: 4px 0 10px; font-size: 13px; font-weight: 700; color: var(--dim); }
+.capacity b { color: var(--ink); }
