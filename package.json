@@ -10,9 +10,10 @@
     "start": "npm run build && tsx server/index.ts",
     "serve": "tsx server/index.ts",
     "tunnel": "node scripts/tunnel.mjs",
-    "demo": "npm run build && concurrently -k -n server,tunnel -c blue,green \"tsx server/index.ts\" \"node scripts/tunnel.mjs\"",
+    "demo": "npm run build && concurrently --kill-others-on-fail -n server,tunnel -c blue,green \"tsx server/index.ts\" \"node scripts/tunnel.mjs\"",
     "typecheck": "tsc --noEmit",
-    "simtest": "tsx scripts/simtest.ts"
+    "simtest": "tsx scripts/simtest.ts",
+    "test": "tsx scripts/musictest.ts && SECS=8 tsx scripts/simtest.ts"
   },
   "dependencies": {
     "qrcode": "^1.5.4",
