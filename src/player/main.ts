@@ -70,7 +70,7 @@ net.on('state', (m) => {
   const was = ts?.speakerMode;
   ts = m.state; engine.setTransport(m.state);
   if (joined && m.state.speakerMode !== was && was !== undefined) setSpeaker(m.state.speakerMode && engine.ready);
-  document.getElementById('pausedbar')!.hidden = m.state.paused === null;
+  document.getElementById('pausedbar')!.hidden = m.state.paused == null;
   syncGame();
   refreshPadLabels();
 });
@@ -270,7 +270,7 @@ const sampleMode = () => !!ts && ts.sample?.mode === 'chop' && !ts.game && !ts.f
 const sampleCell = (x: number, y: number) => Math.min(3, Math.floor((1 - y) * 4)) * 4 + Math.min(3, Math.floor(x * 4));
 
 function emit(col: number, vel: number, opts: { role?: Role; dur?: number } = {}) {
-  if (!ts || !me || !clock.isLocked || ts.game || ts.nowPlaying || ts.paused !== null) return;
+  if (!ts || !me || !clock.isLocked || ts.game || ts.nowPlaying || ts.paused != null) return;
   // Beat-quantisation: the earliest 16th boundary far enough in the future, and never the same step twice.
   let step = nextStepAfter(ts, clock.serverNow(), leadMs());
   if (step <= lastStep) step = lastStep + 1;

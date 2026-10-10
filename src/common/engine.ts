@@ -117,8 +117,8 @@ export class Engine {
   private applyPause(ts: TransportState) {
     if (!this.ready) return;
     const ctx = this.context;
-    if (ts.paused !== null && ctx.state === 'running') { this.suspendedByPause = true; void ctx.suspend(); }
-    else if (ts.paused === null && this.suspendedByPause) { this.suspendedByPause = false; void ctx.resume(); }
+    if (ts.paused != null && ctx.state === 'running') { this.suspendedByPause = true; void ctx.suspend(); }
+    else if (ts.paused == null && this.suspendedByPause) { this.suspendedByPause = false; void ctx.resume(); }
   }
 
   setTransport(ts: TransportState) {

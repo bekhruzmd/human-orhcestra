@@ -19,8 +19,8 @@
   --scrim: rgba(255, 255, 255, .86);
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
-  --pixel-shadow: 6px 6px 0 var(--lilac);
-  --btn-shadow: 3px 3px 0 var(--ink);
+  --pixel-shadow: 4px 4px 0 var(--lilac);
+  --btn-shadow: 2px 2px 0 var(--ink);
   --display: "Press Start 2P", "Silkscreen", monospace;
 }
 
@@ -40,7 +40,8 @@ body {
   color-scheme: light;
   -webkit-user-select: none;
   user-select: none;
-  touch-action: none;
+  /* pinch-zoom stays available; only the play surfaces opt out */
+  touch-action: manipulation;
   overflow: hidden;
 }
 
@@ -73,8 +74,8 @@ button {
   inset: 0;
   display: flex;
   flex-direction: column;
-  padding: calc(var(--safe-t) + 18px) 18px calc(var(--safe-b) + 18px);
-  gap: 14px;
+  padding: calc(var(--safe-t) + 12px) 12px calc(var(--safe-b) + 12px);
+  gap: 10px;
 }
 
 /* join */
@@ -82,8 +83,10 @@ button {
   justify-content: center;
   align-items: stretch;
   text-align: center;
-  padding-top: calc(var(--safe-t) + 34px);
+  padding-top: calc(var(--safe-t) + 28px);
   background: #fff;
+  overflow-y: auto;
+  touch-action: pan-y pinch-zoom;
 }
 
 /* four-role palette strip, shared with the Stage landing */
@@ -102,10 +105,10 @@ button {
 .join h1 {
   margin: 0 0 4px;
   font-family: var(--display);
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 400;
   line-height: 1.4;
-  text-shadow: 3px 3px 0 var(--pink), 6px 6px 0 var(--sky);
+  text-shadow: 2px 2px 0 var(--pink), 4px 4px 0 var(--sky);
   text-wrap: balance;
 }
 
@@ -124,10 +127,10 @@ button {
 }
 
 .swatch {
-  width: 96px;
-  height: 96px;
+  width: 64px;
+  height: 64px;
   border-radius: 0;
-  margin: 6px auto;
+  margin: 4px auto;
   background: var(--c);
   border: 4px solid var(--ink);
   box-shadow: var(--pixel-shadow);
@@ -135,9 +138,10 @@ button {
 
 .join input {
   font: inherit;
-  font-size: 24px;
+  /* 16px+ stops iOS from auto-zooming on focus */
+  font-size: 18px;
   text-align: center;
-  padding: 14px;
+  padding: 10px;
   border-radius: 0;
   border: 3px solid var(--ink);
   background: #fff;
@@ -149,26 +153,26 @@ button {
 }
 
 .big {
-  padding: 22px;
+  padding: 16px;
   border-radius: 0;
   font-family: var(--display);
-  font-size: 16px;
+  font-size: 13px;
   font-weight: 400;
   background: var(--c);
   color: var(--ink);
   letter-spacing: .04em;
   text-transform: uppercase;
-  border: 4px solid var(--ink);
-  box-shadow: 6px 6px 0 var(--ink);
+  border: 3px solid var(--ink);
+  box-shadow: 4px 4px 0 var(--ink);
 }
 
 .big:active {
-  transform: translate(4px, 4px);
-  box-shadow: 2px 2px 0 var(--ink);
+  transform: translate(3px, 3px);
+  box-shadow: 1px 1px 0 var(--ink);
 }
 
 .hint {
-  font-size: 14px;
+  font-size: 12px;
   color: var(--dim);
 }
 
@@ -176,19 +180,22 @@ button {
 .top {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
+  min-width: 0;
 }
 
 .chip {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
+  gap: 6px;
+  min-height: 44px;
+  padding: 6px 10px;
   border-radius: 0;
   background: color-mix(in srgb, var(--c) 45%, #fff);
   border: 2px solid var(--ink);
   font-weight: 700;
-  font-size: 17px;
+  font-size: 13px;
+  white-space: nowrap;
   text-transform: uppercase;
   box-shadow: var(--btn-shadow);
 }
@@ -205,12 +212,13 @@ button {
 
 .beats {
   display: flex;
-  gap: 6px;
+  flex: none;
+  gap: 4px;
 }
 
 .beats i {
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   border-radius: 0;
   background: #fff;
   transition: background .05s;
@@ -243,23 +251,29 @@ button {
   text-align: center;
   color: var(--dim);
   font-weight: 700;
-  font-size: 15px;
-  letter-spacing: .04em;
+  font-size: 12px;
+  line-height: 1.4;
+  letter-spacing: .02em;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .chord b {
   color: var(--fg);
-  font-size: 20px;
+  font-size: 15px;
 }
 
 #pad {
   position: relative;
   flex: 1;
+  min-height: 160px;
   border-radius: 0;
   overflow: hidden;
   touch-action: none;
   background: linear-gradient(to top, color-mix(in srgb, var(--c) 12%, #fff), color-mix(in srgb, var(--c) 34%, #fff));
-  border: 4px solid var(--ink);
+  border: 3px solid var(--ink);
   box-shadow: var(--pixel-shadow);
 }
 
@@ -274,10 +288,10 @@ button {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 8px;
+  bottom: 6px;
   display: flex;
   pointer-events: none;
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 800;
   color: var(--ink-soft);
 }
@@ -289,9 +303,9 @@ button {
 
 .ylabel {
   position: absolute;
-  top: 10px;
-  left: 14px;
-  font-size: 12px;
+  top: 8px;
+  left: 10px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: .12em;
   color: var(--ink-soft);
@@ -300,17 +314,19 @@ button {
 
 .bottom {
   display: flex;
-  gap: 10px;
+  gap: 6px;
 }
 
 .tog {
   flex: 1;
-  padding: 14px 4px;
-  font-size: 13px !important;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px 4px;
+  font-size: 11px;
+  line-height: 1.2;
   border-radius: 0;
   background: #fff;
   font-weight: 700;
-  font-size: 15px;
   border: 2px solid var(--ink);
   text-transform: uppercase;
   box-shadow: var(--btn-shadow);
@@ -334,12 +350,13 @@ button {
 .sheet .card {
   background: var(--panel);
   border-radius: 0;
-  padding: 20px 18px calc(var(--safe-b) + 20px);
+  padding: 16px 12px calc(var(--safe-b) + 16px);
   display: grid;
-  gap: 10px;
-  max-height: 80%;
+  gap: 8px;
+  max-height: 85%;
   overflow: auto;
-  touch-action: pan-y;
+  overscroll-behavior: contain;
+  touch-action: pan-y pinch-zoom;
   border-top: 4px solid var(--ink);
   box-shadow: 0 -6px 0 var(--lilac);
 }
@@ -355,11 +372,12 @@ button {
 .rolebtn {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 16px;
+  gap: 10px;
+  min-height: 44px;
+  padding: 10px 12px;
   border-radius: 0;
   background: #fff;
-  font-size: 22px;
+  font-size: 15px;
   font-weight: 700;
   border: 2px solid var(--ink);
   text-align: left;
@@ -371,9 +389,9 @@ button {
 }
 
 .dbg {
-  font: 13px/1.6 ui-monospace, Menlo, monospace;
+  font: 11px/1.5 ui-monospace, Menlo, monospace;
   color: var(--ink);
-  white-space: pre;
+  white-space: pre-wrap;
   user-select: text;
   -webkit-user-select: text;
 }
@@ -407,7 +425,7 @@ button {
   display: flex;
   flex-direction: column;
   padding: calc(var(--safe-t) + 8px) 0 calc(var(--safe-b) + 6px);
-  touch-action: none;
+  touch-action: manipulation;
 }
 
 .ghud {
@@ -415,19 +433,19 @@ button {
   align-items: flex-end;
   justify-content: space-between;
   gap: 8px;
-  padding: 0 16px 8px;
+  padding: 0 12px 6px;
 }
 
 .ghud small {
   display: block;
   color: var(--dim);
   font-weight: 700;
-  font-size: 12px;
+  font-size: 11px;
   letter-spacing: .04em;
 }
 
 .gs b {
-  font-size: 17px;
+  font-size: 13px;
 }
 
 .gs small {
@@ -443,7 +461,7 @@ button {
 
 .gscore b {
   font-family: var(--display);
-  font-size: 22px;
+  font-size: 16px;
   font-variant-numeric: tabular-nums;
   line-height: 1.3;
 }
@@ -454,7 +472,7 @@ button {
 
 .gcombo b {
   font-family: var(--display);
-  font-size: 20px;
+  font-size: 14px;
   line-height: 1.3;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
@@ -501,16 +519,16 @@ button {
 
 .gresults .grade {
   font-family: var(--display);
-  font-size: 88px;
+  font-size: 64px;
   font-weight: 400;
   line-height: 1.1;
   color: var(--ink);
-  text-shadow: 6px 6px 0 var(--c);
+  text-shadow: 4px 4px 0 var(--c);
 }
 
 .gresults .gbig {
   font-family: var(--display);
-  font-size: 26px;
+  font-size: 20px;
   font-weight: 400;
   font-variant-numeric: tabular-nums;
 }
@@ -518,9 +536,9 @@ button {
 .gresults .grid {
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 6px 24px;
-  font-size: 18px;
-  min-width: 240px;
+  gap: 6px 20px;
+  font-size: 14px;
+  min-width: 220px;
   text-align: left;
 }
 
@@ -551,11 +569,11 @@ button {
 
 .gtiming button {
   min-width: 44px;
-  min-height: 36px;
+  min-height: 44px;
   background: #fff;
   border: 2px solid var(--ink);
   border-radius: 0;
-  font-size: 20px;
+  font-size: 16px;
   box-shadow: var(--btn-shadow);
 }
 
@@ -574,8 +592,8 @@ a:focus-visible {
 
 .stage-link {
   display: inline-block;
-  margin-top: 14px;
-  padding: 10px 16px;
+  margin-top: 8px;
+  padding: 10px 14px;
   font-size: 11px;
   font-weight: 800;
   letter-spacing: .08em;
@@ -633,3 +651,20 @@ a:focus-visible {
 .sheet:not([hidden]) { animation: sheet-in 160ms ease-out; }
 .sheet:not([hidden]) > * { animation: rise-in 240ms var(--ease-out); }
 #dbgbtn { width: auto; padding: 0 10px; }
+
+/* narrow phones (iPhone SE / small Android): tighter chrome so the pad keeps its room */
+@media (max-width: 360px) {
+  .chip { padding: 6px 8px; font-size: 12px; }
+  .icon { min-width: 40px; padding: 0 6px; }
+  .beats { display: none; }
+  .tog { font-size: 10px; }
+}
+
+/* short screens and landscape: compress top and bottom bars */
+@media (max-height: 640px) {
+  .screen { padding-top: calc(var(--safe-t) + 8px); padding-bottom: calc(var(--safe-b) + 8px); gap: 6px; }
+  .chord { -webkit-line-clamp: 1; }
+  .join { justify-content: flex-start; }
+  .swatch { width: 48px; height: 48px; }
+  .hint { display: none; }
+}

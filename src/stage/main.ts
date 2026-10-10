@@ -506,11 +506,12 @@ $<HTMLCanvasElement>('viz').onclick = () => {
 function syncControls() {
   if (!ts) return;
   const live = !!(ts.game || ts.nowPlaying || ts.sample || ts.autoBand || ts.freestyle || ts.drop);
-  if (ts.paused !== null && !live) cmd('pause', false); // nothing left to pause: don't leave the clock frozen
-  $<HTMLButtonElement>('pause').disabled = !live && ts.paused === null;
-  $('pause').textContent = ts.paused !== null ? 'RESUME' : 'PAUSE';
-  $('pause').classList.toggle('on', ts.paused !== null);
-  document.body.classList.toggle('paused', ts.paused !== null);
+  const paused = ts.paused != null;
+  if (paused && !live) cmd('pause', false); // nothing left to pause: don't leave the clock frozen
+  $<HTMLButtonElement>('pause').disabled = !live && !paused;
+  $('pause').textContent = paused ? 'RESUME' : 'PAUSE';
+  $('pause').classList.toggle('on', paused);
+  document.body.classList.toggle('paused', paused);
   if (document.activeElement !== $('bpmr')) { $<HTMLInputElement>('bpmr').value = String(ts.bpm); $('bpmv').textContent = String(ts.bpm); }
   $<HTMLSelectElement>('key').value = String(ts.root);
   $<HTMLSelectElement>('scale').value = ts.scale;

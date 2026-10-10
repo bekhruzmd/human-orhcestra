@@ -142,7 +142,7 @@ export class GameUI {
   // ---------------------------------------------------------------- input
   private tap(e: PointerEvent) {
     const ts = this.d.getTs(), me = this.d.getMe();
-    if (!ts?.game || ts.paused !== null || !me || this.finished || !this.d.clock.isLocked || !this.d.net.connected) return;
+    if (!ts?.game || ts.paused != null || !me || this.finished || !this.d.clock.isLocked || !this.d.net.connected) return;
     const g = ts.game, rect = this.canvas.getBoundingClientRect();
     const lane = Math.max(0, Math.min(this.lanes - 1, Math.floor(((e.clientX - rect.left) / rect.width) * this.lanes)));
     this.laneFlash[lane] = 1;
