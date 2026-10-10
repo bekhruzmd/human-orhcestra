@@ -23,10 +23,13 @@ import { getSong } from '../../shared/songs';
 const LOOKAHEAD_MS = 1900;
 const HIT_Y = 0.8;
 const LANE_COLORS: Record<number, string[]> = {
-  2: ['#ff4d6d', '#35d0ff'],
-  3: ['#ff4d6d', '#ffd23f', '#35d0ff'],
-  4: ['#ff4d6d', '#ffd23f', '#35d0ff', '#7cff6b'],
+  2: ['#ff8fab', '#6cb8ff'],
+  3: ['#ff8fab', '#5fd39a', '#6cb8ff'],
+  4: ['#ff8fab', '#ffb169', '#5fd39a', '#6cb8ff'],
 };
+const INK = '#2b2540';
+const ink = (a: number) => `rgba(43,37,64,${a})`;
+const PIXEL_FONT = '"Press Start 2P", "Silkscreen", monospace';
 const DRUM_NAMES: Record<number, string[]> = { 2: ['KICK', 'SNARE'], 3: ['KICK', 'SNARE', 'HATS'], 4: ['KICK', 'SNARE', 'HAT', 'CLAP'] };
 
 interface Deps { clock: ClockSync; net: Net; getTs: () => TransportState | null; getMe: () => PlayerInfo | null }
@@ -161,7 +164,7 @@ export class GameUI {
     const n = this.chart[best];
     this.status[best] = 1;
     this.stats = applyHit(this.stats, j);
-    this.say(j === 'perfect' ? 'PERFECT' : 'GOOD', j === 'perfect' ? '#7cff6b' : '#ffd23f');
+    this.say(j === 'perfect' ? 'PERFECT' : 'GOOD', j === 'perfect' ? '#1d7a4a' : '#8a5a00');
     this.bursts.push({ x: (lane + 0.5) / this.lanes, y: HIT_Y, t: performance.now(), color: LANE_COLORS[this.lanes][lane] });
     navigator.vibrate?.(8);
     // Report participation; the Stage never retriggers a past note.
@@ -201,7 +204,7 @@ export class GameUI {
       if (this.status[i] === 0) {
         this.status[i] = 2;
         this.stats = applyMiss(this.stats);
-        this.say('MISS', '#ff4d6d');
+        this.say('MISS', '#b3264a');
         this.updateHud();
       }
     }
@@ -223,11 +226,11 @@ export class GameUI {
 
     // lanes
     for (let l = 0; l < this.lanes; l++) {
-      ctx.fillStyle = l % 2 ? 'rgba(255,255,255,.035)' : 'rgba(255,255,255,.015)';
+      ctx.fillStyle = l % 2 ? ink(0.04) : 'rgba(255,255,255,0)';
       ctx.fillRect(l * lw, 0, lw, h);
       const f = this.laneFlash[l];
-      if (f > 0.01) { ctx.fillStyle = colors[l] + Math.round(f * 70).toString(16).padStart(2, '0'); ctx.fillRect(l * lw, 0, lw, h); this.laneFlash[l] *= 0.88; }
-      ctx.strokeStyle = 'rgba(255,255,255,.1)'; ctx.lineWidth = 1;
+      if (f > 0.01) { ctx.fillStyle = colors[l] + Math.round(f * 110).toString(16).padStart(2, '0'); ctx.fillRect(l * lw, 0, lw, h); this.laneFlash[l] *= 0.88; }
+      ctx.strokeStyle = ink(0.18); ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(l * lw, 0); ctx.lineTo(l * lw, h); ctx.stroke();
     }
     // beat lines: timeline-driven, so you can SEE the tempo
@@ -237,17 +240,17 @@ export class GameUI {
       const t = t0 + b * bm, y = hitY - (t - now) * pxPerMs;
       if (y < -4) break;
       if (y > h) continue;
-      ctx.strokeStyle = b % 4 === 0 ? 'rgba(255,255,255,.22)' : 'rgba(255,255,255,.08)';
+      ctx.strokeStyle = b % 4 === 0 ? ink(0.3) : ink(0.1);
       ctx.lineWidth = b % 4 === 0 ? 2 : 1;
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
     }
     // hit line
     for (let l = 0; l < this.lanes; l++) {
       ctx.fillStyle = colors[l];
-      ctx.globalAlpha = 0.9;
-      round(ctx, l * lw + 6, hitY - 6, lw - 12, 12, 6); ctx.fill();
+      ctx.fillRect(l * lw + 6, hitY - 7, lw - 12, 14);
+      ctx.strokeStyle = INK; ctx.lineWidth = 3;
+      ctx.strokeRect(l * lw + 7.5, hitY - 5.5, lw - 15, 11);
     }
-    ctx.globalAlpha = 1;
 
     // notes
     const nh = Math.min(34, lw * 0.34);
@@ -258,10 +261,11 @@ export class GameUI {
       const st = this.status[i];
       if (st === 1 || st === 3 || y > h + nh) continue;
       ctx.globalAlpha = st === 2 ? 0.25 : 1;
-      const c = st === 2 ? '#888' : colors[n.lane];
+      const c = st === 2 ? '#d4cfe2' : colors[n.lane];
       const x = n.lane * lw + lw * 0.1, nw = lw * 0.8;
-      ctx.fillStyle = c; round(ctx, x, y - nh / 2, nw, nh, 12); ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,.35)'; round(ctx, x + 6, y - nh / 2 + 4, nw - 12, nh * 0.28, 8); ctx.fill();
+      ctx.fillStyle = c; ctx.fillRect(x, y - nh / 2, nw, nh);
+      ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.fillRect(x + 6, y - nh / 2 + 5, nw - 12, Math.max(4, nh * 0.2));
+      ctx.strokeStyle = INK; ctx.lineWidth = 3; ctx.strokeRect(x + 1.5, y - nh / 2 + 1.5, nw - 3, nh - 3);
     }
     ctx.globalAlpha = 1;
 
@@ -269,8 +273,9 @@ export class GameUI {
     for (let i = this.bursts.length - 1; i >= 0; i--) {
       const b = this.bursts[i], k = (performance.now() - b.t) / 420;
       if (k >= 1) { this.bursts.splice(i, 1); continue; }
-      ctx.strokeStyle = b.color; ctx.globalAlpha = 1 - k; ctx.lineWidth = 6 * (1 - k) + 1;
-      ctx.beginPath(); ctx.arc(b.x * w, b.y * h, 18 + k * 60, 0, Math.PI * 2); ctx.stroke();
+      const s = 18 + k * 60;
+      ctx.strokeStyle = b.color; ctx.globalAlpha = 1 - k; ctx.lineWidth = Math.round(6 * (1 - k)) + 1;
+      ctx.strokeRect(Math.round(b.x * w - s), Math.round(b.y * h - s), Math.round(s * 2), Math.round(s * 2));
     }
     ctx.globalAlpha = 1;
 
@@ -279,7 +284,7 @@ export class GameUI {
       const k = (performance.now() - this.feedback.t) / 600;
       if (k < 1) {
         ctx.globalAlpha = 1 - k; ctx.fillStyle = this.feedback.color;
-        ctx.font = `900 ${34 - 6 * k}px ui-rounded, system-ui, sans-serif`; ctx.textAlign = 'center';
+        ctx.font = `${20 - 4 * k}px ${PIXEL_FONT}`; ctx.textAlign = 'center';
         ctx.fillText(this.feedback.text, w / 2, hitY - 70 - 18 * k);
         ctx.globalAlpha = 1; ctx.textAlign = 'left';
       }
@@ -290,11 +295,11 @@ export class GameUI {
     if (toStart > -700) {
       const beatsLeft = Math.ceil(toStart / bm);
       const label = toStart <= 0 ? 'GO!' : beatsLeft <= 3 ? String(beatsLeft) : 'GET READY';
-      ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(0, 0, w, h);
-      ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
-      ctx.font = `900 ${label.length > 2 ? 40 : 120}px ui-rounded, system-ui, sans-serif`;
+      ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = INK; ctx.textAlign = 'center';
+      ctx.font = `${label.length > 2 ? 22 : 72}px ${PIXEL_FONT}`;
       ctx.fillText(label, w / 2, h * 0.42);
-      ctx.font = '700 16px ui-rounded, system-ui, sans-serif'; ctx.fillStyle = 'rgba(255,255,255,.7)';
+      ctx.font = '700 14px "Silkscreen", monospace'; ctx.fillStyle = ink(0.75);
       ctx.fillText('tap the notes as they hit the line', w / 2, h * 0.42 + 40);
       ctx.textAlign = 'left';
     }

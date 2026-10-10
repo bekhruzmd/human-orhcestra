@@ -28,8 +28,8 @@ export const ROLE_INFO: Record<Role, { label: string; icon: string }> = {
   pads: { label: 'Grand Piano', icon: 'PNO' },
 };
 
-/** Auto-assigned player desk colours (restrained warm orchestral palette: strictly no purple/indigo/blue). */
-export const COLORS = ['#d49226', '#c85a42', '#7a9a5b', '#c98934', '#9b6b43', '#8a9955', '#bb733f', '#a88548'];
+/** Auto-assigned player colours: bright pastels that read as fills on white; text over them is always ink. */
+export const COLORS = ['#ff8fab', '#6cb8ff', '#5fd39a', '#ffb169', '#a98bff', '#ffd166', '#4fd1c5', '#f78fd8'];
 
 export type ScaleName = 'minorPent' | 'majorPent' | 'dorian' | 'blues';
 

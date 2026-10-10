@@ -62,73 +62,72 @@ app.innerHTML = `
   <div class="scan">SCAN TO JOIN</div><div id="url"></div><div id="warn" aria-live="polite"></div>
   <div id="roster"></div>
 </aside>
-<button id="audio">🔇 SOUND OFF · click to enable audio</button>
+<button id="audio">SOUND OFF · click to enable audio</button>
 <footer class="conductor" id="cond">
   <div class="cond-cluster transport-cluster">
     <div class="ctl"><span class="lbl">TEMPO <b id="bpmv"></b></span><input id="bpmr" type="range" min="${BPM_MIN}" max="${BPM_MAX}" step="1" aria-label="Tempo" /></div>
     <div class="ctl"><span class="lbl">KEY</span><select id="key" aria-label="Key">${NOTE_NAMES.map((n, i) => `<option value="${i}">${n}</option>`).join('')}</select></div>
     <div class="ctl"><span class="lbl">SCALE</span><select id="scale" aria-label="Scale">${(Object.keys(SCALE_LABEL) as ScaleName[]).map((s) => `<option value="${s}">${SCALE_LABEL[s]}</option>`).join('')}</select></div>
-    <button class="btn drop" id="drop">⚡ DROP</button>
+    <button class="btn drop" id="drop">DROP</button>
   </div>
   <div class="cond-cluster modes-cluster">
-    <button class="btn play" id="play">🎮 PLAY A SONG</button>
-    <button class="btn free" id="free">🎤 FREESTYLE</button>
-    <button class="btn" id="midi">🎵 SONGS</button>
-    <button class="btn sample" id="sample">🎚️ SAMPLE</button>
+    <button class="btn play" id="play">PLAY A SONG</button>
+    <button class="btn free" id="free">FREESTYLE</button>
+    <button class="btn" id="midi">SONGS</button>
+    <button class="btn sample" id="sample">SAMPLE</button>
     <input id="midifile" type="file" accept=".mid,.midi" aria-label="Load MIDI file" hidden />
     <button class="btn" id="auto">AUTO</button>
-    <button class="btn" id="spk">📢 SPEAKERS</button>
+    <button class="btn" id="spk">SPEAKERS</button>
   </div>
   <div class="cond-cluster record-cluster">
-    <button class="btn rec-btn rec" id="sessrec">⏺ START RECORDING</button>
-    <button class="btn rec-btn rec" id="rec">⏺ SAVE 30s</button>
-    <button class="btn rec-btn" id="viewrecs">📼 SESSIONS</button>
+    <button class="btn rec-btn rec" id="sessrec">● START RECORDING</button>
+    <button class="btn rec-btn rec" id="rec">● SAVE 30s</button>
+    <button class="btn rec-btn" id="viewrecs">SESSIONS</button>
   </div>
 </footer>
 <div id="replaybar" class="replay-bar" hidden>
-  <span class="replay-dot">⏺</span>
+  <span class="replay-dot">●</span>
   <span class="replay-label" id="replay-title">REPLAYING SESSION</span>
   <span class="replay-time" id="replay-time">00:00 / 00:00</span>
   <button class="btn btn-close" id="replay-stop" title="Stop replay">■</button>
 </div>
 <div id="landing" class="landing">
   <div class="landing-card">
-    <div class="landing-badge">LIVE MULTIPLAYER SYNTH ARCADE</div>
     <h1 class="landing-title">HUMAN ORCHESTRA</h1>
     <p class="landing-sub">Phones become instruments. A shared server clock keeps everyone in time.</p>
-    <div class="landing-pills">
-      <span class="l-pill">⚡ ZERO INSTALL · SCAN TO JOIN</span>
-      <span class="l-pill">⏱️ SUB-MS CLOCK SYNC</span>
-      <span class="l-pill">👾 16-BIT SOUND ENGINE</span>
-    </div>
-    <button class="btn-play-now" id="playnow">▶ PLAY NOW</button>
-    <p class="landing-hint">CLICK TO UNLOCK AUDIO & ENTER STAGE</p>
+    <ul class="landing-pills">
+      <li class="l-pill l-pill-mint">ZERO INSTALL · SCAN TO JOIN</li>
+      <li class="l-pill l-pill-sky">SUB-MS CLOCK SYNC</li>
+      <li class="l-pill l-pill-peach">16-BIT SOUND ENGINE</li>
+    </ul>
+    <button class="btn-play-now" id="playnow">PLAY NOW</button>
+    <p class="landing-hint">CLICK TO UNLOCK AUDIO &amp; ENTER STAGE</p>
   </div>
 </div>
 <div id="card" hidden></div>
 <div id="gamehud" hidden><div class="gh-top"><span id="gh-title"></span><b id="gh-team">0</b><span id="gh-acc"></span></div><div class="gh-bar"><i id="gh-prog"></i></div><div id="gh-note"></div></div>
 <div id="gamepick" hidden><div class="box">
-  <h3>🎮 Pick a song</h3>
+  <h3>Pick a song</h3>
   <p id="gp-info"></p>
   <p class="hintp">The arrangement stays in time. Hits lift your instrument; misses affect your score, not the tune.</p>
-  <div class="row"><button class="btn" id="gp-import">＋ YOUR SONG (.mid)</button><button class="btn" id="gp-preview">♫ Preview selected</button></div>
+  <div class="row"><button class="btn" id="gp-import">+ YOUR SONG (.mid)</button><button class="btn" id="gp-preview">Preview selected</button></div>
   <input id="gp-file" type="file" accept=".mid,.midi" aria-label="Import game MIDI file" hidden />
   <label class="hintp"><input id="gp-melody" type="checkbox" aria-label="Import melody only" /> Import melody only (highest part)</label>
   <label class="hintp" id="gp-part-label" hidden>Melody part <select id="gp-part" aria-label="Melody part"></select></label>
   <p class="hintp" id="gp-status" role="status" aria-live="polite">Load a MIDI arrangement of a song you want to play. Imports are saved in this browser.</p>
   <div id="gp-songs"></div>
   <div class="diffs" id="gp-diffs"></div>
-  <div class="row"><button class="btn drop" id="gp-start">▶ START</button><button class="btn" id="gp-close">Close</button></div>
+  <div class="row"><button class="btn drop" id="gp-start">START</button><button class="btn" id="gp-close">Close</button></div>
 </div></div>
 <div id="results" hidden></div>
 <div id="sampleui" hidden><div class="box">
   <div class="box-head">
-    <h3>🎚️ Make music with your own audio</h3>
+    <h3>Make music with your own audio</h3>
     <button class="btn-close" id="sp-close-x" aria-label="Close sample modal">✕</button>
   </div>
   <p class="hintp">Choose an MP3 / WAV from this computer. It stays in this browser; nothing is uploaded. Phones then play slices of it on the beat.</p>
   <label class="dropzone" id="sp-drop"><span id="sp-droptext">Drop an audio file here, or <u>choose a file</u></span><input type="file" id="sp-file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.aac,.flac" aria-label="Load sample audio file" hidden></label>
-  <div class="drop-cancel-row" id="sp-pre-actions"><button class="btn" id="sp-cancel">◀ BACK / CLOSE</button></div>
+  <div class="drop-cancel-row" id="sp-pre-actions"><button class="btn" id="sp-cancel">BACK / CLOSE</button></div>
   <div id="sp-panel" hidden>
     <canvas id="sp-wave"></canvas>
     <div class="sp-line"><b id="sp-name"></b><span id="sp-info"></span></div>
@@ -137,13 +136,13 @@ app.innerHTML = `
       <span>GRID</span><button class="btn" data-sp="off-beat">◂ beat</button><button class="btn" data-sp="off+beat">beat ▸</button><button class="btn" data-sp="off-bar">◂ bar</button><button class="btn" data-sp="off+bar">bar ▸</button>
       <span>SLICE</span><button class="btn" data-sp="slice.5">½ beat</button><button class="btn" data-sp="slice1">1 beat</button><button class="btn" data-sp="slice2">2 beats</button>
     </div>
-    <div class="row"><button class="btn play" id="sp-chop">🎛️ PHONES PLAY SLICES</button><button class="btn" id="sp-back">▶ BACKING LOOP</button><button class="btn" id="sp-stop">■ STOP</button><button class="btn" id="sp-close">Close</button></div>
+    <div class="row"><button class="btn play" id="sp-chop">PHONES PLAY SLICES</button><button class="btn" id="sp-back">BACKING LOOP</button><button class="btn" id="sp-stop">■ STOP</button><button class="btn" id="sp-close">Close</button></div>
     <p class="hintp" id="sp-msg"></p>
   </div>
 </div></div>
 <div id="recordingsui" hidden><div class="box">
   <div class="box-head">
-    <h3>📼 Recorded Sessions</h3>
+    <h3>Recorded Sessions</h3>
     <button class="btn-close" id="rec-close-x" aria-label="Close recordings modal">✕</button>
   </div>
   <p class="hintp">Review live sessions captured by the conductor. Replay them through the synth engine or export their event logs.</p>
@@ -159,10 +158,10 @@ app.innerHTML = `
   </div>
 </div></div>
 <div id="songs" hidden><div class="box">
-  <h3>🎵 Pick a song</h3>
-  <div class="modes"><button class="btn on" id="m-tap">🎮 Play along (guided song)</button><button class="btn" id="m-band">♫ Listen to arrangement</button></div>
+  <h3>Pick a song</h3>
+  <div class="modes"><button class="btn on" id="m-tap">Play along (guided song)</button><button class="btn" id="m-band">Listen to arrangement</button></div>
   <div id="songlist"></div>
-  <div class="row"><button class="btn" id="s-file">📂 Load .mid file…</button><button class="btn" id="s-stop">■ Stop song</button><button class="btn" id="s-close">Close</button></div>
+  <div class="row"><button class="btn" id="s-file">Load .mid file…</button><button class="btn" id="s-stop">■ Stop song</button><button class="btn" id="s-close">Close</button></div>
 </div></div>`;
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -230,7 +229,7 @@ new AutoBand(clock, () => ts, () => (ts?.game ? [] : autoRoles()), (ev: NoteEven
 
 // -------------------------------------------------------------------- lanes
 // AUTO lanes get a stable muted per-role colour so they never flicker as players come and go.
-const AUTO_COLORS: Record<Role, string> = { drums: '#7b86a8', bass: '#6f8fb0', melody: '#8f86b8', pads: '#6fa3a0' };
+const AUTO_COLORS: Record<Role, string> = { drums: '#c9c2e0', bass: '#b5cde6', melody: '#cdbff0', pads: '#b3dcd5' };
 const STANDBY_ROLES: Role[] = ['drums', 'bass', 'melody', 'pads'];
 function laneList(): Lane[] {
   const h = humans();
@@ -241,7 +240,7 @@ function laneList(): Lane[] {
     const seen = new Set(songs.song.events.map((e) => e.role));
     for (const r of ROLES) if (seen.has(r)) {
       const c = songs.song.credit[r];
-      l.push({ id: `song:${r}`, name: c ? `♪ from ${c.name}` : '♪ TRACK', role: r, color: c?.color ?? '#ffd23f', auto: false, connected: true, speaker: false });
+      l.push({ id: `song:${r}`, name: c ? `from ${c.name}` : 'TRACK', role: r, color: c?.color ?? '#ffd166', auto: false, connected: true, speaker: false });
     }
   }
   for (const r of autoRoles()) l.push({ id: `auto:${r}`, name: 'AUTO', role: r, color: AUTO_COLORS[r], auto: true, connected: true, speaker: false });
@@ -266,7 +265,7 @@ function renderRoster() {
       return `<div class="pl ${p.connected ? '' : 'off'}" style="--c:${p.color}"><div class="n">${ROLE_INFO[p.role].icon} ${esc(p.name)}<small>${ROLE_INFO[p.role].label} · ${g ? accuracy(done(g)).toFixed(0) + '% · combo ' + g.combo : 'ready'}${p.connected ? '' : ' · reconnecting…'}</small></div>
         <div class="e">${g ? g.score.toLocaleString() : '–'}</div></div>`;
     }
-    return `<div class="pl ${p.connected ? '' : 'off'}" style="--c:${p.color}"><div class="n">${ROLE_INFO[p.role].icon} ${esc(p.name)}<small>${ROLE_INFO[p.role].label}${p.speaker ? ' · 📢 phone speaker' : ''}${p.connected ? '' : ' · reconnecting…'}</small></div>
+    return `<div class="pl ${p.connected ? '' : 'off'}" style="--c:${p.color}"><div class="n">${ROLE_INFO[p.role].icon} ${esc(p.name)}<small>${ROLE_INFO[p.role].label}${p.speaker ? ' · phone speaker' : ''}${p.connected ? '' : ' · reconnecting…'}</small></div>
       <div class="e ${Number.isNaN(h.err) ? '' : errClass(h.err)}">${Number.isNaN(h.err) ? '–' : '±' + fmt(h.err, 0) + ' ms'}</div></div>`;
   }).join('');
   // headline: the worst phone, because the room only sounds tight if every phone is
@@ -384,7 +383,7 @@ function fmtTime(ms: number) {
 function renderRecordingsList(list: RecordedSessionItem[]) {
   if (!list.length) {
     $('rec-count-lbl').textContent = '0 recorded sessions';
-    $('rec-list').innerHTML = `<div class="empty">No recorded sessions yet.<br>Click "⏺ START RECORDING" in the toolbar during performance, then click again to stop and save.</div>`;
+    $('rec-list').innerHTML = `<div class="empty">No recorded sessions yet.<br>Click "START RECORDING" in the toolbar during performance, then click again to stop and save.</div>`;
     return;
   }
   $('rec-count-lbl').textContent = `${list.length} recorded session${list.length === 1 ? '' : 's'}`;
@@ -401,13 +400,13 @@ function renderRecordingsList(list: RecordedSessionItem[]) {
             <span class="rec-date">${esc(dateStr)}</span>
           </div>
           <div class="rec-info-row">
-            <span>⏱️ ${durStr}</span>
-            <span>👥 ${r.players} player${r.players === 1 ? '' : 's'}</span>
-            <span>🎵 ${notesCount} note${notesCount === 1 ? '' : 's'}</span>
+            <span>${durStr}</span>
+            <span>${r.players} player${r.players === 1 ? '' : 's'}</span>
+            <span>${notesCount} note${notesCount === 1 ? '' : 's'}</span>
           </div>
         </div>
         <div class="rec-actions">
-          <button class="btn rec-btn btn-listen" data-id="${r.id}">▶ LISTEN</button>
+          <button class="btn rec-btn btn-listen" data-id="${r.id}">LISTEN</button>
           <button class="btn btn-export" data-id="${r.id}">⤓ JSON</button>
         </div>
       </div>
@@ -507,11 +506,11 @@ function syncControls() {
   $<HTMLSelectElement>('scale').value = ts.scale;
   $('auto').classList.toggle('on', ts.autoBand);
   $('free').classList.toggle('on', ts.freestyle);
-  $('free').textContent = ts.freestyle ? '■ STOP · MAKE SONG' : '🎤 FREESTYLE';
+  $('free').textContent = ts.freestyle ? '■ STOP · MAKE SONG' : 'FREESTYLE';
   $('spk').classList.toggle('on', ts.speakerMode);
   $('sessrec').classList.toggle('on', !!ts.recording);
-  $('sessrec').textContent = ts.recording ? `■ STOP RECORDING (${ts.recording.events})` : '⏺ START RECORDING';
-  $('keyline').textContent = `${NOTE_NAMES[ts.root]} ${SCALE_LABEL[ts.scale]}${audioOn ? ' · 🔊' : ''}`;
+  $('sessrec').textContent = ts.recording ? `■ STOP RECORDING (${ts.recording.events})` : '● START RECORDING';
+  $('keyline').textContent = `${NOTE_NAMES[ts.root]} ${SCALE_LABEL[ts.scale]}${audioOn ? ' · AUDIO ON' : ''}`;
   $('bpm').textContent = String(ts.bpm);
 }
 
@@ -572,7 +571,7 @@ function startSong(song: Song, startStep: number, _mode: 'tap' | 'band' = 'band'
   songs.start(song, startStep);
   showCard(song);
   cmd('nowplaying', `band|${song.title}`);
-  flashBig('♪ NOW PLAYING', 1400);
+  flashBig('NOW PLAYING', 1400);
 }
 function stopSong() {
   songLoadVersion++;
@@ -639,9 +638,9 @@ const download = (name: string, data: BlobPart, type: string) => {
 function showCard(song: Song) {
   const c = $('card');
   c.hidden = false;
-  c.innerHTML = `<div class="txt"><h3>♪ ${esc(song.title)}</h3>${song.info.map((l) => `<p>${esc(l)}</p>`).join('')}</div>
+  c.innerHTML = `<div class="txt"><h3>${esc(song.title)}</h3>${song.info.map((l) => `<p>${esc(l)}</p>`).join('')}</div>
     <div class="row"><button class="btn" id="c-restart">↻ Restart</button><button class="btn" id="c-stop">■ Stop</button>
-    <button class="btn" id="c-mid">⬇ MIDI</button>${lastDraftLog && song.title === 'Your jam' ? '<button class="btn" id="c-json">⬇ JSON</button>' : ''}</div>`;
+    <button class="btn" id="c-mid">⤓ MIDI</button>${lastDraftLog && song.title === 'Your jam' ? '<button class="btn" id="c-json">⤓ JSON</button>' : ''}</div>`;
   $('c-stop').onclick = () => stopSong();
   $('c-restart').onclick = () => { if (ts) { const st = Math.ceil(nextStepAfter(ts, clock.serverNow(), 800) / 16) * 16; engine.silence(); songs.start(song, st); } };
   $('c-mid').onclick = () => download(`${song.title.replace(/\W+/g, '-')}.mid`, toMidi(song).slice().buffer as ArrayBuffer, 'audio/midi');
@@ -673,7 +672,7 @@ function endPreview() {
   songLoadVersion++;
   clearTimeout(previewTimer); previewing = false;
   songs.stop(); engine.silence(); hideCard(); cmd('nowplaying', '');
-  $('gp-preview').textContent = '♫ Preview selected';
+  $('gp-preview').textContent = 'Preview selected';
 }
 function openGamePicker() {
   $('gp-info').textContent = 'Choose a tune, preview it, then play together. Audio comes from this Stage.';
@@ -805,7 +804,7 @@ function showResults() {
     <div class="big-team"><div class="grade g${grade(t.acc)}">${t.rows.length ? grade(t.acc) : '–'}</div><div><b>${t.score.toLocaleString()}</b><small>${solo ? 'SOLO SCORE' : 'TEAM SCORE'} · ${t.acc.toFixed(0)}% accuracy · best combo ${t.maxCombo}</small></div></div>
     <div class="rows">${rows.map((p) => `<div class="pl" style="--c:${p.color}"><div class="n">${ROLE_INFO[p.role].icon} ${esc(p.name)}<small>${INSTRUMENT[p.role].name} · ${p.game!.perfect} perfect · ${p.game!.good} good · ${p.game!.miss} missed</small></div><div class="e">${p.game!.score.toLocaleString()} <small>${accuracy(done(p.game!)).toFixed(0)}%</small></div></div>`).join('') || '<div class="empty">No scores were recorded.</div>'}</div>
     ${solo && t.rows.length ? '<p class="hintp">Assisted performance: the arrangement stayed in time while your hits shaped the dynamics.</p>' : ''}
-    <div class="row"><button class="btn drop" id="r-again">↻ PLAY AGAIN</button><button class="btn" id="r-pick">🎮 PICK ANOTHER</button><button class="btn" id="r-free">■ FREE PLAY</button></div></div>`;
+    <div class="row"><button class="btn drop" id="r-again">↻ PLAY AGAIN</button><button class="btn" id="r-pick">PICK ANOTHER</button><button class="btn" id="r-free">■ FREE PLAY</button></div></div>`;
   $('results').hidden = false;
   $('r-again').onclick = () => { $('results').hidden = true; void startGame(song, g.difficulty).catch((e) => { $('gp-status').textContent = String(e); openGamePicker(); }); };
   $('r-pick').onclick = () => { $('results').hidden = true; net.send({ t: 'game', action: 'stop' }); openGamePicker(); };
@@ -830,16 +829,16 @@ function drawWave() {
   x.setTransform(dpr, 0, 0, dpr, 0, 0);
   x.clearRect(0, 0, w, h);
   const mid = h / 2;
-  x.fillStyle = 'rgba(255,255,255,.35)';
+  x.fillStyle = 'rgba(43,37,64,.4)';
   a.peaks.forEach((p, i) => x.fillRect((i / a.peaks.length) * w, mid - p * mid * 0.95, Math.max(1, w / a.peaks.length), p * h * 0.95));
   // the 16 slices on the beat grid, then the beat lines
   const dur = sampler.duration, sl = sampler.sliceSec;
   for (let i = 0; i < sampler.usable; i++) {
-    x.fillStyle = i % 2 ? 'rgba(124,255,107,.16)' : 'rgba(53,208,255,.16)';
+    x.fillStyle = i % 2 ? 'rgba(189,242,213,.6)' : 'rgba(201,228,255,.6)';
     x.fillRect(((sampler.offset + i * sl) / dur) * w, 0, (sl / dur) * w, h);
   }
   for (let t = sampler.offset, k = 0; t < dur; t += sampler.beatSec, k++) {
-    x.strokeStyle = k % 4 === 0 ? 'rgba(255,255,255,.7)' : 'rgba(255,255,255,.25)';
+    x.strokeStyle = k % 4 === 0 ? 'rgba(43,37,64,.75)' : 'rgba(43,37,64,.25)';
     x.beginPath(); x.moveTo((t / dur) * w, 0); x.lineTo((t / dur) * w, h); x.stroke();
   }
 }
@@ -900,7 +899,7 @@ $('sp-chop').onclick = async () => {
   cmd('sample', `chop|${sampler.name}`);
   document.body.classList.add('insample');
   $('sampleui').hidden = true;
-  flashBig('🎚️ TAP THE PADS', 1500);
+  flashBig('TAP THE PADS', 1500);
 };
 $('sp-back').onclick = async () => {
   if (!sampler.buffer) return;
@@ -913,7 +912,7 @@ $('sp-back').onclick = async () => {
   cmd('sample', `backing|${sampler.name}`);
   document.body.classList.add('insample');
   $('sampleui').hidden = true;
-  flashBig('▶ BACKING LOOP', 1200);
+  flashBig('BACKING LOOP', 1200);
 };
 $('sp-stop').onclick = stopSample;
 function stopSample() {
@@ -940,9 +939,9 @@ async function refreshJoinUrl() {
   }
   if (url !== joinUrl) {
     joinUrl = url;
-    await QRCode.toCanvas($<HTMLCanvasElement>('qr'), url, { width: 560, margin: 0, errorCorrectionLevel: 'M', color: { dark: '#07070d', light: '#ffffff' } });
+    await QRCode.toCanvas($<HTMLCanvasElement>('qr'), url, { width: 560, margin: 0, errorCorrectionLevel: 'M', color: { dark: '#2b2540', light: '#ffffff' } });
     $('url').textContent = url.replace(/^https?:\/\//, '');
-    $('warn').textContent = url.startsWith('https') ? '' : '⚠ http only: phones can’t use shake/tilt. Run `npm run demo` for HTTPS.';
+    $('warn').textContent = url.startsWith('https') ? '' : 'HTTP only: phones can’t use shake/tilt. Run `npm run demo` for HTTPS.';
   }
 }
 refreshJoinUrl(); setInterval(refreshJoinUrl, 4000);
@@ -956,7 +955,7 @@ function frame(t: number) {
   requestAnimationFrame(frame);
   if (!ts || !clock.isLocked) return;
   const b = beats.frame(clock, ts, t);
-  flashEl.style.opacity = String((b.downbeat ? 0.22 : 0.08) * flashEnv(b.since));
+  flashEl.style.opacity = String((b.downbeat ? 0.5 : 0.2) * flashEnv(b.since));
   const pos = stepPos(ts, b.serverMs), step = Math.floor(pos);
 
   // drop choreography for the room
@@ -994,7 +993,7 @@ function frame(t: number) {
       m.className = 'mode';
     }
     m.textContent += recTag;
-    if (rec.seconds > 0) $('rec').textContent = `⏺ SAVE LAST ${Math.floor(rec.seconds)} s`;
+    if (rec.seconds > 0) $('rec').textContent = `● SAVE LAST ${Math.floor(rec.seconds)} s`;
   }
 }
 requestAnimationFrame(frame);
