@@ -92,12 +92,15 @@ export function buildChart(song: GameSong, role: Role, diff: Difficulty): ChartN
     if (diff === 'medium') return n.step % 2 === 0;
     return true;
   });
+  if (!notes.length) notes = song.tracks[role];
   notes = notes.slice().sort((a, b) => a.step - b.step);
 
   let laneOf: (n: TrackNote) => number;
   if (role === 'drums') {
     laneOf = (n) => DRUM_LANES[diff][n.d ?? 2];
-    notes = notes.filter((n) => laneOf(n) >= 0);
+    const playable = notes.filter((n) => laneOf(n) >= 0);
+    if (playable.length) notes = playable;
+    else laneOf = (n) => (n.d ?? 2) % lanes;
   } else {
     // pitch percentile -> lane
     const tops = notes.map((n) => Math.max(...(n.midi ?? [60]))).sort((a, b) => a - b);
@@ -108,7 +111,9 @@ export function buildChart(song: GameSong, role: Role, diff: Difficulty): ChartN
     };
     laneOf = (n) => Math.min(lanes - 1, Math.floor(pct(Math.max(...(n.midi ?? [60]))) * lanes * 0.9999));
   }
-  return notes.map((n, i) => ({ id: i, step: n.step, lane: laneOf(n), dur: n.dur, v: n.v, midi: n.midi, d: n.d }));
+  const seen = new Set<string>();
+  return notes.filter((n) => { const key = `${n.step}:${laneOf(n)}`; if (seen.has(key)) return false; seen.add(key); return true; })
+    .map((n, i) => ({ id: i, step: n.step, lane: laneOf(n), dur: n.dur, v: n.v, midi: n.midi, d: n.d }));
 }
 
 // ------------------------------------------------------------------- scoring
@@ -144,10 +149,43 @@ export const grade = (acc: number) => (acc >= 95 ? 'S' : acc >= 85 ? 'A' : acc >
 
 /** Shared state of a running game (lives in TransportState.game). */
 export interface GameState {
+  /** Imported arrangement, distributed with the start so every phone has the same chart. */
+  song?: GameSong;
   songId: string;
   difficulty: Difficulty;
   /** absolute transport step where the song's step 0 sounds */
   startStep: number;
   /** step after which the performance is over */
   endStep: number;
+}
+
+/** Bound and copy untrusted imported arrangements before broadcasting them. */
+export function validateGameSong(value: unknown): GameSong | null {
+  if (!value || typeof value !== 'object') return null;
+  const s = value as GameSong;
+  if (typeof s.id !== 'string' || !s.id.startsWith('import:') || s.id.length > 100 ||
+      typeof s.title !== 'string' || !s.title.trim() || s.title.length > 100 ||
+      !Number.isInteger(s.bpm) || s.bpm < 60 || s.bpm > 180 ||
+      !Number.isInteger(s.bars) || s.bars < 1 || s.bars > 256 ||
+      !Number.isInteger(s.root) || s.root < 0 || s.root > 11 ||
+      !['minorPent', 'majorPent', 'dorian', 'blues'].includes(s.scale) || !s.tracks) return null;
+  const tracks = {} as GameSong['tracks'];
+  let count = 0;
+  for (const role of ['drums', 'bass', 'melody', 'pads'] as Role[]) {
+    const notes = s.tracks[role];
+    if (!Array.isArray(notes) || (count += notes.length) > 12000) return null;
+    tracks[role] = [];
+    for (const n of notes) {
+      if (!n || !Number.isInteger(n.step) || n.step < 0 || n.step >= s.bars * 16 ||
+          !Number.isFinite(n.dur) || n.dur <= 0 || n.dur > 256 ||
+          !Number.isFinite(n.v) || n.v < 0 || n.v > 1) return null;
+      if (role === 'drums') {
+        if (!Number.isInteger(n.d) || n.d! < 0 || n.d! > 3) return null;
+      } else if (!Array.isArray(n.midi) || !n.midi.length || n.midi.length > 8 ||
+          !n.midi.every((m) => Number.isInteger(m) && m >= 0 && m <= 127)) return null;
+      tracks[role].push({ step: n.step, dur: n.dur, v: n.v, ...(role === 'drums' ? { d: n.d } : { midi: [...n.midi!] }) });
+    }
+    tracks[role].sort((a, b) => a.step - b.step);
+  }
+  return count ? { id: s.id, title: s.title.trim(), artist: 'Your MIDI arrangement', bpm: s.bpm, bars: s.bars, root: s.root, scale: s.scale, rating: 1, tracks } : null;
 }

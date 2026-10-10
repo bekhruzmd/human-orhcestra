@@ -68,6 +68,7 @@ export class ClockSync {
 
   /** Begin (or restart) syncing: a fast burst to lock quickly, then a slow steady probe. */
   start(resetEstimate = false) {
+    this.stop();
     if (resetEstimate) { this.samples = []; this.residuals = []; this.locked = false; }
     this.burstLeft = BURST;
     this.pending.clear();

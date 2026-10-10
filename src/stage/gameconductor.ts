@@ -1,12 +1,5 @@
-/**
- * Plays the parts of a rhythm-game song that no human is playing (the "AUTO" band; this is also what makes
- * solo mode work). Same lookahead scheduling as the AUTO band and the song loop: events are emitted a few
- * hundred ms ahead, addressed by absolute step. A role is "auto" only while no connected player holds it, so if
- * someone drops mid-song the band quietly covers their instrument.
- *
- * Roles held by humans are NOT touched: their notes sound only when the player actually hits them.
- */
-import { stepPos, type NoteEvent, type Role, type TransportState } from '../../shared/protocol';
+/** The Stage owns every audible song note. Packets affect future dynamics, never note timing. */
+import { stepPos, stepTime, type NoteEvent, type Role, type TransportState } from '../../shared/protocol';
 import { getSong } from '../../shared/songs';
 import { songSteps, type GameSong } from '../../shared/game';
 import type { ClockSync } from '../common/clock';
@@ -15,22 +8,33 @@ export class GameConductor {
   private key = '';
   private next = 0;
   private song: GameSong | null = null;
+  private lifts = new Map<Role, number>();
   private byStep = new Map<number, { role: Role; n: GameSong['tracks'][Role][number] }[]>();
-
   constructor(
-    private clock: ClockSync,
+    private clock: Pick<ClockSync, 'serverNow' | 'isLocked'>,
     private getTransport: () => TransportState | null,
-    private autoRoles: () => Set<Role>,
+    private playerFor: (role: Role) => string | undefined,
     private emit: (ev: NoteEvent) => void,
-  ) {
-    setInterval(() => this.tick(), 40);
+    autoTick = true,
+  ) { if (autoTick) setInterval(() => this.tick(), 40); }
+
+  hit(startStep: number, step: number, role: Role) {
+    const ts = this.getTransport();
+    if (!ts?.game || startStep !== ts.game.startStep) return;
+    this.ensureSong(ts);
+    const now = this.clock.serverNow();
+    const age = now - stepTime(ts, step);
+    if (age < -200 || age > 2000) return;
+    this.lifts.set(role, now);
   }
 
-  private load(ts: TransportState) {
+  private ensureSong(ts: TransportState) {
     const g = ts.game!;
-    this.key = `${g.songId}:${g.startStep}`;
-    this.song = getSong(g.songId) ?? null;
-    this.byStep.clear();
+    const key = `${g.songId}:${g.startStep}`;
+    if (key === this.key) return;
+    this.key = key;
+    this.song = g.song ?? getSong(g.songId) ?? null;
+    this.byStep.clear(); this.lifts.clear();
     if (!this.song) return;
     for (const role of Object.keys(this.song.tracks) as Role[]) {
       for (const n of this.song.tracks[role]) (this.byStep.get(n.step) ?? this.byStep.set(n.step, []).get(n.step)!).push({ role, n });
@@ -38,23 +42,23 @@ export class GameConductor {
     this.next = g.startStep;
   }
 
-  private tick() {
+  tick() {
     const ts = this.getTransport();
     if (!ts?.game || !this.clock.isLocked) { this.key = ''; return; }
-    if (this.key !== `${ts.game.songId}:${ts.game.startStep}`) this.load(ts);
-    const song = this.song;
-    if (!song) return;
+    this.ensureSong(ts);
+    if (!this.song) return;
     const now = this.clock.serverNow();
-    const horizon = Math.floor(stepPos(ts, now + 350));
-    if (this.next < stepPos(ts, now) - 1) this.next = Math.ceil(stepPos(ts, now + 120)); // tab was asleep: don't burst
-    const auto = this.autoRoles();
-    const end = ts.game.startStep + songSteps(song);
+    // Full local arrangement gives a generous scheduling buffer, independent of phone RTT.
+    const horizon = Math.floor(stepPos(ts, now + 600));
+    if (this.next < stepPos(ts, now + 80)) this.next = Math.ceil(stepPos(ts, now + 120));
+    const end = ts.game.startStep + songSteps(this.song);
     while (this.next <= horizon && this.next < end) {
-      const rel = this.next - ts.game.startStep;
-      if (rel >= 0) {
-        for (const { role, n } of this.byStep.get(rel) ?? []) {
-          if (auto.has(role)) this.emit({ pid: `auto:${role}`, role, step: this.next, d: n.d ?? 0, v: n.v, dur: n.dur, midi: n.midi });
-        }
+      for (const { role, n } of this.byStep.get(this.next - ts.game.startStep) ?? []) {
+        const player = this.playerFor(role);
+        const lift = Math.max(0, 1 - (now - (this.lifts.get(role) ?? -Infinity)) / 2400);
+        // The tune always remains audible. Hits gently lift the next phrase, with no duplicated notes.
+        const gain = player ? 0.72 + 0.28 * lift : 0.82;
+        this.emit({ pid: `game:${role}`, role, step: this.next, d: n.d ?? 0, v: n.v * gain, dur: n.dur, midi: n.midi });
       }
       this.next++;
     }

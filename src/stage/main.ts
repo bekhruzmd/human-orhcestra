@@ -18,19 +18,22 @@ import {
 import { NOTE_NAMES, SCALE_LABEL, chordAt, freeMidi, freeZone, shakeVoice, type Resolved } from '../../shared/music';
 import { analyze, arrange, toMidi, type RawEv, type Song } from './composer';
 import { parseMidi } from './midi';
+import { toGameSong, toLoopSong } from './importsong';
 import { SongPlayer } from './song';
 import { GameConductor } from './gameconductor';
 import { SONGS, getSong } from '../../shared/songs';
-import { DIFF, DIFFICULTIES, INSTRUMENT, accuracy, grade, songSeconds, type Difficulty } from '../../shared/game';
+import { DIFF, DIFFICULTIES, INSTRUMENT, accuracy, grade, songSeconds, validateGameSong, type GameSong, type Difficulty } from '../../shared/game';
 import { LIBRARY, buildSong } from '../songs/library';
 import { Viz, type Lane } from './visuals';
 import { AutoBand } from './auto';
+import { Sampler, SLICES } from './sampler';
 
 const net = new Net();
 const clock = new ClockSync((m) => net.send(m));
 const beats = new BeatTracker();
 const engine = new Engine(clock, true);
 const rec = new Recorder(engine);
+const sampler = new Sampler();
 
 let ts: TransportState | null = null;
 let audioOn = false;
@@ -38,6 +41,8 @@ let wasFree = false;
 let freeLog: RawEv[] = [];
 let lastDraftLog: { log: RawEv[]; players: PlayerInfo[] } | null = null;
 let roster: PlayerInfo[] = [];
+let songLoadVersion = 0;
+const importId = () => `import:${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
 
 const app = document.getElementById('app')!;
 app.innerHTML = `
@@ -66,6 +71,7 @@ app.innerHTML = `
   <button class="btn play" id="play">🎮 PLAY A SONG</button>
   <button class="btn free" id="free">🎤 FREESTYLE</button>
   <button class="btn" id="midi">🎵 SONGS</button>
+  <button class="btn sample" id="sample">🎚️ SAMPLE</button>
   <input id="midifile" type="file" accept=".mid,.midi" hidden />
   <button class="btn" id="auto">AUTO</button>
   <button class="btn" id="spk">📢 SPEAKERS</button>
@@ -76,14 +82,36 @@ app.innerHTML = `
 <div id="gamepick" hidden><div class="box">
   <h3>🎮 Pick a song</h3>
   <p id="gp-info"></p>
+  <p class="hintp">The arrangement stays in time. Hits lift your instrument; misses affect your score, not the tune.</p>
+  <div class="row"><button class="btn" id="gp-import">＋ YOUR SONG (.mid)</button><button class="btn" id="gp-preview">♫ Preview selected</button></div>
+  <input id="gp-file" type="file" accept=".mid,.midi" hidden />
+  <label class="hintp"><input id="gp-melody" type="checkbox" /> Import melody only (highest part)</label>
+  <label class="hintp" id="gp-part-label" hidden>Melody part <select id="gp-part"></select></label>
+  <p class="hintp" id="gp-status" role="status">Load a MIDI arrangement of a song you want to play. Imports are saved in this browser.</p>
   <div id="gp-songs"></div>
   <div class="diffs" id="gp-diffs"></div>
   <div class="row"><button class="btn drop" id="gp-start">▶ START</button><button class="btn" id="gp-close">Close</button></div>
 </div></div>
 <div id="results" hidden></div>
+<div id="sampleui" hidden><div class="box">
+  <h3>🎚️ Make music with your own audio</h3>
+  <p class="hintp">Choose an MP3 / WAV from this computer. It stays in this browser; nothing is uploaded. Phones then play slices of it on the beat.</p>
+  <label class="dropzone" id="sp-drop"><span id="sp-droptext">Drop an audio file here, or <u>choose a file</u></span><input type="file" id="sp-file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.aac,.flac" hidden></label>
+  <div id="sp-panel" hidden>
+    <canvas id="sp-wave"></canvas>
+    <div class="sp-line"><b id="sp-name"></b><span id="sp-info"></span></div>
+    <div class="sp-ctl">
+      <span>TEMPO</span><button class="btn" data-sp="half">½×</button><button class="btn" data-sp="bpm-1">−1</button><b id="sp-bpm"></b><button class="btn" data-sp="bpm+1">+1</button><button class="btn" data-sp="double">2×</button>
+      <span>GRID</span><button class="btn" data-sp="off-beat">◂ beat</button><button class="btn" data-sp="off+beat">beat ▸</button><button class="btn" data-sp="off-bar">◂ bar</button><button class="btn" data-sp="off+bar">bar ▸</button>
+      <span>SLICE</span><button class="btn" data-sp="slice.5">½ beat</button><button class="btn" data-sp="slice1">1 beat</button><button class="btn" data-sp="slice2">2 beats</button>
+    </div>
+    <div class="row"><button class="btn play" id="sp-chop">🎛️ PHONES PLAY SLICES</button><button class="btn" id="sp-back">▶ BACKING LOOP</button><button class="btn" id="sp-stop">■ STOP</button><button class="btn" id="sp-close">Close</button></div>
+    <p class="hintp" id="sp-msg"></p>
+  </div>
+</div></div>
 <div id="songs" hidden><div class="box">
   <h3>🎵 Pick a song</h3>
-  <div class="modes"><button class="btn on" id="m-tap">👆 Judges tap it (every tap plays the next note)</button><button class="btn" id="m-band">🎸 Band plays it (jam over it)</button></div>
+  <div class="modes"><button class="btn on" id="m-tap">🎮 Play along (guided song)</button><button class="btn" id="m-band">♫ Listen to arrangement</button></div>
   <div id="songlist"></div>
   <div class="row"><button class="btn" id="s-file">📂 Load .mid file…</button><button class="btn" id="s-stop">■ Stop song</button><button class="btn" id="s-close">Close</button></div>
 </div></div>`;
@@ -96,25 +124,25 @@ const viz = new Viz($<HTMLCanvasElement>('viz'));
 net.onOpen(() => { net.send({ t: 'hello', kind: 'stage' }); clock.start(true); });
 net.on('pong', (m) => clock.onPong(m));
 net.on('welcome', (m) => { ts = m.state; wasFree = m.state.freestyle; engine.setTransport(m.state); syncControls(); onGameChange(); });
-net.on('state', (m) => { ts = m.state; engine.setTransport(m.state); syncControls(); onFreestyleChange(); onGameChange(); });
+net.on('state', (m) => { ts = m.state; engine.setTransport(m.state); syncControls(); onFreestyleChange(); onGameChange(); checkSampleState(); });
 net.on('raw', (r) => onRaw(r));
 net.on('roster', (m) => { roster = m.players; engine.prune(new Set(roster.map((p) => p.id))); renderRoster(); });
 net.on('ctl', (m) => engine.ctl(m.pid, m.y, m.tilt));
 net.on('note', (ev) => {
-  if (!ts) return;
-  const p = roster.find((x) => x.id === ev.pid);
-  if (tap.active && ev.role !== 'drums' && tap.notes.length) {
-    // Tap-along: the player supplies the RHYTHM, the song supplies the PITCH.
-    const n = tap.notes[tap.cursor++ % tap.notes.length];
-    ev = { ...ev, role: 'melody', d: 0, midi: [n.midi], dur: n.dur };
-    tapProgress();
+  if (ts && !ts.game && ts.sample?.mode === 'chop' && sampler.buffer) {
+    // Sample mode: the pad index is a SLICE number; the note's step is the quantised moment to play it.
+    const i = sampler.trigger(engine, Math.max(0, Math.min(SLICES - 1, ev.d)), stepTime(ts, ev.step), ts.bpm, ev.v);
+    viz.push({ ...ev, role: 'melody', midi: [52 + Math.round((Math.max(0, i) / (SLICES - 1)) * 30)], d: 0, dur: 2 }, stepTime(ts, ev.step));
+    return;
   }
+  if (!ts || ts.game || songs.song) return;
+  const p = roster.find((x) => x.id === ev.pid);
   engine.play(ev, !p?.speaker); // a phone playing its own part is not doubled on the Stage
   viz.push(ev, stepTime(ts, ev.step));
 });
 net.on('songreq', (r) => {
   const now = performance.now();
-  if (now - lastSongReq < 2500) return; // one request at a time
+  if (ts?.game || now - lastSongReq < 2500) return; // one request at a time
   lastSongReq = now;
   flashBig(`${r.name.toUpperCase()}: ${r.id ? 'NEW SONG' : 'STOP'}`, 1200);
   if (!r.id) stopSong(); else loadSongById(r.id, r.mode);
@@ -122,17 +150,20 @@ net.on('songreq', (r) => {
 
 // ------------------------------------------------------------------ AUTO band
 const humans = () => roster.filter((p) => p.connected);
-const autoRoles = (): Role[] => ((ts?.autoBand || ts?.game) && !songs.song ? ROLES.filter((r) => !humans().some((p) => p.role === r)) : []);
+const autoRoles = (): Role[] => ((ts?.autoBand || ts?.game) && !songs.song ? ROLES.filter((r) => (!ts?.game?.song || ts.game.song.tracks[r].length > 0) && !humans().some((p) => p.role === r)) : []);
 const songs = new SongPlayer(clock, () => ts, (ev: NoteEvent) => {
   if (!ts) return;
   engine.play(ev);
   viz.push(ev, stepTime(ts, ev.step));
 });
-new GameConductor(clock, () => ts, () => new Set(autoRoles()), (ev: NoteEvent) => {
+const gameConductor = new GameConductor(clock, () => ts, (role) => humans().find((p) => p.role === role)?.id, (ev: NoteEvent) => {
   if (!ts) return;
   engine.play(ev);
-  viz.push(ev, stepTime(ts, ev.step));
+  const owners = humans().filter((p) => p.role === ev.role);
+  for (const pid of owners.length ? owners.map((p) => p.id) : [`auto:${ev.role}`]) viz.push({ ...ev, pid }, stepTime(ts, ev.step));
 });
+net.on('ghit', (m) => gameConductor.hit(m.startStep, m.step, m.role));
+net.on('error', (m) => { $('gp-status').textContent = m.message; $('gamepick').hidden = false; });
 new AutoBand(clock, () => ts, () => (ts?.game ? [] : autoRoles()), (ev: NoteEvent) => {
   if (!ts) return;
   engine.play(ev);
@@ -186,7 +217,7 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 
 // -------------------------------------------------------------- conductor UI
 const done = (g: { perfect: number; good: number; miss: number }) => ({ perfect: g.perfect, good: g.good, total: g.perfect + g.good + g.miss });
-const cmd = (c: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'freestyle' | 'nowplaying', value?: number | string | boolean) => net.send({ t: 'cmd', cmd: c, value });
+const cmd = (c: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'freestyle' | 'nowplaying' | 'sample', value?: number | string | boolean) => net.send({ t: 'cmd', cmd: c, value });
 let bpmTimer = 0;
 $<HTMLInputElement>('bpmr').oninput = (e) => {
   const v = Number((e.target as HTMLInputElement).value);
@@ -214,10 +245,11 @@ $<HTMLInputElement>('midifile').onchange = async (e) => {
 $('auto').onclick = () => cmd('auto', !ts?.autoBand);
 $('spk').onclick = () => cmd('speakers', !ts?.speakerMode);
 $('rec').onclick = () => { if (!rec.save()) alert('Nothing recorded yet: enable audio first and play something.'); };
-$('audio').onclick = async () => {
+async function enableAudio() {
   await engine.start(); rec.start().catch((e) => console.warn('recorder unavailable', e));
   $('audio').style.display = 'none'; audioOn = true; syncControls();
-};
+}
+$('audio').onclick = enableAudio;
 addEventListener('keydown', (e) => {
   if (e.key === 'h') $('cond').classList.toggle('hidden');
   if (e.key === 'f') document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
@@ -262,7 +294,7 @@ function onFreestyleChange() {
   wasFree = ts.freestyle;
   if (ts.freestyle) {
     freeLog = []; lastFree.clear();
-    songs.stop(); tap.active = false; hideCard(); cmd('nowplaying', '');
+    songs.stop(); hideCard(); cmd('nowplaying', '');
     flashBig('FREESTYLE: PLAY ANYTHING', 1600);
   } else {
     composeFromJam();
@@ -271,44 +303,36 @@ function onFreestyleChange() {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function playSong(song: Song, mode: 'tap' | 'band' = 'band') {
+  if (mode === 'tap') { const imported = toGameSong(song, importId()); return startGame(imported, 'easy'); }
+  const version = ++songLoadVersion;
+  await enableAudio();
+  if (version !== songLoadVersion) return;
+  if (ts?.game) throw new Error('Finish the current game first');
+  songs.stop(); engine.silence();
   // 1. put the shared transport in the song's tempo/key, wait until the server confirms it
   cmd('bpm', song.bpm); cmd('key', song.root); cmd('scale', song.scale);
   for (let i = 0; i < 30 && !(ts && ts.bpm === song.bpm && ts.root === song.root && ts.scale === song.scale); i++) await sleep(100);
-  if (!ts) return;
+  if (version !== songLoadVersion) return;
+  if (!ts || ts.bpm !== song.bpm || ts.root !== song.root || ts.scale !== song.scale) throw new Error('Could not sync the song. Check the connection and try again.');
   // 2. start on a bar line ~1.2 s away, preferring the first chord of the 4-bar loop if that's not much later
   let start = Math.ceil(nextStepAfter(ts, clock.serverNow(), 1200) / 16) * 16;
   const aligned = Math.ceil(start / 64) * 64;
   if ((aligned - start) * (60000 / ts.bpm / 4) < 3500) start = aligned;
   return song.events.length ? startSong(song, start, mode) : undefined;
 }
-function startSong(song: Song, startStep: number, mode: 'tap' | 'band' = 'band') {
-  // Tap-along: pull the melody out of the band track; taps will play it note by note.
-  const melody = song.events.filter((e) => e.role === 'melody' && e.midi?.length).sort((a, b) => a.rel - b.rel);
-  tap.active = mode === 'tap' && melody.length > 0;
-  tap.notes = tap.active ? melody.map((e) => ({ midi: Math.max(...e.midi!), dur: e.dur })) : [];
-  tap.cursor = 0;
-  const playable = tap.active ? { ...song, events: song.events.filter((e) => e.role !== 'melody') } : song;
-  songs.start(playable, startStep);
+function startSong(song: Song, startStep: number, _mode: 'tap' | 'band' = 'band') {
+  songs.start(song, startStep);
   showCard(song);
-  cmd('nowplaying', `${tap.active ? 'tap' : 'band'}|${song.title}`);
-  flashBig(tap.active ? '👆 TAP TO PLAY' : '♪ NOW PLAYING', 1400);
+  cmd('nowplaying', `band|${song.title}`);
+  flashBig('♪ NOW PLAYING', 1400);
 }
 function stopSong() {
-  songs.stop(); tap.active = false; hideCard(); cmd('auto', true); cmd('nowplaying', '');
+  songLoadVersion++;
+  songs.stop(); engine.silence(); hideCard(); cmd('auto', false); cmd('nowplaying', '');
 }
-const tap = { active: false, notes: [] as { midi: number; dur: number }[], cursor: 0 };
 let lastSongReq = 0;
 let songMode: 'tap' | 'band' = 'tap';
 function setSongMode(m: 'tap' | 'band') { songMode = m; $('m-tap').classList.toggle('on', m === 'tap'); $('m-band').classList.toggle('on', m === 'band'); }
-let tapDom = 0;
-function tapProgress() {
-  const now = performance.now();
-  if (now - tapDom < 150) return;
-  tapDom = now;
-  const el = document.getElementById('tapinfo');
-  if (el) el.textContent = `👆 tap-along: note ${(tap.cursor % tap.notes.length) + 1}/${tap.notes.length}`;
-}
-
 interface Custom { name: string; file: string }
 let custom: Custom[] = [];
 async function refreshCustom() {
@@ -367,11 +391,11 @@ const download = (name: string, data: BlobPart, type: string) => {
 function showCard(song: Song) {
   const c = $('card');
   c.hidden = false;
-  c.innerHTML = `<div class="txt"><h3>♪ ${esc(song.title)}</h3>${song.info.map((l) => `<p>${esc(l)}</p>`).join('')}${tap.active ? '<p id="tapinfo">👆 tap-along: tap any pad</p>' : ''}</div>
+  c.innerHTML = `<div class="txt"><h3>♪ ${esc(song.title)}</h3>${song.info.map((l) => `<p>${esc(l)}</p>`).join('')}</div>
     <div class="row"><button class="btn" id="c-restart">↻ Restart</button><button class="btn" id="c-stop">■ Stop</button>
     <button class="btn" id="c-mid">⬇ MIDI</button>${lastDraftLog && song.title === 'Your jam' ? '<button class="btn" id="c-json">⬇ JSON</button>' : ''}</div>`;
   $('c-stop').onclick = () => stopSong();
-  $('c-restart').onclick = () => { if (ts) { const st = Math.ceil(nextStepAfter(ts, clock.serverNow(), 800) / 16) * 16; songs.start(song, st); } };
+  $('c-restart').onclick = () => { if (ts) { const st = Math.ceil(nextStepAfter(ts, clock.serverNow(), 800) / 16) * 16; engine.silence(); songs.start(song, st); } };
   $('c-mid').onclick = () => download(`${song.title.replace(/\W+/g, '-')}.mid`, toMidi(song).slice().buffer as ArrayBuffer, 'audio/midi');
   const j = document.getElementById('c-json');
   if (j && lastDraftLog) j.onclick = () => download('jam-raw.json', JSON.stringify({ players: lastDraftLog!.players.map((p) => ({ id: p.id, name: p.name, role: p.role })), events: lastDraftLog!.log, song }, null, 1), 'application/json');
@@ -385,25 +409,95 @@ let pickDiff: Difficulty = 'easy';
 let gameKey = '';
 let resultsShown = false;
 let lastCount = -9;
+let gameLateBaseline = 0;
 
+const importedSongs: GameSong[] = [];
+try {
+  const saved: unknown = JSON.parse(localStorage.getItem('ho.songs') ?? '[]');
+  if (Array.isArray(saved)) for (const value of saved.slice(0, 20)) { const song = validateGameSong(value); if (song) importedSongs.push(song); }
+} catch { /* browser storage may be unavailable */ }
+if (importedSongs.length) pickSong = importedSongs[0].id;
+const allGameSongs = () => [...importedSongs, ...SONGS];
+let previewing = false;
+let previewTimer: ReturnType<typeof setTimeout> | undefined;
+function endPreview() {
+  if (!previewing) return;
+  songLoadVersion++;
+  clearTimeout(previewTimer); previewing = false;
+  songs.stop(); engine.silence(); hideCard(); cmd('nowplaying', '');
+  $('gp-preview').textContent = '♫ Preview selected';
+}
 function openGamePicker() {
-  const n = humans().length;
-  $('gp-info').textContent = n === 0
-    ? 'No players yet: the band will play itself as a demo. Scan the QR to join.'
-    : n === 1 ? 'Solo mode: you play one instrument on your phone, the rest of the band plays itself. Tap the instrument chip on the phone to switch.'
-    : `${n} players: each plays their own instrument; instruments nobody holds are played by the band.`;
-  $('gp-songs').innerHTML = SONGS.map((s) => `<button class="song ${s.id === pickSong ? 'sel' : ''}" data-id="${s.id}"><b>${esc(s.title)}</b><small>${esc(s.artist)}</small>
-    <small>${s.bpm} BPM · ${Math.round(songSeconds(s))} s · ${'★'.repeat(s.rating)}${'☆'.repeat(3 - s.rating)} · drums, bass, piano, synth</small></button>`).join('');
-  $('gp-songs').querySelectorAll<HTMLElement>('.song').forEach((b) => (b.onclick = () => { pickSong = b.dataset.id!; openGamePicker(); }));
-  const desc: Record<Difficulty, string> = { easy: '2 lanes · few notes · forgiving', medium: '3 lanes · more notes', hard: '4 lanes · every note · strict' };
+  $('gp-info').textContent = 'Choose a tune, preview it, then play together. Audio comes from this Stage.';
+  $('gp-songs').innerHTML = allGameSongs().map((s) => `<button class="song ${s.id === pickSong ? 'sel' : ''}" data-id="${esc(s.id)}"><b>${esc(s.title)}</b><small>${esc(s.artist)}</small>
+    <small>${s.bpm} BPM · ${Math.round(songSeconds(s))} s · ${Object.entries(s.tracks).filter(([, notes]) => notes.length).map(([r]) => INSTRUMENT[r as Role].name).join(', ')}</small></button>`).join('');
+  $('gp-songs').querySelectorAll<HTMLElement>('.song').forEach((b) => (b.onclick = () => { endPreview(); pickSong = b.dataset.id!; openGamePicker(); }));
+  const desc: Record<Difficulty, string> = { easy: '2 lanes · forgiving', medium: '3 lanes · more notes', hard: '4 lanes · strict' };
   $('gp-diffs').innerHTML = DIFFICULTIES.map((d) => `<button class="btn ${d === pickDiff ? 'on' : ''}" data-d="${d}"><b>${d.toUpperCase()}</b><small>${desc[d]} (±${DIFF[d].perfect} ms perfect)</small></button>`).join('');
   $('gp-diffs').querySelectorAll<HTMLElement>('button').forEach((b) => (b.onclick = () => { pickDiff = b.dataset.d as Difficulty; openGamePicker(); }));
   $('gamepick').hidden = false;
 }
-$('gp-close').onclick = () => { $('gamepick').hidden = true; };
-$('gp-start').onclick = () => {
+async function startGame(song: GameSong, difficulty: Difficulty) {
+  songLoadVersion++;
+  await enableAudio();
+  for (let i = 0; i < 40 && (!net.connected || !clock.isLocked); i++) await sleep(100);
+  if (!net.connected || !clock.isLocked) throw new Error('Waiting for connection. Try Start again.');
+  endPreview(); songs.stop(); engine.silence();
+  net.send({ t: 'game', action: 'start', songId: song.id, ...(song.id.startsWith('import:') ? { song } : {}), difficulty });
   $('gamepick').hidden = true; $('results').hidden = true;
-  net.send({ t: 'game', action: 'start', songId: pickSong, difficulty: pickDiff });
+}
+$('gp-close').onclick = () => { endPreview(); $('gamepick').hidden = true; };
+$('gp-start').onclick = async () => {
+  const song = allGameSongs().find((s) => s.id === pickSong);
+  if (!song) return;
+  try { await startGame(song, pickDiff); } catch (e) { $('gp-status').textContent = String(e); }
+};
+$('gp-import').onclick = () => $<HTMLInputElement>('gp-file').click();
+let pendingMidi: { buffer: ArrayBuffer; title: string; id: string } | null = null;
+function importPendingMidi() {
+  if (!pendingMidi) return;
+  const selectedPart = $<HTMLSelectElement>('gp-part').value;
+  const source = parseMidi(pendingMidi.buffer, pendingMidi.title, { melodyPart: selectedPart, onParts(parts) {
+    const select = $<HTMLSelectElement>('gp-part');
+    select.replaceChildren(...parts.map((part) => new Option(part.label, part.id)));
+    if (parts.some((p) => p.id === selectedPart)) select.value = selectedPart;
+    $('gp-part-label').hidden = parts.length < 2;
+  } });
+  const song = toGameSong(source, pendingMidi.id, $<HTMLInputElement>('gp-melody').checked);
+  const old = importedSongs.findIndex((s) => s.id === song.id);
+  if (old >= 0) importedSongs.splice(old, 1);
+  importedSongs.unshift(song); importedSongs.splice(20); pickSong = song.id;
+  let saved = true;
+  try { localStorage.setItem('ho.songs', JSON.stringify(importedSongs)); } catch { saved = false; }
+  endPreview(); openGamePicker();
+  $('gp-status').textContent = `${song.title} is ready. Preview to check the melody; choose another part if needed.${saved ? '' : ' Browser storage is full; this import lasts until reload.'}`;
+}
+$<HTMLInputElement>('gp-file').onchange = async (e) => {
+  const input = e.target as HTMLInputElement, file = input.files?.[0];
+  if (!file) return;
+  try {
+    if (file.size > 5_000_000) throw new Error('Choose a MIDI file smaller than 5 MB.');
+    pendingMidi = { buffer: await file.arrayBuffer(), title: file.name.replace(/\.midi?$/i, ''), id: importId() };
+    $<HTMLSelectElement>('gp-part').replaceChildren();
+    importPendingMidi();
+  } catch (err) { $('gp-status').textContent = err instanceof Error ? err.message : 'Could not read this MIDI file.'; }
+  input.value = '';
+};
+for (const id of ['gp-part', 'gp-melody']) $(id).onchange = () => {
+  try { if (pendingMidi && pendingMidi.id === pickSong) importPendingMidi(); }
+  catch (err) { $('gp-status').textContent = err instanceof Error ? err.message : 'Could not use this melody part.'; }
+};
+$('gp-preview').onclick = async () => {
+  if (previewing) { endPreview(); return; }
+  if (ts?.game) { $('gp-status').textContent = 'Finish the current performance before previewing another song.'; return; }
+  const song = allGameSongs().find((s) => s.id === pickSong);
+  if (!song) return;
+  try {
+    previewing = true; $('gp-preview').textContent = '■ Stop preview';
+    await playSong(toLoopSong(song), 'band');
+    if (!previewing) { songs.stop(); engine.silence(); return; }
+    hideCard(); previewTimer = setTimeout(endPreview, 20000);
+  } catch (err) { endPreview(); $('gp-status').textContent = String(err); }
 };
 
 /** A new game (or the end of one) arrived in the shared state. */
@@ -411,12 +505,15 @@ function onGameChange() {
   const g = ts?.game;
   const key = g ? `${g.songId}:${g.startStep}` : '';
   if (key === gameKey) return;
+  engine.silence();
+  gameLateBaseline = engine.lateCount;
   gameKey = key; resultsShown = false; lastCount = -9;
   document.body.classList.toggle('ingame', !!g);
   requestAnimationFrame(() => viz.resize());
   if (g) {
-    songs.stop(); tap.active = false; hideCard(); $('songs').hidden = true; $('results').hidden = true;
-    const song = getSong(g.songId);
+    songs.stop(); hideCard(); $('songs').hidden = true; $('results').hidden = true;
+    sampler.stop(engine); $('sampleui').hidden = true; document.body.classList.remove('insample');
+    const song = g.song ?? getSong(g.songId);
     $('gh-title').textContent = song ? `${song.title} · ${g.difficulty.toUpperCase()}` : '';
     $('gamehud').hidden = false;
   } else {
@@ -427,7 +524,7 @@ function onGameChange() {
 function gameTick(serverMs: number) {
   const g = ts?.game;
   if (!g || !ts) return;
-  const song = getSong(g.songId);
+  const song = g.song ?? getSong(g.songId);
   if (!song) return;
   const pos = stepPos(ts, serverMs);
   // count-in on the big screen (one number per beat)
@@ -449,7 +546,7 @@ function teamStats() {
 }
 
 function showResults() {
-  const g = ts?.game, song = g && getSong(g.songId);
+  const g = ts?.game, song = g && (g.song ?? getSong(g.songId));
   if (!g || !song) return;
   const t = teamStats();
   const solo = t.rows.length <= 1;
@@ -457,10 +554,10 @@ function showResults() {
   $('results').innerHTML = `<div class="box"><h3>${esc(song.title)} · ${g.difficulty.toUpperCase()}</h3>
     <div class="big-team"><div class="grade g${grade(t.acc)}">${t.rows.length ? grade(t.acc) : '–'}</div><div><b>${t.score.toLocaleString()}</b><small>${solo ? 'SOLO SCORE' : 'TEAM SCORE'} · ${t.acc.toFixed(0)}% accuracy · best combo ${t.maxCombo}</small></div></div>
     <div class="rows">${rows.map((p) => `<div class="pl" style="--c:${p.color}"><div class="n">${ROLE_INFO[p.role].icon} ${esc(p.name)}<small>${INSTRUMENT[p.role].name} · ${p.game!.perfect} perfect · ${p.game!.good} good · ${p.game!.miss} missed</small></div><div class="e">${p.game!.score.toLocaleString()} <small>${accuracy(done(p.game!)).toFixed(0)}%</small></div></div>`).join('') || '<div class="empty">No scores were recorded.</div>'}</div>
-    ${solo && t.rows.length ? '<p class="hintp">Solo mode: the rest of the band played itself.</p>' : ''}
+    ${solo && t.rows.length ? '<p class="hintp">Assisted performance: the arrangement stayed in time while your hits shaped the dynamics.</p>' : ''}
     <div class="row"><button class="btn drop" id="r-again">↻ PLAY AGAIN</button><button class="btn" id="r-pick">🎮 PICK ANOTHER</button><button class="btn" id="r-free">■ FREE PLAY</button></div></div>`;
   $('results').hidden = false;
-  $('r-again').onclick = () => { $('results').hidden = true; net.send({ t: 'game', action: 'start', songId: g.songId, difficulty: g.difficulty }); };
+  $('r-again').onclick = () => { $('results').hidden = true; void startGame(song, g.difficulty).catch((e) => { $('gp-status').textContent = String(e); openGamePicker(); }); };
   $('r-pick').onclick = () => { $('results').hidden = true; net.send({ t: 'game', action: 'stop' }); openGamePicker(); };
   $('r-free').onclick = () => { $('results').hidden = true; net.send({ t: 'game', action: 'stop' }); };
 }
@@ -469,8 +566,115 @@ setInterval(() => {
   const t = teamStats();
   $('gh-team').textContent = t.score.toLocaleString();
   $('gh-acc').textContent = `${t.rows.length > 1 ? 'TEAM' : humans().length === 1 ? 'SOLO' : 'AUTO DEMO'} · ${t.acc.toFixed(0)}%`;
-  $('gh-note').textContent = humans().length === 1 ? 'Solo mode: the rest of the band plays itself' : '';
+  $('gh-note').textContent = `Hits lift upcoming notes · audio on Stage · ${engine.lateCount - gameLateBaseline} late audio events`;
 }, 250);
+
+// ------------------------------------------------------------ sampler (your own audio)
+const spMsg = (t: string) => { $('sp-msg').textContent = t; };
+function drawWave() {
+  const c = $<HTMLCanvasElement>('sp-wave'), a = sampler.analysis;
+  if (!a) return;
+  const dpr = Math.min(2, devicePixelRatio || 1), w = c.clientWidth, h = c.clientHeight;
+  c.width = w * dpr; c.height = h * dpr;
+  const x = c.getContext('2d')!;
+  x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  x.clearRect(0, 0, w, h);
+  const mid = h / 2;
+  x.fillStyle = 'rgba(255,255,255,.35)';
+  a.peaks.forEach((p, i) => x.fillRect((i / a.peaks.length) * w, mid - p * mid * 0.95, Math.max(1, w / a.peaks.length), p * h * 0.95));
+  // the 16 slices on the beat grid, then the beat lines
+  const dur = sampler.duration, sl = sampler.sliceSec;
+  for (let i = 0; i < sampler.usable; i++) {
+    x.fillStyle = i % 2 ? 'rgba(124,255,107,.16)' : 'rgba(53,208,255,.16)';
+    x.fillRect(((sampler.offset + i * sl) / dur) * w, 0, (sl / dur) * w, h);
+  }
+  for (let t = sampler.offset, k = 0; t < dur; t += sampler.beatSec, k++) {
+    x.strokeStyle = k % 4 === 0 ? 'rgba(255,255,255,.7)' : 'rgba(255,255,255,.25)';
+    x.beginPath(); x.moveTo((t / dur) * w, 0); x.lineTo((t / dur) * w, h); x.stroke();
+  }
+}
+function refreshSampleUI() {
+  $('sp-panel').hidden = !sampler.buffer;
+  if (!sampler.buffer) return;
+  $('sp-name').textContent = sampler.name;
+  $('sp-bpm').textContent = sampler.bpm.toFixed(1);
+  const conf = sampler.analysis?.confidence ?? 0;
+  $('sp-info').textContent = `${sampler.duration.toFixed(0)} s · ${sampler.usable} slices of ${sampler.sliceBeats} beat · detection ${conf > 0.6 ? 'confident' : conf > 0.3 ? 'fairly sure' : 'unsure: adjust tempo/grid by ear'}`;
+  drawWave();
+}
+async function loadSampleFile(f: File) {
+  try {
+    await enableAudio();
+    $('sp-droptext').textContent = `Analysing ${f.name}…`;
+    await sampler.load(f, engine);
+    $('sp-droptext').innerHTML = `Loaded <b>${esc(sampler.name)}</b>. Drop another file, or <u>choose a file</u>`;
+    spMsg(sampler.analysis!.confidence < 0.3 ? 'Tempo detection is unsure for this file: use ½× / 2× and the grid buttons until the white bar lines sit on the beats.' : '');
+    refreshSampleUI();
+  } catch (err) {
+    console.warn(err);
+    $('sp-droptext').innerHTML = 'Could not read that file. Try an MP3 or WAV. <u>choose a file</u>';
+  }
+}
+$('sample').onclick = () => { $('sampleui').hidden = false; refreshSampleUI(); };
+$('sp-close').onclick = () => { $('sampleui').hidden = true; };
+$<HTMLInputElement>('sp-file').onchange = (e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) loadSampleFile(f); (e.target as HTMLInputElement).value = ''; };
+$('sp-drop').addEventListener('dragover', (e) => e.preventDefault());
+$('sp-drop').addEventListener('drop', (e) => { e.preventDefault(); const f = (e as DragEvent).dataTransfer?.files?.[0]; if (f) loadSampleFile(f); });
+$('sampleui').querySelectorAll<HTMLElement>('[data-sp]').forEach((b) => (b.onclick = () => {
+  const k = b.dataset.sp!, beat = sampler.beatSec;
+  if (k === 'half') sampler.bpm = Math.max(40, sampler.bpm / 2);
+  else if (k === 'double') sampler.bpm = Math.min(240, sampler.bpm * 2);
+  else if (k === 'bpm-1') sampler.bpm = Math.max(40, sampler.bpm - 1);
+  else if (k === 'bpm+1') sampler.bpm = Math.min(240, sampler.bpm + 1);
+  else if (k.startsWith('off')) {
+    const step = k.endsWith('bar') ? beat * 4 : beat, dir = k.startsWith('off+') ? 1 : -1;
+    sampler.offset = Math.max(0, Math.min(sampler.duration - sampler.sliceSec, sampler.offset + dir * step));
+  } else if (k.startsWith('slice')) sampler.sliceBeats = Number(k.slice(5));
+  refreshSampleUI();
+}));
+
+/** Put the room at the file's tempo (the transport is integer BPM; playbackRate absorbs the remainder). */
+async function matchTempo() {
+  const target = Math.round(Math.max(60, Math.min(180, sampler.bpm)));
+  cmd('bpm', target);
+  for (let i = 0; i < 30 && ts?.bpm !== target; i++) await sleep(100);
+}
+function sampleCleanup() { songs.stop(); engine.silence(); hideCard(); cmd('nowplaying', ''); cmd('auto', false); }
+$('sp-chop').onclick = async () => {
+  if (!sampler.buffer) return;
+  await enableAudio();
+  sampleCleanup(); sampler.stop(engine);
+  await matchTempo();
+  cmd('sample', `chop|${sampler.name}`);
+  document.body.classList.add('insample');
+  $('sampleui').hidden = true;
+  flashBig('🎚️ TAP THE PADS', 1500);
+};
+$('sp-back').onclick = async () => {
+  if (!sampler.buffer) return;
+  await enableAudio();
+  sampleCleanup(); sampler.stop(engine);
+  await matchTempo();
+  if (!ts) return;
+  const startStep = Math.ceil(nextStepAfter(ts, clock.serverNow(), 1200) / 16) * 16;
+  sampler.startBacking(engine, stepTime(ts, startStep), ts.bpm);
+  cmd('sample', `backing|${sampler.name}`);
+  document.body.classList.add('insample');
+  $('sampleui').hidden = true;
+  flashBig('▶ BACKING LOOP', 1200);
+};
+$('sp-stop').onclick = stopSample;
+function stopSample() {
+  sampler.stop(engine);
+  cmd('sample', '');
+  document.body.classList.remove('insample');
+  $('sampleui').hidden = true;
+}
+/** Server state says a sample is active but we have none (Stage was reloaded): clear it so phones aren't stuck. */
+function checkSampleState() {
+  if (ts?.sample && !sampler.buffer) cmd('sample', '');
+  document.body.classList.toggle('insample', !!ts?.sample);
+}
 
 // --------------------------------------------------------------------- QR
 let joinUrl = '';
@@ -525,5 +729,5 @@ function frame(t: number) {
 }
 requestAnimationFrame(frame);
 
-(window as any).ho = { engine, clock, rec, tap }; // console debugging
+(window as any).ho = { engine, clock, rec, gameConductor }; // console debugging
 net.connect();

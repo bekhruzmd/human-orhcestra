@@ -92,7 +92,7 @@ function render() {
     <p>You're <b style="color:${me.color}">this colour</b>. Pick a name.</p>
     <input id="name" maxlength="14" value="${esc(me.name)}" autocomplete="off" autocapitalize="words" />
     <button class="big" id="go">JOIN THE BAND</button>
-    <div class="hint">Turn your volume up. Your phone is an instrument.</div></div>`;
+    <div class="hint">Your phone controls the music. Listen to the Stage.</div></div>`;
   document.getElementById('go')!.onclick = onJoin;
 }
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -163,7 +163,10 @@ function resizePad() {
 function refreshPadLabels() {
   const el = padEl?.querySelector('.padlabel');
   if (!el || !me || !ts) return;
-  if (ts.nowPlaying?.mode === 'tap' && me.role !== 'drums') { el.innerHTML = '<span>👆 TAP ANYWHERE · HOLD TO KEEP PLAYING</span>'; return; }
+  const yl = padEl.querySelector<HTMLElement>('.ylabel');
+  if (yl) yl.style.display = sampleMode() ? 'none' : '';
+  if (sampleMode()) { el.innerHTML = '<span>🎚️ EACH PAD = A SLICE OF THE TRACK</span>'; return; }
+  if (ts.nowPlaying) { el.innerHTML = '<span>♫ SONG PREVIEW · LISTEN ON STAGE</span>'; return; }
   if (ts.freestyle && me.role !== 'drums') { el.innerHTML = '<span>LOW ◂</span><span>FREESTYLE</span><span>▸ HIGH</span>'; return; }
   el.innerHTML = padLabels(me.role, ts).map((l) => `<span>${l}</span>`).join('');
 }
@@ -198,8 +201,8 @@ async function openSongs() {
     ...custom.map((c) => ({ id: `file:${c.file}`, title: c.name, sub: 'your file' })),
   ];
   sheet.innerHTML = `<div class="card"><h3>Pick a song</h3>
-    <div style="display:flex;gap:8px"><button class="tog ${reqMode === 'tap' ? 'on' : ''}" data-m="tap">👆 I tap, it plays</button><button class="tog ${reqMode === 'band' ? 'on' : ''}" data-m="band">🎸 Band plays</button></div>
-    ${items.map((i) => `<button class="rolebtn" data-id="${i.id}" style="font-size:18px">${i.title}<small style="margin-left:auto;color:var(--dim);font-size:12px">${i.sub}</small></button>`).join('')}
+    <div style="display:flex;gap:8px"><button class="tog ${reqMode === 'tap' ? 'on' : ''}" data-m="tap">🎮 Play along</button><button class="tog ${reqMode === 'band' ? 'on' : ''}" data-m="band">♫ Listen</button></div>
+    ${items.map((i) => `<button class="rolebtn" data-id="${esc(i.id)}" style="font-size:18px">${esc(i.title)}<small style="margin-left:auto;color:var(--dim);font-size:12px">${i.sub}</small></button>`).join('')}
     <button class="rolebtn" data-id="" style="font-size:18px">■ Stop song</button>
     <button class="rolebtn" data-x="1" style="font-size:18px">Close</button></div>`;
   sheet.onclick = (e) => {
@@ -260,8 +263,12 @@ function leadMs() {
 let lastStep = -1;
 const fires: { at: number; col: number; v: number }[] = []; // visual "your note sounds now" events
 
+/** Sampler mode: the pad is a 4x4 grid of slices of the file loaded on the Stage (index = row*4 + col, reading order). */
+const sampleMode = () => !!ts && ts.sample?.mode === 'chop' && !ts.game && !ts.freestyle;
+const sampleCell = (x: number, y: number) => Math.min(3, Math.floor((1 - y) * 4)) * 4 + Math.min(3, Math.floor(x * 4));
+
 function emit(col: number, vel: number, opts: { role?: Role; dur?: number } = {}) {
-  if (!ts || !me || !clock.isLocked) return;
+  if (!ts || !me || !clock.isLocked || ts.game || ts.nowPlaying) return;
   // Beat-quantisation: the earliest 16th boundary far enough in the future, and never the same step twice.
   let step = nextStepAfter(ts, clock.serverNow(), leadMs());
   if (step <= lastStep) step = lastStep + 1;
@@ -271,7 +278,7 @@ function emit(col: number, vel: number, opts: { role?: Role; dur?: number } = {}
   const v = clamp(vel, 0.1, 1);
   net.send({ t: 'note', step, d: col, v, dur, role: opts.role });
   if (role === me.role) fires.push({ at: stepTime(ts, step), col, v });
-  if (speakerOn) {
+  if (speakerOn && !ts.nowPlaying && !ts.sample) {
     const ev: NoteEvent = { pid: me.id, role, step, d: col, v, dur };
     engine.play(ev);
   }
@@ -295,6 +302,11 @@ function bindPad() {
     const p = read(e);
     touch = { x: p.x, y: p.y, col: p.col, vel: 0.3 + 0.7 * p.y };
     if (ts?.freestyle) { rawSend('d', p.x, p.y); ripples.push({ x: p.x, y: p.y, t: performance.now() }); return; }
+    if (sampleMode()) { // slice pad: position picks the slice, no velocity from height
+      touch.col = sampleCell(p.x, p.y); touch.vel = 0.85;
+      emit(touch.col, touch.vel); ripples.push({ x: p.x, y: p.y, t: performance.now() });
+      return;
+    }
     emit(p.col, touch.vel);
     ripples.push({ x: p.x, y: p.y, t: performance.now() });
     sendCtl(true);
@@ -307,6 +319,11 @@ function bindPad() {
       const now = performance.now();
       if (now - lastRawMove > 40) { lastRawMove = now; rawSend('m', p.x, p.y); }
       touch.col = p.col;
+      return;
+    }
+    if (sampleMode()) {
+      const c = sampleCell(p.x, p.y);
+      if (c !== touch.col) { touch.col = c; emit(c, 0.85); ripples.push({ x: p.x, y: p.y, t: performance.now() }); }
       return;
     }
     if (p.col !== touch.col) { touch.col = p.col; emit(p.col, touch.vel); ripples.push({ x: p.x, y: p.y, t: performance.now() }); }
@@ -335,7 +352,7 @@ function sendCtl(force: boolean) {
 /** Held finger => repeat the note on the role's own rhythm (8ths for melody, quarters for bass, once a bar for pads). */
 function tickHold() {
   if (!touch || !ts || !me || ts.freestyle) return;
-  const period = HOLD_REPEAT[me.role];
+  const period = ts.sample?.mode === 'chop' ? 4 : HOLD_REPEAT[me.role]; // holding a slice pad re-triggers it every beat
   if (!period) return;
   const target = nextStepAfter(ts, clock.serverNow(), leadMs());
   if (target > lastStep && target % period === 0) emit(touch.col, touch.vel);
@@ -395,6 +412,7 @@ function frame(t: number) {
   requestAnimationFrame(frame);
   if (!ts || !clock.isLocked) return;
   const b = beats.frame(clock, ts, t);
+  syncGame();
   game.frame(t);
 
   // The synchronised flash. Pure function of the synced clock.
@@ -411,7 +429,9 @@ function frame(t: number) {
   if (b.newBeat) {
     navigator.vibrate?.(b.downbeat ? 28 : 10);
     beatDots.forEach((d, i) => { d.classList.toggle('on', i === b.beatInBar); d.classList.toggle('d', i === b.beatInBar && b.downbeat); });
-    if (chordEl && ts.nowPlaying) chordEl.innerHTML = `♪ <b>${ts.nowPlaying.title.replace(/[<>&]/g, '')}</b> · ${ts.nowPlaying.mode === 'tap' ? (me?.role === 'drums' ? 'drummer: tap or shake' : 'TAP ANYWHERE to play it') : 'jam along'}`;
+    if (chordEl && sampleMode()) chordEl.innerHTML = `🎚️ <b>${ts.sample!.title.replace(/[<>&]/g, '')}</b> · tap pads: each plays a slice · hold to repeat`;
+    else if (chordEl && ts.sample?.mode === 'backing') chordEl.innerHTML = `▶ <b>${ts.sample.title.replace(/[<>&]/g, '')}</b> · backing loop · play along`;
+    else if (chordEl && ts.nowPlaying) chordEl.innerHTML = `♪ <b>${ts.nowPlaying.title.replace(/[<>&]/g, '')}</b> · listen on Stage`;
     else if (chordEl && ts.freestyle) chordEl.innerHTML = '🎤 <b>FREESTYLE</b> · play anything, it becomes a song';
     else if (chordEl) {
       const step = Math.floor(stepPos(ts, b.serverMs));
@@ -426,8 +446,34 @@ function frame(t: number) {
 }
 requestAnimationFrame(frame);
 
+function drawSamplePad(w: number, h: number, serverMs: number) {
+  if (!me) return;
+  let fireCell = -1;
+  while (fires.length && fires[0].at <= serverMs) { fireCell = fires.shift()!.col; }
+  const gap = 6, cw = (w - gap * 5) / 4, ch = (h - gap * 5) / 4;
+  for (let i = 0; i < 16; i++) {
+    const x = gap + (i % 4) * (cw + gap), y = gap + Math.floor(i / 4) * (ch + gap);
+    const on = touch?.col === i, fire = fireCell === i;
+    padCtx.fillStyle = hexA(me.color, fire ? 0.85 : on ? 0.55 : 0.14 + 0.05 * ((i + Math.floor(i / 4)) % 2));
+    padCtx.beginPath(); padCtx.roundRect(x, y, cw, ch, 14); padCtx.fill();
+    padCtx.fillStyle = 'rgba(255,255,255,.55)'; padCtx.font = '800 20px ui-rounded, system-ui, sans-serif'; padCtx.textAlign = 'center'; padCtx.textBaseline = 'middle';
+    padCtx.fillText(String(i + 1), x + cw / 2, y + ch / 2);
+  }
+  padCtx.textAlign = 'left';
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    const r = ripples[i], age = (performance.now() - r.t) / 600;
+    if (age > 1) { ripples.splice(i, 1); continue; }
+    padCtx.strokeStyle = hexA(me.color, 1 - age); padCtx.lineWidth = 4 * (1 - age) + 1;
+    padCtx.beginPath(); padCtx.arc(r.x * w, (1 - r.y) * h, 20 + age * 70, 0, Math.PI * 2); padCtx.stroke();
+  }
+}
+
+let padW = 0, padH = 0;
 function drawPad(t: number, serverMs: number) {
   if (!me || !ts) return;
+  // The text line above the pad can wrap onto two lines, which changes the pad's height: keep the bitmap in step.
+  if (padEl.clientWidth !== padW || padEl.clientHeight !== padH) { padW = padEl.clientWidth; padH = padEl.clientHeight; resizePad(); }
+  if (sampleMode()) { padCtx.clearRect(0, 0, padEl.clientWidth, padEl.clientHeight); drawSamplePad(padEl.clientWidth, padEl.clientHeight, serverMs); return; }
   const w = padEl.clientWidth, h = padEl.clientHeight, cols = ts.freestyle && me.role !== 'drums' ? 24 : COLS[me.role];
   padCtx.clearRect(0, 0, w, h);
   const cw = w / cols;

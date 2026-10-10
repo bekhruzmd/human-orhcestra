@@ -14,7 +14,7 @@
  *     to the scheduling lead) - never *when* the note sounds.
  */
 
-import type { GameState, GameStats, Difficulty } from './game.js';
+import type { GameState, GameStats, Difficulty, GameSong } from './game.js';
 export type { GameState, GameStats, Difficulty } from './game.js';
 
 export type Role = 'drums' | 'bass' | 'melody' | 'pads';
@@ -64,10 +64,12 @@ export interface TransportState {
   speakerMode: boolean;
   /** Freestyle jam: no quantising, no scale lock. Phones stream raw gestures; the Stage records them. */
   freestyle: boolean;
-  /** Song currently looping on the Stage. 'tap' = every phone tap plays the song's next melody note. */
+  /** Song preview currently looping on the Stage. 'tap' is retained for older clients. */
   nowPlaying: { title: string; mode: 'band' | 'tap' } | null;
   /** Rhythm game in progress (tempo, key and roles are locked while this is set). */
   game: GameState | null;
+  /** An uploaded audio file is loaded on the Stage. 'chop': phones play its slices; 'backing': it loops under the band. */
+  sample: { title: string; mode: 'chop' | 'backing' } | null;
 }
 
 export const stepMs = (bpm: number) => 60000 / bpm / STEPS_PER_BEAT;
@@ -150,12 +152,13 @@ export type ClientMsg =
   | { t: 'role'; role: Role }
   | { t: 'speaker'; on: boolean }
   | { t: 'note'; step: number; d: number; v: number; dur: number; role?: Role; midi?: number[] }
-  | { t: 'game'; action: 'start' | 'stop'; songId?: string; difficulty?: Difficulty }
+  | { t: 'game'; action: 'start' | 'stop'; songId?: string; song?: GameSong; difficulty?: Difficulty }
+  | { t: 'ghit'; startStep: number; step: number }
   | { t: 'gstats'; s: GameStats }
   | { t: 'ctl'; y: number; tilt: number }
   | { t: 'raw'; k: RawKind; at: number; x: number; y: number; v?: number }
   | { t: 'songreq'; id: string; mode: 'band' | 'tap' }
-  | { t: 'cmd'; cmd: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'freestyle' | 'nowplaying'; value?: number | string | boolean };
+  | { t: 'cmd'; cmd: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'freestyle' | 'nowplaying' | 'sample'; value?: number | string | boolean };
 
 export type ServerMsg =
   | { t: 'welcome'; you: PlayerInfo | null; state: TransportState; serverNow: number }
@@ -163,6 +166,8 @@ export type ServerMsg =
   | { t: 'state'; state: TransportState }
   | { t: 'roster'; players: PlayerInfo[] }
   | ({ t: 'note' } & NoteEvent)
+  | { t: 'ghit'; startStep: number; step: number; pid: string; role: Role }
+  | { t: 'error'; message: string }
   | { t: 'ctl'; pid: string; y: number; tilt: number }
   | { t: 'raw'; pid: string; role: Role; k: RawKind; at: number; x: number; y: number; v?: number }
   | { t: 'songreq'; pid: string; name: string; id: string; mode: 'band' | 'tap' }

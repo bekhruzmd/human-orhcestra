@@ -31,7 +31,7 @@ export class Engine {
   private limiter!: Tone.Limiter;
   private revBus!: Tone.Reverb;
   private delBus!: Tone.FeedbackDelay;
-  private voices = new Map<string, { voice: Voice; role: Role; used: number; lastT: number }>();
+  private voices = new Map<string, { voice: Voice; role: Role; used: number; lastT: number; sends: Tone.Gain[] }>();
   private fxKit: DrumKit | null = null;
   private lastDropStart = -1;
   private ts: TransportState | null = null;
@@ -62,17 +62,52 @@ export class Engine {
   get tap(): Tone.ToneAudioNode { return this.limiter; }
   get context() { return Tone.getContext().rawContext as AudioContext; }
 
+  // ---------------------------------------------------------------- uploaded audio
+  private samples = new Set<Tone.ToneBufferSource>();
+  /** Decode compressed audio (mp3/wav/m4a/ogg) with the browser's own decoder. */
+  decode(data: ArrayBuffer): Promise<AudioBuffer> { return Tone.getContext().decodeAudioData(data); }
+
+  /**
+   * Play part of an uploaded file at a server time. `rate` re-times it to the transport tempo (transportBpm /
+   * fileBpm), so a slice or a loop stays on the shared grid. Feeds the master bus, so the recorder hears it.
+   */
+  playSample(buf: Tone.ToneAudioBuffer, serverMs: number, offset: number, bufSeconds: number, rate: number, gain: number, loop?: { start: number; end: number }): boolean {
+    if (!this.ready) return false;
+    let t = this.ctxTime(serverMs);
+    const now = this.context.currentTime;
+    if (t < now) { if (now - t > 0.25 && !loop) return false; t = now + 0.005; } // late: play ASAP, unless hopelessly stale
+    const src = new Tone.ToneBufferSource({ url: buf, playbackRate: rate, fadeIn: 0.004, fadeOut: 0.025 });
+    const g = new Tone.Gain(gain);
+    src.connect(g); g.connect(this.master);
+    if (loop) { src.loop = true; src.loopStart = loop.start; src.loopEnd = loop.end; src.start(t, offset); }
+    else { src.start(t, offset); src.stop(t + bufSeconds / rate); }
+    this.samples.add(src);
+    this.sampleStarts++;
+    src.onended = () => { this.samples.delete(src); try { src.dispose(); g.dispose(); } catch { /* already gone */ } };
+    return true;
+  }
+  sampleStarts = 0;
+  stopSamples() {
+    this.samples.forEach((s) => { try { s.stop(); } catch { /* not started */ } });
+    this.samples.clear();
+  }
+
+  silence() {
+    this.voices.forEach((e) => { e.voice.dispose(); e.sends.forEach((s) => s.dispose()); });
+    this.voices.clear();
+  }
+
   private gameMode = false;
   /** Rhythm-game mode: the pads/keys voice gets a fast attack so a tap speaks immediately (piano-like). */
   setGame(on: boolean) {
     if (on === this.gameMode) return;
     this.gameMode = on;
-    for (const [k, e] of this.voices) if (e.role === 'pads') { e.voice.dispose(); this.voices.delete(k); }
+    this.silence();
   }
 
   setTransport(ts: TransportState) {
     this.ts = ts;
-    this.setGame(!!ts.game);
+    this.setGame(!!ts.game || !!ts.nowPlaying);
     if (!this.ready) return;
     // dotted-eighth echo, locked to tempo
     this.delBus.delayTime.rampTo((60 / ts.bpm) * 0.75, 0.05);
@@ -149,11 +184,11 @@ export class Engine {
     for (const [k, e] of this.voices) if (k.startsWith(pid + '|')) e.voice.ctl(y, tilt);
   }
 
-  /** Drop voices of players that left (keep AUTO voices). */
+  /** Drop departed players' voices; retain the Stage-owned arrangement voices across roster refreshes. */
   prune(livePids: Set<string>) {
     for (const [k, e] of this.voices) {
       const pid = k.split('|')[0];
-      if (!pid.startsWith('auto:') && !livePids.has(pid)) { e.voice.dispose(); this.voices.delete(k); }
+      if (!/^(auto|song|game):/.test(pid) && !livePids.has(pid)) { e.voice.dispose(); e.sends.forEach((s) => s.dispose()); this.voices.delete(k); }
     }
   }
 
@@ -164,10 +199,11 @@ export class Engine {
       const voice = makeVoice(role, pid.startsWith('auto:'), this.gameMode);
       voice.out.connect(this.master);
       // effect sends: pads/melody get a lot of space, bass/drums stay dry
-      const rev = new Tone.Gain(role === 'pads' ? 0.55 : role === 'melody' ? 0.3 : role === 'drums' ? 0.12 : 0).connect(this.revBus);
+      const rev = new Tone.Gain(this.gameMode ? (role === 'pads' ? 0.12 : role === 'melody' ? 0.08 : 0) : (role === 'pads' ? 0.55 : role === 'melody' ? 0.3 : role === 'drums' ? 0.12 : 0)).connect(this.revBus);
       voice.out.connect(rev);
-      if (role === 'melody') voice.out.connect(new Tone.Gain(0.22).connect(this.delBus));
-      e = { voice, role, used: performance.now(), lastT: 0 };
+      const sends = [rev];
+      if (role === 'melody' && !this.gameMode) { const delay = new Tone.Gain(0.22).connect(this.delBus); voice.out.connect(delay); sends.push(delay); }
+      e = { voice, role, used: performance.now(), lastT: 0, sends };
       this.voices.set(k, e);
     }
     return e;
@@ -213,7 +249,7 @@ export class Engine {
   }
 
   dispose() {
-    this.voices.forEach((e) => e.voice.dispose());
+    this.voices.forEach((e) => { e.voice.dispose(); e.sends.forEach((s) => s.dispose()); });
     this.voices.clear();
   }
 }
@@ -222,8 +258,8 @@ export class Engine {
 function makeVoice(role: Role, auto: boolean, punchy = false): Voice {
   const level = auto ? 0.55 : 1; // AUTO parts sit under the humans
   switch (role) {
-    case 'melody': return melodyVoice(level);
-    case 'bass': return bassVoice(level);
+    case 'melody': return punchy ? padVoice(level, true) : melodyVoice(level);
+    case 'bass': return punchy ? padVoice(level * 0.7, true) : bassVoice(level);
     case 'pads': return padVoice(level, punchy);
     case 'drums': return drumVoice(level);
   }

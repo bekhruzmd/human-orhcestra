@@ -13,7 +13,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { getSong } from '../shared/songs.js';
-import { DIFFICULTIES, songSteps, type GameStats } from '../shared/game.js';
+import { DIFFICULTIES, songSteps, validateGameSong, type GameStats } from '../shared/game.js';
 import {
   BPM_MAX, BPM_MIN, COLORS, DROP_BUILD_STEPS, ROLES, STEPS_PER_BAR,
   type ClientMsg, type PlayerInfo, type Role, type ScaleName, type ServerMsg, type TransportState,
@@ -39,11 +39,12 @@ const transport: TransportState = {
   root: 0, // C
   scale: 'minorPent', // default: C minor pentatonic
   drop: null,
-  autoBand: true,
+  autoBand: false,
   speakerMode: false,
   freestyle: false,
   nowPlaying: null,
   game: null,
+  sample: null,
 };
 let dropTimer: NodeJS.Timeout | null = null;
 let gameTimer: NodeJS.Timeout | null = null;
@@ -237,18 +238,25 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       broadcastState(); broadcastRoster();
       return;
     }
-    const song = m.songId ? getSong(m.songId) : undefined;
+    const song = m.song ? validateGameSong(m.song) : m.songId ? getSong(m.songId) : undefined;
     const difficulty = DIFFICULTIES.find((d) => d === m.difficulty);
-    if (!song || !difficulty) return;
+    if (!song || !difficulty) { send(conn.ws, { t: 'error', message: 'Could not start: invalid song or difficulty.' }); return; }
     // One authoritative start: lock the tempo (position stays continuous), then begin on a bar line far enough
     // away for a 4-beat count-in plus network slack. Every phone derives every note time from these numbers.
-    transport.drop = null; transport.freestyle = false; transport.nowPlaying = null;
+    transport.drop = null; transport.freestyle = false; transport.nowPlaying = null; transport.sample = null;
     transport.root = song.root; transport.scale = song.scale;
     setBpm(song.bpm);
     const lead = Math.max(4000, 4 * (60000 / song.bpm) + 1500);
     const startStep = Math.ceil(stepPos(transport, serverNow() + lead) / STEPS_PER_BAR) * STEPS_PER_BAR;
-    transport.game = { songId: song.id, difficulty, startStep, endStep: startStep + songSteps(song) + STEPS_PER_BAR };
-    for (const pl of players.values()) pl.game = null;
+    transport.game = { ...(m.song ? { song } : {}), songId: song.id, difficulty, startStep, endStep: startStep + songSteps(song) + STEPS_PER_BAR };
+    for (const pl of players.values()) {
+      pl.game = null;
+      if (m.song && !song.tracks[pl.role].length) {
+        const available = ROLES.filter((r) => song.tracks[r].length);
+        pl.role = available.find((r) => !joinedPlayers().some((p) => p.id !== pl.id && p.role === r)) ?? available[0];
+        if (pl.conn) send(pl.conn.ws, { t: 'you', you: info(pl) });
+      }
+    }
     // A finished game must not linger: clear it after the results grace period (also covers a Stage that closed).
     if (gameTimer) clearTimeout(gameTimer);
     const endMs = transport.epoch + transport.game.endStep * stepMs(transport.bpm);
@@ -264,7 +272,7 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
   if (m.t === 'cmd') {
     if (conn.kind !== 'stage') return; // only the conductor may change the music
     // While a rhythm game runs, tempo/key/mode are locked: every chart is addressed in steps of THIS tempo.
-    if (transport.game && ['bpm', 'key', 'scale', 'drop', 'freestyle', 'nowplaying'].includes(m.cmd)) return;
+    if (transport.game && ['bpm', 'key', 'scale', 'drop', 'freestyle', 'nowplaying', 'sample'].includes(m.cmd)) return;
     switch (m.cmd) {
       case 'bpm': setBpm(Number(m.value)); break;
       case 'key': transport.root = ((Math.round(Number(m.value)) % 12) + 12) % 12; break;
@@ -273,6 +281,12 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       case 'auto': transport.autoBand = !!m.value; break;
       case 'speakers': transport.speakerMode = !!m.value; break;
       case 'freestyle': transport.freestyle = !!m.value; break;
+      case 'sample': { // value "chop|Title" / "backing|Title" / "" (clear). The audio itself never leaves the Stage.
+        const [mode, ...rest] = String(m.value ?? '').split('|');
+        transport.sample = rest.length && (mode === 'chop' || mode === 'backing') ? { mode, title: rest.join('|').slice(0, 60) } : null;
+        if (transport.sample) { transport.nowPlaying = null; transport.freestyle = false; }
+        break;
+      }
       case 'nowplaying': { // value "tap|Title" / "band|Title" / "" (clear)
         const [mode, ...rest] = String(m.value ?? '').split('|');
         transport.nowPlaying = rest.length && (mode === 'tap' || mode === 'band') ? { mode, title: rest.join('|').slice(0, 60) } : null;
@@ -291,6 +305,11 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       if (!p.joined) {
         const others = joinedPlayers();
         p.joined = true; p.role = pickRole(others); p.color = pickColor(others);
+        const song = transport.game?.song;
+        if (song && !song.tracks[p.role].length) {
+          const available = ROLES.filter((r) => song.tracks[r].length);
+          p.role = available.find((r) => !others.some((pl) => pl.connected && pl.role === r)) ?? available[0];
+        }
       }
       p.name = String(m.name ?? '').trim().slice(0, 14) || p.name;
       broadcastRoster();
@@ -318,6 +337,7 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       broadcast({ t: 'ctl', pid: p.id, y: p.y, tilt: p.tilt }, (c) => c !== conn);
       break;
     case 'songreq': {
+      if (transport.game) return;
       // A phone asks the Stage to load a song (the Stage validates the id against its own list).
       if (typeof m.id !== 'string' || m.id.length > 120 || (m.mode !== 'tap' && m.mode !== 'band')) return;
       broadcast({ t: 'songreq', pid: p.id, name: p.name, id: m.id, mode: m.mode }, (c) => c.kind === 'stage');
@@ -332,7 +352,20 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       broadcast({ t: 'raw', pid: p.id, role: p.role, k: m.k, at, x: Math.max(-1, Math.min(1, +m.x || 0)), y: clamp01(m.y), v: m.v === undefined ? undefined : clamp01(m.v) }, (c) => c.kind === 'stage');
       break;
     }
+    case 'ghit': {
+      const g = transport.game;
+      if (!g || m.startStep !== g.startStep || !Number.isInteger(m.step) || m.step < g.startStep || m.step >= g.endStep) return;
+      const age = now - (transport.epoch + m.step * stepMs(transport.bpm));
+      if (age < -200 || age > 2000) return;
+      conn.noteTimes = conn.noteTimes.filter((t) => now - t < 1000);
+      if (conn.noteTimes.length >= 24) return;
+      conn.noteTimes.push(now);
+      broadcast({ t: 'ghit', startStep: g.startStep, step: m.step, pid: p.id, role: p.role }, (c) => c.kind === 'stage');
+      break;
+    }
     case 'note': {
+      // Song playback is scheduled on Stage. Old clients must never inject off-grid game audio.
+      if (transport.game) return;
       // Guardrail 1: rate limit (a spammy phone can't swamp the stage).
       conn.noteTimes = conn.noteTimes.filter((t) => now - t < 1000);
       if (conn.noteTimes.length >= 24) return;
@@ -346,9 +379,7 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       // *current* transport, so key changes are instant and nobody can send an out-of-key pitch.
       const role: Role = m.role === 'drums' ? 'drums' : p.role; // non-drummers may shake in a hit
       // Explicit pitches are only honoured during a rhythm game (the chart carries the pitch).
-      const midi = transport.game && Array.isArray(m.midi)
-        ? m.midi.slice(0, 4).map((x) => Math.max(0, Math.min(127, Math.round(Number(x) || 0))))
-        : undefined;
+      const midi = undefined;
       broadcast(
         { t: 'note', pid: p.id, role, step, d: Math.max(0, Math.min(15, Math.round(m.d))), v: clamp01(m.v), dur: Math.max(1, Math.min(STEPS_PER_BAR, Math.round(m.dur || 2))), midi },
         (c) => c !== conn,

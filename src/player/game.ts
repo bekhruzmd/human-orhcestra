@@ -8,8 +8,8 @@
  *   tap time  = clock.toServer(pointer event timeStamp)                (so judging ignores frame jitter)
  * so every phone judges against the same timeline the Stage uses to schedule its audio.
  *
- * A correct tap sends a normal `note` message carrying the CHART's step and pitch: the Stage plays it at the
- * chart's exact time (early taps sound perfectly on-grid). A missed note is simply never sent: nothing plays.
+ * Hits report participation. The Stage schedules the arrangement ahead independently of packet arrival;
+ * successful taps lift upcoming notes without replaying notes that are already in the past.
  */
 import type { ClockSync } from '../common/clock';
 import type { Net } from '../common/net';
@@ -43,6 +43,7 @@ export class GameUI {
   private stats: GameStats = emptyStats();
   private lastSent = '';
   private finished = false;
+  private timingMs = readTiming();
   private lanes = 2;
   private feedback: { text: string; color: string; t: number } | null = null;
   private laneFlash: number[] = [];
@@ -58,14 +59,15 @@ export class GameUI {
   sync(ts: TransportState | null, me: PlayerInfo | null) {
     const g = ts?.game;
     if (!g || !me) { if (this.el) this.stop(); return; }
-    const key = `${g.songId}:${g.difficulty}:${g.startStep}`;
+    if (!this.d.clock.isLocked) return;
+    const key = `${g.songId}:${g.difficulty}:${g.startStep}:${me.role}`;
     if (key !== this.key || !this.el) this.start(ts!, me, key);
   }
 
   private start(ts: TransportState, me: PlayerInfo, key: string) {
     this.stop();
     const g = ts.game!;
-    const song = getSong(g.songId);
+    const song = g.song ?? getSong(g.songId);
     if (!song) return;
     this.key = key;
     this.chart = buildChart(song, me.role, g.difficulty);
@@ -77,7 +79,7 @@ export class GameUI {
     this.feedback = null;
     this.bursts = [];
     // late joiner: notes already gone are skipped (not counted as misses)
-    const now = this.d.clock.serverNow(), good = DIFF[g.difficulty].good;
+    const now = this.d.clock.serverNow() - this.timingMs, good = DIFF[g.difficulty].good;
     this.chart.forEach((n, i) => { if (stepTime(ts, g.startStep + n.step) < now - good) this.status[i] = 3; });
     this.stats = emptyStats(this.status.filter((s) => s === 0).length);
     this.lastSent = '';
@@ -87,17 +89,23 @@ export class GameUI {
     el.className = 'game';
     el.innerHTML = `
       <div class="ghud">
-        <div class="gs"><b>${inst.icon} ${inst.name}</b><small>${song.title} · ${g.difficulty.toUpperCase()}</small></div>
+        <div class="gs"><b>${inst.icon} ${inst.name}</b><small>${escapeHtml(song.title)} · ${g.difficulty.toUpperCase()}</small></div>
         <div class="gscore"><b id="g-score">0</b><small id="g-acc">accuracy –</small></div>
         <div class="gcombo"><b id="g-combo">0</b><small>COMBO</small></div>
       </div>
-      <canvas id="g-canvas"></canvas>
-      <div class="glabels">${this.laneLabels(me)}</div>`;
+      <div class="ghelp">Follow the tune · hits lift your instrument · sound on Stage</div><canvas id="g-canvas"></canvas>
+      <div class="glabels">${this.laneLabels(me)}</div>
+      <div class="gtiming"><button id="g-earlier" aria-label="Move hit timing 10 milliseconds earlier">−</button><span id="g-timing"></span><button id="g-later" aria-label="Move hit timing 10 milliseconds later">+</button></div>`;
     this.app.appendChild(el);
     this.el = el;
     this.canvas = el.querySelector('canvas')!;
     this.ctx = this.canvas.getContext('2d')!;
     this.hud = { score: el.querySelector('#g-score')!, combo: el.querySelector('#g-combo')!, acc: el.querySelector('#g-acc')! };
+    const timing = () => { el.querySelector('#g-timing')!.textContent = `Timing ${this.timingMs > 0 ? '+' : ''}${this.timingMs} ms · + if sound feels late`; };
+    const adjust = (delta: number) => { this.timingMs = Math.max(-200, Math.min(200, this.timingMs + delta)); try { localStorage.setItem('ho.game.timing', String(this.timingMs)); } catch {} timing(); };
+    el.querySelector<HTMLButtonElement>('#g-earlier')!.onclick = () => adjust(-10);
+    el.querySelector<HTMLButtonElement>('#g-later')!.onclick = () => adjust(10);
+    timing();
     this.resize();
     addEventListener('resize', this.onResize);
     this.canvas.onpointerdown = (e) => { e.preventDefault(); this.tap(e); };
@@ -131,11 +139,12 @@ export class GameUI {
   // ---------------------------------------------------------------- input
   private tap(e: PointerEvent) {
     const ts = this.d.getTs(), me = this.d.getMe();
-    if (!ts?.game || !me || this.finished) return;
+    if (!ts?.game || !me || this.finished || !this.d.clock.isLocked || !this.d.net.connected) return;
     const g = ts.game, rect = this.canvas.getBoundingClientRect();
     const lane = Math.max(0, Math.min(this.lanes - 1, Math.floor(((e.clientX - rect.left) / rect.width) * this.lanes)));
     this.laneFlash[lane] = 1;
-    const tTap = this.d.clock.toServer(e.timeStamp || performance.now());
+    const local = e.timeStamp > 1e12 ? e.timeStamp - performance.timeOrigin : e.timeStamp || performance.now();
+    const tTap = this.d.clock.toServer(local) - this.timingMs;
     const spec = DIFF[g.difficulty];
 
     // closest unresolved note in this lane within the GOOD window
@@ -155,8 +164,8 @@ export class GameUI {
     this.say(j === 'perfect' ? 'PERFECT' : 'GOOD', j === 'perfect' ? '#7cff6b' : '#ffd23f');
     this.bursts.push({ x: (lane + 0.5) / this.lanes, y: HIT_Y, t: performance.now(), color: LANE_COLORS[this.lanes][lane] });
     navigator.vibrate?.(8);
-    // the NOTE's own step and pitch: the Stage plays it at the chart time
-    this.d.net.send({ t: 'note', step: g.startStep + n.step, d: n.d ?? 0, v: n.v, dur: n.dur, midi: n.midi });
+    // Report participation; the Stage never retriggers a past note.
+    this.d.net.send({ t: 'ghit', startStep: g.startStep, step: g.startStep + n.step });
     this.updateHud();
   }
 
@@ -180,7 +189,7 @@ export class GameUI {
     const ts = this.d.getTs();
     if (!this.el || !ts?.game || !this.d.clock.isLocked) return;
     const g = ts.game, spec = DIFF[g.difficulty];
-    const now = this.d.clock.toServer(rafTime);
+    const now = this.d.clock.toServer(rafTime) - this.timingMs;
     const noteT = (n: ChartNote) => stepTime(ts, g.startStep + n.step);
 
     // notes that slipped past the GOOD window become misses
@@ -194,7 +203,7 @@ export class GameUI {
         this.updateHud();
       }
     }
-    if (!this.finished && this.chart.length && now > noteT(this.chart[this.chart.length - 1]) + spec.good + 400) {
+    if (!this.finished && now > stepTime(ts, g.endStep)) {
       this.finished = true;
       this.report(true);
       this.showResults();
@@ -307,7 +316,7 @@ export class GameUI {
   upcoming() {
     const ts = this.d.getTs();
     if (!ts?.game) return null;
-    const now = this.d.clock.serverNow();
+    const now = this.d.clock.serverNow() - this.timingMs;
     for (let i = this.cursor; i < this.chart.length; i++) if (this.status[i] === 0) {
       return { lane: this.chart[i].lane, inMs: stepTime(ts, ts.game.startStep + this.chart[i].step) - now, lanes: this.lanes, id: i };
     }
@@ -321,3 +330,7 @@ function round(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h
   ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
   ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
 }
+
+function escapeHtml(s: string) { return s.replace(/[&<>"\']/g, (c) => `&#${c.charCodeAt(0)};`); }
+
+function readTiming() { try { const n = Number(localStorage.getItem('ho.game.timing')); return Number.isFinite(n) ? Math.max(-200, Math.min(200, n)) : 0; } catch { return 0; } }

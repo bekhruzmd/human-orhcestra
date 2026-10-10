@@ -65,5 +65,28 @@ const again = client('player', 'p-b');
 await sleep(600);
 check(again.me?.role === 'bass' && again.me?.name === 'P1', 'reconnect restores role + name');
 
+// Imported songs are distributed once with the start; legacy notes never reach the audio path.
+const imported = { id: 'import:smoke', title: 'Imported tune', artist: 'Test', bpm: 120, bars: 4, root: 0, scale: 'majorPent', rating: 1,
+  tracks: { drums: [], bass: [], pads: [], melody: [{ step: 0, dur: 4, v: 0.8, midi: [60] }, { step: 4, dur: 4, v: 0.8, midi: [64] }] } };
+stage.ws.send(JSON.stringify({ t: 'game', action: 'start', song: imported, difficulty: 'easy' }));
+await sleep(200);
+check(stage.ts?.game?.song?.tracks.melody[1].midi?.[0] === 64, 'custom arrangement reaches clients without repitching');
+check(phones[0].me.role === 'melody' && again.me.role === 'melody', 'players move to an instrument present in a melody-only import');
+const late = client('player', 'late-import');
+await sleep(200);
+late.ws.send(JSON.stringify({ t: 'join', name: 'Late' }));
+await sleep(200);
+check(late.me?.role === 'melody', 'late joiner gets a playable imported-song role');
+const noteCount = stage.log.filter((m) => m.t === 'note').length;
+phones[0].ws.send(JSON.stringify({ t: 'note', step: stage.ts!.game!.startStep, d: 0, v: 1, dur: 1, midi: [60] }));
+await sleep(100);
+check(stage.log.filter((m) => m.t === 'note').length === noteCount, 'legacy game note packets cannot duplicate or scramble the arrangement');
+stage.ws.send(JSON.stringify({ t: 'game', action: 'start', song: { ...imported, bpm: 0 }, difficulty: 'easy' }));
+await sleep(100);
+check(stage.log.some((m) => m.t === 'error') && stage.ts?.game?.song?.bpm === 120, 'invalid import produces an error without replacing the active song');
+stage.ws.send(JSON.stringify({ t: 'game', action: 'stop' }));
+await sleep(100);
+check(stage.ts?.game === null, 'stop clears imported game');
+
 console.log(failed ? `\n${failed} FAILED` : '\nall good');
 process.exit(failed ? 1 : 0);
