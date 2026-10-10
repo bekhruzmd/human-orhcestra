@@ -89,6 +89,17 @@ app.innerHTML = `
     <div class="more-controls">
     <button class="btn" id="sync-test">SYNC TEST: OFF</button>
     <button class="btn" id="how-open">HOW IT WORKS <kbd>W</kbd></button>
+    <section class="preflight" aria-labelledby="preflight-title">
+      <div class="preflight-head"><b id="preflight-title">DEMO PREFLIGHT</b><button class="btn" id="local-fallback">OPEN PLAYER HERE</button></div>
+      <p id="preflight-warning" role="status" aria-live="polite" hidden></p>
+      <div class="preflight-grid">
+        <div><small>TUNNEL / URL</small><b id="pf-tunnel">CHECKING…</b></div>
+        <div><small>STAGE AUDIO</small><b id="pf-audio">OFF</b></div>
+        <div><small>PHONES</small><b id="pf-phones">0</b></div>
+        <div><small>AVG PHONE RTT</small><b id="pf-rtt">–</b></div>
+        <div><small>STAGE LATE NOTES</small><b id="pf-late">0</b></div>
+      </div>
+    </section>
   <div class="cond-cluster transport-cluster">
     <div class="ctl"><span class="lbl">TEMPO <b id="bpmv"></b></span><input id="bpmr" type="range" min="${BPM_MIN}" max="${BPM_MAX}" step="1" aria-label="Tempo" /></div>
     <div class="ctl"><span class="lbl">KEY</span><select id="key" aria-label="Key">${NOTE_NAMES.map((n, i) => `<option value="${i}">${n}</option>`).join('')}</select></div>
@@ -205,7 +216,7 @@ net.on('pong', (m) => clock.onPong(m));
 net.on('welcome', (m) => { ts = m.state; wasFree = m.state.freestyle; engine.setTransport(m.state); syncControls(); onGameChange(); syncJam(); });
 net.on('state', (m) => { ts = m.state; engine.setTransport(m.state); syncControls(); onFreestyleChange(); onGameChange(); syncJam(); checkSampleState(); });
 net.on('raw', (r) => onRaw(r));
-net.on('roster', (m) => { roster = m.players; engine.prune(new Set(roster.map((p) => p.id))); renderRoster(); });
+net.on('roster', (m) => { roster = m.players; engine.prune(new Set(roster.map((p) => p.id))); renderRoster(); updatePreflight(); });
 net.on('ctl', (m) => engine.ctl(m.pid, m.y, m.tilt));
 net.on('note', (ev) => {
   if (ts?.paused != null) return;
@@ -316,6 +327,9 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 const done = (g: { perfect: number; good: number; miss: number }) => ({ perfect: g.perfect, good: g.good, total: g.perfect + g.good + g.miss });
 const cmd = (c: 'bpm' | 'pause' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'syncTest' | 'freestyle' | 'nowplaying' | 'sample' | 'recordingStart' | 'recordingStop', value?: number | string | boolean) => net.send({ t: 'cmd', cmd: c, value });
 let demoStep = 0;
+let publicJoinUrl = '';
+let tunnelState: 'checking' | 'up' | 'down' | 'not-needed' = 'checking';
+let fallbackUsed = false;
 function updateDemoUI() {
   const guide = $('demo-guide');
   guide.hidden = demoStep === 0;
@@ -355,6 +369,11 @@ $('drop').onclick = () => cmd('drop');
 $('sync-test').onclick = () => cmd('syncTest', !ts?.syncTest);
 $('how-open').onclick = () => toggleHow(true);
 $('how-close').onclick = () => toggleHow(false);
+$('local-fallback').onclick = () => {
+  window.open(new URL('/', location.origin).toString(), '_blank', 'noopener,noreferrer');
+  fallbackUsed = true;
+  updatePreflight();
+};
 $('pause').onclick = () => cmd('pause', ts?.paused == null);
 $('free').onclick = () => cmd('freestyle', !ts?.freestyle);
 $('play').onclick = () => openGamePicker();
@@ -608,6 +627,45 @@ function syncControls() {
   $('sessrec').textContent = ts.recording ? `■ STOP (${ts.recording.events})` : 'RECORD';
   $('keyline').textContent = `${NOTE_NAMES[ts.root]} ${SCALE_LABEL[ts.scale]}${audioOn ? ' · SOUND ON' : ''}`;
   $('bpm').textContent = String(ts.bpm);
+  updatePreflight();
+}
+
+function updatePreflight() {
+  const live = humans().filter((p) => p.connected && p.sync);
+  const rtt = live.length ? live.reduce((sum, p) => sum + p.sync!.rttLast, 0) / live.length : NaN;
+  $('pf-tunnel').textContent = tunnelState === 'up' ? 'REACHABLE' : tunnelState === 'not-needed' ? 'HTTPS READY' : tunnelState === 'down' ? 'NOT READY' : 'CHECKING…';
+  $('pf-tunnel').className = tunnelState === 'up' || tunnelState === 'not-needed' ? 'ready' : tunnelState === 'down' ? 'not-ready' : '';
+  $('pf-audio').textContent = audioOn && engine.ready ? 'ENABLED' : 'OFF · CLICK SOUND';
+  $('pf-audio').className = audioOn && engine.ready ? 'ready' : 'not-ready';
+  $('pf-phones').textContent = `${humans().length} CONNECTED`;
+  $('pf-phones').className = humans().length ? 'ready' : 'not-ready';
+  $('pf-rtt').textContent = Number.isFinite(rtt) ? `${fmt(rtt, 1)} ms` : 'WAITING';
+  $('pf-late').textContent = String(engine.lateCount);
+  const warning = $('preflight-warning');
+  const localHttp = location.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+  warning.hidden = tunnelState !== 'down' || !localHttp;
+  warning.textContent = fallbackUsed
+    ? 'Tunnel is still unavailable. Use the player tab opened on this laptop; if it did not appear, allow pop-ups and try again.'
+    : 'Tunnel is not reachable yet. Start `npm run demo` and wait for the HTTPS URL, or open the player on this laptop below.';
+}
+
+async function checkJoinReachability() {
+  if (location.protocol === 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)) {
+    tunnelState = 'not-needed'; updatePreflight(); return;
+  }
+  try {
+    const response = await fetch('/api/info', { cache: 'no-store', signal: AbortSignal.timeout(2500) });
+    const info: { publicUrl?: string | null; lanUrls?: string[] } = await response.json();
+    publicJoinUrl = info.publicUrl ?? '';
+    if (!publicJoinUrl) { tunnelState = 'down'; updatePreflight(); return; }
+    try {
+      const reachable = await fetch(publicJoinUrl, { mode: 'no-cors', cache: 'no-store', signal: AbortSignal.timeout(3500) });
+      tunnelState = reachable.type === 'opaque' || reachable.ok ? 'up' : 'down';
+    } catch { tunnelState = 'down'; }
+    updatePreflight();
+  } catch {
+    tunnelState = 'down'; updatePreflight();
+  }
 }
 
 // ------------------------------------------------------- freestyle + songs
@@ -1073,10 +1131,12 @@ function checkSampleState() {
 let joinUrl = '';
 async function refreshJoinUrl() {
   let url = location.origin;
-  if (['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)) {
+  const localHost = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+  if (location.protocol === 'http:') {
     try {
       const info = await (await fetch('/api/info', { cache: 'no-store' })).json();
-      url = info.publicUrl ?? info.lanUrls?.[0] ?? location.origin;
+      publicJoinUrl = info.publicUrl ?? '';
+      url = publicJoinUrl || (localHost ? info.lanUrls?.[0] ?? location.origin : location.origin);
     } catch { /* keep origin */ }
   }
   if (url !== joinUrl) {
@@ -1086,7 +1146,9 @@ async function refreshJoinUrl() {
     $('warn').textContent = url.startsWith('https') ? '' : 'http only: phones can’t use shake/tilt. Run `npm run demo` for HTTPS.';
   }
 }
-refreshJoinUrl(); setInterval(refreshJoinUrl, 4000);
+refreshJoinUrl(); checkJoinReachability();
+setInterval(refreshJoinUrl, 4000);
+setInterval(checkJoinReachability, 5000);
 
 // -------------------------------------------------------------------- frame
 const bigEl = $('big');
