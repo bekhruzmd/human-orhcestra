@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-10T00:00:00.000Z",
+  "title": "Design System: Human Orchestra",
+  "extensions": {
+    "colorMeta": {
+      "bg-night": { "role": "neutral", "displayName": "CRT Black", "canonical": "#07070d", "tonalRamp": ["#07070d", "#12121c", "#1e1e2b"] },
+      "panel-deep": { "role": "neutral", "displayName": "Panel Deep", "canonical": "#12121c", "tonalRamp": ["#12121c", "#16161f", "#2b2b3b"] },
+      "text-main": { "role": "neutral", "displayName": "Phosphor White", "canonical": "#f4f4fb", "tonalRamp": ["#8b8ba3", "#cfd0e6", "#f4f4fb"] },
+      "accent-cyan": { "role": "primary", "displayName": "Arcade Cyan", "canonical": "#35d0ff", "tonalRamp": ["#1c6e86", "#35d0ff", "#8fe8ff"] },
+      "accent-lime": { "role": "secondary", "displayName": "Signal Lime", "canonical": "#7cff6b", "tonalRamp": ["#3b7f31", "#7cff6b", "#b9ffaa"] },
+      "accent-gold": { "role": "tertiary", "displayName": "Cabinet Gold", "canonical": "#ffd23f", "tonalRamp": ["#8f7120", "#ffd23f", "#ffe897"] },
+      "accent-red": { "role": "error", "displayName": "Alert Red", "canonical": "#ff4d6d", "tonalRamp": ["#8d2a3b", "#ff4d6d", "#ff9aab"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Big stage moments, grades, countdowns, and critical HUD figures." },
+      "headline": { "displayName": "Headline", "purpose": "Section and modal headings requiring rapid scan." },
+      "title": { "displayName": "Title", "purpose": "Component-level emphasis in cards and roster entries." },
+      "body": { "displayName": "Body", "purpose": "Operational helper text and metadata." },
+      "label": { "displayName": "Label", "purpose": "Telemetry labels, chips, and control legends." }
+    },
+    "shadows": [
+      { "name": "accent-glow-soft", "value": "0 0 12px currentColor", "purpose": "Beat dots, subtle active indicators." },
+      { "name": "accent-glow-hero", "value": "0 0 60px currentColor", "purpose": "High-impact grade or hero-state moments." },
+      { "name": "cta-bubble", "value": "0 8px 40px #ff4d6d88", "purpose": "Audio unlock call-to-action prominence." }
+    ],
+    "motion": [
+      { "name": "quick-state", "value": "50ms linear", "purpose": "Fast rhythm-state transitions (beat dots, flashes)." },
+      { "name": "ui-state", "value": "120ms ease", "purpose": "General visibility and scale transitions." },
+      { "name": "pulse-loop", "value": "1000ms ease-in-out infinite", "purpose": "Freestyle active pulse state." }
+    ],
+    "breakpoints": [
+      { "name": "phone", "value": "390px" },
+      { "name": "stage-default", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Stage Primary Action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Primary stage actions such as starting gameplay or sampler actions.",
+      "html": "<button class=\"ds-btn-primary\">PLAY A SONG</button>",
+      "css": ".ds-btn-primary { background: linear-gradient(135deg, #7cff6b, #35d0ff); color: #07070d; border: 0; border-radius: 14px; padding: 14px 20px; font: 900 15px/1 ui-rounded, 'SF Pro Rounded', system-ui, -apple-system, sans-serif; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; } .ds-btn-primary:hover { filter: brightness(1.06); } .ds-btn-primary:focus-visible { outline: 2px solid #ffd23f; outline-offset: 2px; }"
+    },
+    {
+      "name": "Neutral Control Button",
+      "kind": "button",
+      "refersTo": "button-base",
+      "description": "Base control button used across conductor and modal controls.",
+      "html": "<button class=\"ds-btn-neutral\">AUTO</button>",
+      "css": ".ds-btn-neutral { background: #12121c; color: #f4f4fb; border: 2px solid rgba(255,255,255,.12); border-radius: 14px; padding: 11px 9px; font: 900 12px/1 ui-rounded, 'SF Pro Rounded', system-ui, -apple-system, sans-serif; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; } .ds-btn-neutral:hover { border-color: rgba(255,255,255,.4); } .ds-btn-neutral:focus-visible { outline: 2px solid #35d0ff; outline-offset: 2px; }"
+    },
+    {
+      "name": "Roster Row",
+      "kind": "card",
+      "refersTo": "panel-card",
+      "description": "Player status row with accent edge for role/identity visibility.",
+      "html": "<article class=\"ds-roster\"><div class=\"ds-roster-main\">🎛️ Alex<small>Synth · connected</small></div><div class=\"ds-roster-metric\">±8 ms</div></article>",
+      "css": ".ds-roster { display: flex; align-items: center; gap: 10px; background: #12121c; color: #f4f4fb; border-left: 6px solid #35d0ff; border-radius: 14px; padding: 9px 12px; } .ds-roster-main { flex: 1; min-width: 0; font: 800 17px/1.2 ui-rounded, 'SF Pro Rounded', system-ui, -apple-system, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .ds-roster-main small { display: block; color: #8b8ba3; font-size: 12px; font-weight: 700; } .ds-roster-metric { font: 800 14px/1 ui-rounded, 'SF Pro Rounded', system-ui, -apple-system, sans-serif; color: #7cff6b; }"
+    },
+    {
+      "name": "Status Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Compact mode/role status chip with accent tint and outline.",
+      "html": "<div class=\"ds-chip\">🎹 PIANO</div>",
+      "css": ".ds-chip { display: inline-flex; align-items: center; gap: 8px; background: color-mix(in srgb, #35d0ff 22%, #16161f); color: #f4f4fb; border: 2px solid #35d0ff; border-radius: 999px; padding: 10px 14px; font: 800 18px/1 ui-rounded, 'SF Pro Rounded', system-ui, -apple-system, sans-serif; }"
+    },
+    {
+      "name": "Modal Panel",
+      "kind": "custom",
+      "refersTo": "panel-card",
+      "description": "Overlay utility panel for song/game/sample flows.",
+      "html": "<section class=\"ds-modal\"><h3>PICK A SONG</h3><p>Choose a tune and start performance.</p></section>",
+      "css": ".ds-modal { background: #12121c; color: #f4f4fb; border: 2px solid #ffd23f; border-radius: 24px; padding: 24px; max-width: 720px; } .ds-modal h3 { margin: 0 0 8px; font: 900 26px/1.1 ui-rounded, 'SF Pro Rounded', system-ui, -apple-system, sans-serif; letter-spacing: 0.02em; } .ds-modal p { margin: 0; color: #8b8ba3; font: 700 14px/1.4 ui-rounded, 'SF Pro Rounded', system-ui, -apple-system, sans-serif; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Neon Arcade Control Deck",
+    "overview": "Human Orchestra presents performance state through high-contrast dark panels and vivid accent coding. The system is operational, legible, and energetic. Product direction now requires a retro 16-color/8-bit pixel identity, so future component and layout work should retain current readability while converging on stricter palette discipline and pixel-informed visuals.",
+    "keyCharacteristics": [
+      "Dark stage-first surfaces",
+      "Neon status semantics",
+      "Observer-readable multiplayer telemetry",
+      "Retro 16-color/8-bit direction is mandatory"
+    ],
+    "rules": [
+      { "name": "16-Color Discipline", "body": "New UI additions should use only named palette tokens and avoid ad hoc hue additions.", "section": "colors" },
+      { "name": "Distance Read", "body": "Primary timing/state labels must remain readable from several feet away on Stage displays.", "section": "typography" },
+      { "name": "Flat Until Active", "body": "Depth and glow are state-driven, not ambient decoration.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do preserve status color semantics when introducing retro styling.",
+      "Do prioritize large targets and high contrast for live event operation.",
+      "Do evolve ornament and iconography toward pixel-art conventions."
+    ],
+    "donts": [
+      "Don't introduce low-contrast pastel themes that reduce readability.",
+      "Don't add unconstrained gradients that conflict with 16-color discipline.",
+      "Don't make critical mode changes visually subtle."
+    ]
+  }
+}

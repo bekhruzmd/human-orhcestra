@@ -49,6 +49,18 @@ export interface DropState {
   dropStep: number;
 }
 
+/** Active recording session controlled by the Stage. */
+export interface RecordingState {
+  /** Stable id used to persist and replay this performance. */
+  sessionId: string;
+  /** Server time (ms) when recording started. */
+  startedAt: number;
+  /** Step position at start; useful for replay offsets. */
+  startStep: number;
+  /** Number of captured events appended so far. */
+  events: number;
+}
+
 /** Everything that defines "where we are" in the music. Broadcast on every change. */
 export interface TransportState {
   bpm: number;
@@ -70,6 +82,8 @@ export interface TransportState {
   game: GameState | null;
   /** An uploaded audio file is loaded on the Stage. 'chop': phones play its slices; 'backing': it loops under the band. */
   sample: { title: string; mode: 'chop' | 'backing' } | null;
+  /** Recording session in progress (null when not recording). */
+  recording: RecordingState | null;
 }
 
 export const stepMs = (bpm: number) => 60000 / bpm / STEPS_PER_BEAT;
@@ -158,7 +172,7 @@ export type ClientMsg =
   | { t: 'ctl'; y: number; tilt: number }
   | { t: 'raw'; k: RawKind; at: number; x: number; y: number; v?: number }
   | { t: 'songreq'; id: string; mode: 'band' | 'tap' }
-  | { t: 'cmd'; cmd: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'freestyle' | 'nowplaying' | 'sample'; value?: number | string | boolean };
+  | { t: 'cmd'; cmd: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'freestyle' | 'nowplaying' | 'sample' | 'recordingStart' | 'recordingStop'; value?: number | string | boolean };
 
 export type ServerMsg =
   | { t: 'welcome'; you: PlayerInfo | null; state: TransportState; serverNow: number }

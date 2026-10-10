@@ -18,11 +18,14 @@
     "test": "tsx scripts/musictest.ts && tsx scripts/composertest.ts && tsx scripts/librarytest.ts && tsx scripts/gametest.ts && tsx scripts/audiotest.ts && tsx scripts/playbacktest.ts && SECS=8 tsx scripts/simtest.ts"
   },
   "dependencies": {
+    "@types/pg": "^8.23.1",
+    "pg": "^8.23.1",
     "qrcode": "^1.5.4",
     "tone": "^15.1.22",
     "ws": "^8.22.0"
   },
   "devDependencies": {
+    "@neon/config": "^1.8.6",
     "@types/node": "^26.6.5",
     "@types/qrcode": "^1.5.6",
     "@types/ws": "^8.18.2",

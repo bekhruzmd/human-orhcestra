@@ -11,7 +11,7 @@ import { toMidi, type Song } from '../src/stage/composer';
 function performanceRun(delay: number | null) {
   const song = SONGS[0];
   let now = 0;
-  const ts: TransportState = { bpm: song.bpm, epoch: 0, root: song.root, scale: song.scale, drop: null, autoBand: false, speakerMode: false, freestyle: false, nowPlaying: null, sample: null,
+  const ts: TransportState = { bpm: song.bpm, epoch: 0, root: song.root, scale: song.scale, drop: null, autoBand: false, speakerMode: false, freestyle: false, nowPlaying: null, sample: null, recording: null,
     game: { difficulty: 'easy', songId: song.id, startStep: 32, endStep: 32 + song.bars * 16 } };
   const events: NoteEvent[] = [];
   const c = new GameConductor({ get isLocked() { return true; }, serverNow: () => now }, () => ts, () => 'human', (ev) => {

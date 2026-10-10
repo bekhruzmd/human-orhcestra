@@ -75,6 +75,7 @@ app.innerHTML = `
   <input id="midifile" type="file" accept=".mid,.midi" hidden />
   <button class="btn" id="auto">AUTO</button>
   <button class="btn" id="spk">📢 SPEAKERS</button>
+  <button class="btn rec" id="sessrec">⏺ START RECORDING</button>
   <button class="btn rec" id="rec">⏺ SAVE 30 s</button>
 </footer>
 <div id="card" hidden></div>
@@ -217,7 +218,7 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 
 // -------------------------------------------------------------- conductor UI
 const done = (g: { perfect: number; good: number; miss: number }) => ({ perfect: g.perfect, good: g.good, total: g.perfect + g.good + g.miss });
-const cmd = (c: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'freestyle' | 'nowplaying' | 'sample', value?: number | string | boolean) => net.send({ t: 'cmd', cmd: c, value });
+const cmd = (c: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'freestyle' | 'nowplaying' | 'sample' | 'recordingStart' | 'recordingStop', value?: number | string | boolean) => net.send({ t: 'cmd', cmd: c, value });
 let bpmTimer = 0;
 $<HTMLInputElement>('bpmr').oninput = (e) => {
   const v = Number((e.target as HTMLInputElement).value);
@@ -244,6 +245,7 @@ $<HTMLInputElement>('midifile').onchange = async (e) => {
 };
 $('auto').onclick = () => cmd('auto', !ts?.autoBand);
 $('spk').onclick = () => cmd('speakers', !ts?.speakerMode);
+$('sessrec').onclick = () => cmd(ts?.recording ? 'recordingStop' : 'recordingStart');
 $('rec').onclick = () => { if (!rec.save()) alert('Nothing recorded yet: enable audio first and play something.'); };
 async function enableAudio() {
   await engine.start(); rec.start().catch((e) => console.warn('recorder unavailable', e));
@@ -263,6 +265,8 @@ function syncControls() {
   $('free').classList.toggle('on', ts.freestyle);
   $('free').textContent = ts.freestyle ? '■ STOP · MAKE SONG' : '🎤 FREESTYLE';
   $('spk').classList.toggle('on', ts.speakerMode);
+  $('sessrec').classList.toggle('on', !!ts.recording);
+  $('sessrec').textContent = ts.recording ? `■ STOP RECORDING (${ts.recording.events})` : '⏺ START RECORDING';
   $('keyline').textContent = `${NOTE_NAMES[ts.root]} ${SCALE_LABEL[ts.scale]}${audioOn ? ' · 🔊' : ''}`;
   $('bpm').textContent = String(ts.bpm);
 }
@@ -721,9 +725,11 @@ function frame(t: number) {
     $('next').textContent = `next ${nx.name}`;
     $('bar').textContent = `${b.bar + 1} · ${b.beatInBar + 1}`;
     const n = humans().length, m = $('mode');
+    const recTag = ts.recording ? ` · REC ${ts.recording.events}` : '';
     if (n === 0) { m.textContent = 'DEMO · AUTO BAND'; m.className = 'mode auto'; }
     else if (n === 1 && ts.autoBand) { m.textContent = 'SOLO · AUTO BAND BACKING'; m.className = 'mode auto'; }
     else { m.textContent = `${n} PLAYERS${autoRoles().length ? ' + AUTO' : ''}`; m.className = 'mode'; }
+    m.textContent += recTag;
     if (rec.seconds > 0) $('rec').textContent = `⏺ SAVE LAST ${Math.floor(rec.seconds)} s`;
   }
 }

@@ -1,5 +1,7 @@
 # Human Orchestra: Project Audit
 
+> **Working-tree update, 2026-10-10 (recording UI + DB/replay plumbing):** added a first-class recording session flow and persistence scaffolding. Stage now has a **⏺ START RECORDING / ■ STOP RECORDING** toggle with a live captured-event counter. Server transport state includes `recording` metadata and records session events across note/game/raw/control flows. Recording data can persist to Postgres when `DATABASE_URL`/Neon env is available (with local in-memory fallback) and is exposed via `GET /api/recordings` and `GET /api/recordings/:id`. Added migration scaffold `db/migrations/0001_recording_sessions.sql` and Neon project wiring (`neon.ts`, CLI link/deploy completed). Local server now reads `.env.local` so Neon-linked DB vars are usable in local runs. Added design-system context artifacts (`PRODUCT.md`, `DESIGN.md`, `.impeccable/design.json`) including the new retro 16-color/8-bit UI direction.
+
 > **Working-tree update, 2026-10-10 (after `90cd05d`):** the original audit below is historical. The user tested on a real phone and reported bad synchronization and incoherent music. The current local implementation switches the main song game to assisted playback: Stage schedules the complete arrangement ahead; hit messages only lift future dynamics and update scores. Misses no longer remove notes. See README's updated main-mode instructions. Deployed to production at https://horcha.vercel.app on 2026-10-10 (deployment `dpl_9ntZHi9i76PXZx4kaUsZ85n2vaiN`).
 
 > **Working-tree update, 2026-10-10 (MP3 sampler):** added "make music with your own audio". See section 4.5. Not committed to git yet: the working tree also holds the earlier uncommitted assisted-playback changes, so a commit would mix the two.
@@ -188,7 +190,7 @@ Stage **🎚️ SAMPLE** → choose a file → tempo/beat grid detected → **PH
 - **Copyrighted songs:** asked to include real hit songs, I did not write out copyrighted melodies. Instead: public-domain tunes, original music, chord loops (progressions aren't copyrightable), and a bring-your-own-MIDI path so the user can add any song they supply.
 - **Free play kept**, not deleted, as the lobby experience: lowest-risk reading of "replace the free-play interface" combined with "preserve existing functionality".
 - **Scoring is client-side:** each phone judges and reports; the server clamps values but doesn't verify. Fine for a hackathon, not cheat-proof.
-- **No database:** all state is in server memory; a restart empties the roster briefly until phones rejoin automatically.
+- **Database status changed:** recording-session persistence now has a Postgres path (Neon-linked) plus local in-memory fallback. Core transport/roster state is still in-memory and ephemeral by design.
 - **Soft flash by default** after the user found the white flash unpleasant.
 - **No new dependencies** were added for the game; one route to MIDI, QR and audio was already in place.
 
@@ -206,6 +208,8 @@ Stage **🎚️ SAMPLE** → choose a file → tempo/beat grid detected → **PH
 8. **MIDI import** is only tested on files the app exported itself; unusual channel layouts in real files may map oddly.
 9. **Unconfirmed on Hobby limits:** 5-minute socket lifetime is from documentation, not observed.
 10. **Priority-2 items not done:** cross-session leaderboards, advanced effects, chart generation from imported MIDI for the game.
+11. **Recording persistence path is partially validated only.** Typecheck and core playback tests pass, but there is no committed integration test yet that asserts end-to-end DB writes/reads for `/api/recordings` against a real Postgres branch.
+12. **Replay UX is backend-first.** Recording list/detail APIs exist, but a user-facing replay browser/player flow is not yet implemented in Stage UI.
 
 ---
 
@@ -222,10 +226,15 @@ src/common/            clock.ts, net.ts, beat.ts, engine.ts (Tone), recorder.ts,
 src/player/            phone UI (main.ts), rhythm highway (game.ts)
 src/stage/             big-screen UI (main.ts), visuals.ts, auto.ts, composer.ts, midi.ts,
                        song.ts, gameconductor.ts
+db/migrations/         recording session schema scaffold (`0001_recording_sessions.sql`)
 src/songs/library.ts   older PD tunes + chord loops for the tap-along picker
 scripts/               tunnel.mjs, songs.mjs, smoke.ts, simtest.ts, musictest.ts,
                        composertest.ts, librarytest.ts, gametest.ts
 vercel.json            build command + /ws rewrite
+neon.ts                Neon project config (preview bucket config)
+PRODUCT.md             product truth (platform/users/constraints) including retro UI requirement
+DESIGN.md              design-system baseline + token frontmatter
+.impeccable/design.json sidecar metadata for the design system
 ```
 About 4,300 lines of TypeScript across shared, server, clients and scripts.
 
@@ -244,7 +253,47 @@ vercel deploy --prod              # cloud copy (project: horcha)
 
 Stage keys: **H** hides the conductor bar, **F** toggles fullscreen.
 
-## 11. Suggested next steps before judging
+## 11. Recording DB verification runbook
+1. Ensure Neon variables are available locally.
+```bash
+test -f .env.local && echo ".env.local present" || echo "Missing .env.local"
+```
+
+2. Apply the recording schema on the linked branch.
+```bash
+# Option A: run in your SQL client against the linked DATABASE_URL
+cat db/migrations/0001_recording_sessions.sql
+
+# Option B: paste the same SQL into Neon SQL Editor for the linked production branch
+```
+
+3. Start the server and create one recording session from Stage UI.
+```bash
+npm run serve
+# Open /stage, click START RECORDING, play a few notes, then STOP RECORDING
+```
+
+4. Verify recordings list endpoint.
+```bash
+curl -s http://localhost:3000/api/recordings?limit=5
+```
+Expected: at least one entry with `id`, `startedAt`, `endedAt`, `summary`, and non-zero event totals.
+
+5. Verify recording detail endpoint.
+```bash
+# replace <id> with the id from step 4
+curl -s http://localhost:3000/api/recordings/<id>
+```
+Expected: ordered `events` array, transport snapshots, and summary metadata.
+
+6. Verify fallback behavior (optional).
+```bash
+# stop server, unset DATABASE_URL in shell, restart npm run serve,
+# create another recording, then query /api/recordings again
+```
+Expected: endpoints still return data via local in-memory fallback for the current server process.
+
+## 12. Suggested next steps before judging
 1. Run `npm run demo` and test with 2-3 real phones on the venue's Wi-Fi; film a flash-sync check at 240 fps and compare with the on-screen number.
 2. Play all three songs on each difficulty on a real phone; adjust windows or add a tap-latency calibration if taps feel early or late.
 3. Check the iOS audio/motion flow and the silent-switch behaviour.

@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { Pool } from 'pg';
 import { WebSocketServer, WebSocket } from 'ws';
 import { getSong } from '../shared/songs.js';
 import { DIFFICULTIES, songSteps, validateGameSong, type GameStats } from '../shared/game.js';
@@ -25,11 +26,35 @@ const DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist
 const GRACE_MS = 90_000; // keep a dropped player's seat this long so they can rejoin cleanly
 const SILENCE_MS = 9_000; // no message for this long => treat the socket as dead (phone left Wi-Fi)
 
+function readEnvLocal() {
+  const out: Record<string, string> = {};
+  const file = path.resolve(process.cwd(), '.env.local');
+  if (!fs.existsSync(file)) return out;
+  try {
+    const src = fs.readFileSync(file, 'utf8');
+    for (const line of src.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq <= 0) continue;
+      const key = trimmed.slice(0, eq).trim();
+      const raw = trimmed.slice(eq + 1).trim();
+      const val = raw.replace(/^"|"$/g, '').replace(/^'|'$/g, '');
+      out[key] = val;
+    }
+  } catch { /* ignore local env parsing errors */ }
+  return out;
+}
+const LOCAL_ENV = readEnvLocal();
+const env = (key: string) => process.env[key] ?? LOCAL_ENV[key] ?? '';
+
 // ------------------------------------------------------------------ clock
 // Server time = ms on a monotonic clock, starting at 0 when the process starts.
 // (Not Date.now(): that can jump if NTP adjusts the laptop's clock mid-demo.)
 const T0 = process.hrtime.bigint();
 const serverNow = () => Number(process.hrtime.bigint() - T0) / 1e6;
+const WALL_T0 = Date.now();
+const wallIso = (ms: number) => new Date(WALL_T0 + ms).toISOString();
 
 // -------------------------------------------------------------- transport
 const SCALES: ScaleName[] = ['minorPent', 'majorPent', 'dorian', 'blues'];
@@ -45,10 +70,311 @@ const transport: TransportState = {
   nowPlaying: null,
   game: null,
   sample: null,
+  recording: null,
 };
 let dropTimer: NodeJS.Timeout | null = null;
 let gameTimer: NodeJS.Timeout | null = null;
 const RESULTS_GRACE_MS = 45_000; // how long a finished game stays up so the results screens can be read
+const MAX_RECORDING_EVENTS = 200_000;
+const MAX_LOCAL_RECORDINGS = 80;
+const DB_URL = env('DATABASE_URL') || env('POSTGRES_URL') || env('NEON_DATABASE_URL') || env('POSTGRES_URL_NON_POOLING');
+
+const db = DB_URL ? new Pool({ connectionString: DB_URL, max: 4 }) : null;
+if (db) db.on('error', (err) => console.warn('[recording-db] pool error:', err.message));
+
+interface RecordingEvent {
+  seq: number;
+  at: number;
+  step: number | null;
+  type: 'note' | 'raw' | 'ghit' | 'gstats' | 'ctl' | 'cmd' | 'role' | 'speaker' | 'join' | 'game';
+  pid: string;
+  role: Role | null;
+  payload: Record<string, unknown>;
+}
+
+interface RecordingSession {
+  id: string;
+  startedAt: number;
+  startStep: number;
+  mode: 'live' | 'game' | 'freestyle' | 'sample';
+  songId: string | null;
+  difficulty: string | null;
+  transportStart: TransportState;
+  players: PlayerInfo[];
+  events: RecordingEvent[];
+  seq: number;
+}
+
+interface FinishedRecording {
+  id: string;
+  startedAt: number;
+  endedAt: number;
+  endedReason: 'stage' | 'limit' | 'shutdown';
+  mode: RecordingSession['mode'];
+  songId: string | null;
+  difficulty: string | null;
+  transportStart: TransportState;
+  transportEnd: TransportState;
+  players: PlayerInfo[];
+  summary: { total: number; byType: Record<string, number> };
+  events: RecordingEvent[];
+}
+
+let recordingSession: RecordingSession | null = null;
+const localRecordings = new Map<string, FinishedRecording>();
+
+const cloneTransport = (ts: TransportState): TransportState => structuredClone(ts);
+const recordingMode = (ts: TransportState): RecordingSession['mode'] =>
+  ts.game ? 'game' : ts.sample ? 'sample' : ts.freestyle ? 'freestyle' : 'live';
+
+function summarizeEvents(events: RecordingEvent[]) {
+  const byType: Record<string, number> = {};
+  for (const ev of events) byType[ev.type] = (byType[ev.type] ?? 0) + 1;
+  return { total: events.length, byType };
+}
+
+function archiveLocal(rec: FinishedRecording) {
+  localRecordings.set(rec.id, rec);
+  if (localRecordings.size <= MAX_LOCAL_RECORDINGS) return;
+  const oldest = [...localRecordings.values()].sort((a, b) => a.startedAt - b.startedAt)[0];
+  if (oldest) localRecordings.delete(oldest.id);
+}
+
+async function persistRecordingStart(session: RecordingSession) {
+  if (!db) return;
+  try {
+    await db.query(
+      `INSERT INTO recording_sessions (
+         id, started_at, mode, stage_instance_id, song_id, difficulty,
+         protocol_version, engine_version, transport_start, players
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb)
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        session.id,
+        wallIso(session.startedAt),
+        session.mode,
+        `${os.hostname()}:${process.pid}`,
+        session.songId,
+        session.difficulty,
+        'v1',
+        'stage-local',
+        JSON.stringify(session.transportStart),
+        JSON.stringify(session.players),
+      ],
+    );
+  } catch (err) {
+    console.warn('[recording-db] start persist failed:', err);
+  }
+}
+
+async function persistRecordingStop(rec: FinishedRecording) {
+  if (!db) return;
+  try {
+    await db.query(
+      `UPDATE recording_sessions
+          SET ended_at = $2,
+              ended_reason = $3,
+              transport_end = $4::jsonb,
+              summary = $5::jsonb
+        WHERE id = $1`,
+      [
+        rec.id,
+        wallIso(rec.endedAt),
+        rec.endedReason,
+        JSON.stringify(rec.transportEnd),
+        JSON.stringify(rec.summary),
+      ],
+    );
+    for (let i = 0; i < rec.events.length; i += 500) {
+      const batch = rec.events.slice(i, i + 500);
+      const values: unknown[] = [];
+      const rows: string[] = [];
+      for (const ev of batch) {
+        const base = values.length;
+        rows.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}::jsonb)`);
+        values.push(rec.id, ev.seq, ev.at, ev.step, ev.type, ev.pid, ev.role, JSON.stringify(ev.payload));
+      }
+      await db.query(
+        `INSERT INTO recording_events (recording_id, seq, server_ms, step, event_type, pid, role, payload)
+         VALUES ${rows.join(',')}
+         ON CONFLICT (recording_id, seq) DO NOTHING`,
+        values,
+      );
+    }
+  } catch (err) {
+    console.warn('[recording-db] stop persist failed:', err);
+  }
+}
+
+async function listRecordings(limit: number) {
+  if (db) {
+    try {
+      const q = await db.query(
+        `SELECT id, started_at, ended_at, ended_reason, mode, song_id, difficulty, summary,
+                jsonb_array_length(players) AS players_count
+           FROM recording_sessions
+          ORDER BY started_at DESC
+          LIMIT $1`,
+        [Math.max(1, Math.min(100, limit))],
+      );
+      return q.rows.map((r) => ({
+        id: String(r.id),
+        startedAt: r.started_at,
+        endedAt: r.ended_at,
+        endedReason: r.ended_reason,
+        mode: r.mode,
+        songId: r.song_id,
+        difficulty: r.difficulty,
+        players: Number(r.players_count ?? 0),
+        summary: r.summary ?? { total: 0, byType: {} },
+      }));
+    } catch (err) {
+      console.warn('[recording-db] list failed:', err);
+    }
+  }
+  return [...localRecordings.values()]
+    .sort((a, b) => b.startedAt - a.startedAt)
+    .slice(0, Math.max(1, Math.min(100, limit)))
+    .map((r) => ({
+      id: r.id,
+      startedAt: wallIso(r.startedAt),
+      endedAt: wallIso(r.endedAt),
+      endedReason: r.endedReason,
+      mode: r.mode,
+      songId: r.songId,
+      difficulty: r.difficulty,
+      players: r.players.length,
+      summary: r.summary,
+    }));
+}
+
+async function getRecording(id: string) {
+  if (db) {
+    try {
+      const head = await db.query(
+        `SELECT id, started_at, ended_at, ended_reason, mode, song_id, difficulty,
+                transport_start, transport_end, players, summary
+           FROM recording_sessions
+          WHERE id = $1`,
+        [id],
+      );
+      if (!head.rowCount) return null;
+      const evs = await db.query(
+        `SELECT seq, server_ms AS at, step, event_type AS type, pid, role, payload
+           FROM recording_events
+          WHERE recording_id = $1
+          ORDER BY seq ASC`,
+        [id],
+      );
+      return {
+        id: String(head.rows[0].id),
+        startedAt: head.rows[0].started_at,
+        endedAt: head.rows[0].ended_at,
+        endedReason: head.rows[0].ended_reason,
+        mode: head.rows[0].mode,
+        songId: head.rows[0].song_id,
+        difficulty: head.rows[0].difficulty,
+        transportStart: head.rows[0].transport_start,
+        transportEnd: head.rows[0].transport_end,
+        players: head.rows[0].players,
+        summary: head.rows[0].summary,
+        events: evs.rows,
+      };
+    } catch (err) {
+      console.warn('[recording-db] get failed:', err);
+    }
+  }
+  const rec = localRecordings.get(id);
+  if (!rec) return null;
+  return {
+    id: rec.id,
+    startedAt: wallIso(rec.startedAt),
+    endedAt: wallIso(rec.endedAt),
+    endedReason: rec.endedReason,
+    mode: rec.mode,
+    songId: rec.songId,
+    difficulty: rec.difficulty,
+    transportStart: rec.transportStart,
+    transportEnd: rec.transportEnd,
+    players: rec.players,
+    summary: rec.summary,
+    events: rec.events,
+  };
+}
+
+const writeJson = (res: http.ServerResponse, code: number, data: unknown) => {
+  res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+  res.end(JSON.stringify(data));
+};
+
+const recordingId = () =>
+  globalThis.crypto?.randomUUID?.()
+  ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
+function startRecording(now: number): boolean {
+  if (recordingSession || transport.recording) return false;
+  const id = recordingId();
+  const startStep = Math.floor(stepPos(transport, now));
+  recordingSession = {
+    id,
+    startedAt: now,
+    startStep,
+    mode: recordingMode(transport),
+    songId: transport.game?.songId ?? null,
+    difficulty: transport.game?.difficulty ?? null,
+    transportStart: cloneTransport(transport),
+    players: joinedPlayers().map(info),
+    events: [],
+    seq: 0,
+  };
+  transport.recording = { sessionId: id, startedAt: now, startStep, events: 0 };
+  recordEvent(now, 'cmd', 'stage', null, { cmd: 'recordingStart' });
+  void persistRecordingStart(recordingSession);
+  return true;
+}
+
+function stopRecording(now: number, reason: 'stage' | 'limit' | 'shutdown' = 'stage'): RecordingSession | null {
+  if (!recordingSession || !transport.recording) return null;
+  recordEvent(now, 'cmd', 'stage', null, { cmd: 'recordingStop', reason });
+  const done = recordingSession;
+  recordingSession = null;
+  transport.recording = null;
+  const finished: FinishedRecording = {
+    id: done.id,
+    startedAt: done.startedAt,
+    endedAt: now,
+    endedReason: reason,
+    mode: done.mode,
+    songId: done.songId,
+    difficulty: done.difficulty,
+    transportStart: done.transportStart,
+    transportEnd: cloneTransport(transport),
+    players: done.players,
+    summary: summarizeEvents(done.events),
+    events: done.events,
+  };
+  archiveLocal(finished);
+  void persistRecordingStop(finished);
+  return done;
+}
+
+function recordEvent(
+  at: number,
+  type: RecordingEvent['type'],
+  pid: string,
+  role: Role | null,
+  payload: Record<string, unknown>,
+  step: number | null = null,
+) {
+  if (!recordingSession || !transport.recording) return;
+  const ev: RecordingEvent = { seq: recordingSession.seq++, at, step, type, pid, role, payload };
+  recordingSession.events.push(ev);
+  transport.recording.events = recordingSession.events.length;
+  if (recordingSession.events.length >= MAX_RECORDING_EVENTS) {
+    stopRecording(at, 'limit');
+    broadcastState();
+  }
+}
 
 function setBpm(bpm: number) {
   bpm = Math.min(BPM_MAX, Math.max(BPM_MIN, Math.round(bpm)));
@@ -158,6 +484,22 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
+  if (url.pathname === '/api/recordings' && req.method === 'GET') {
+    void (async () => {
+      const limit = Number(url.searchParams.get('limit') ?? '20');
+      writeJson(res, 200, { recordings: await listRecordings(limit) });
+    })();
+    return;
+  }
+  if (url.pathname.startsWith('/api/recordings/') && req.method === 'GET') {
+    const id = decodeURIComponent(url.pathname.slice('/api/recordings/'.length));
+    void (async () => {
+      const data = await getRecording(id);
+      if (!data) return void writeJson(res, 404, { error: 'Recording not found.' });
+      writeJson(res, 200, data);
+    })();
+    return;
+  }
   // Static files: / -> player (index.html), /stage -> stage.html
   let rel = url.pathname === '/stage' ? '/stage.html' : url.pathname === '/' ? '/index.html' : url.pathname;
   const file = path.join(DIST, path.normalize(rel).replace(/^(\.\.[/\\])+/, ''));
@@ -232,6 +574,7 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
   if (m.t === 'game') {
     if (conn.kind !== 'stage') return; // the host starts and stops performances
     if (m.action === 'stop') {
+      recordEvent(now, 'game', 'stage', null, { action: 'stop' });
       if (gameTimer) clearTimeout(gameTimer);
       transport.game = null;
       for (const pl of players.values()) pl.game = null;
@@ -249,6 +592,13 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
     const lead = Math.max(4000, 4 * (60000 / song.bpm) + 1500);
     const startStep = Math.ceil(stepPos(transport, serverNow() + lead) / STEPS_PER_BAR) * STEPS_PER_BAR;
     transport.game = { ...(m.song ? { song } : {}), songId: song.id, difficulty, startStep, endStep: startStep + songSteps(song) + STEPS_PER_BAR };
+    recordEvent(now, 'game', 'stage', null, {
+      action: 'start',
+      songId: song.id,
+      difficulty,
+      startStep,
+      endStep: transport.game.endStep,
+    }, startStep);
     for (const pl of players.values()) {
       pl.game = null;
       if (m.song && !song.tracks[pl.role].length) {
@@ -271,6 +621,16 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
 
   if (m.t === 'cmd') {
     if (conn.kind !== 'stage') return; // only the conductor may change the music
+    if (m.cmd === 'recordingStart') {
+      if (!startRecording(now)) send(conn.ws, { t: 'error', message: 'Recording is already active.' });
+      broadcastState();
+      return;
+    }
+    if (m.cmd === 'recordingStop') {
+      if (!stopRecording(now, 'stage')) send(conn.ws, { t: 'error', message: 'No active recording to stop.' });
+      broadcastState();
+      return;
+    }
     // While a rhythm game runs, tempo/key/mode are locked: every chart is addressed in steps of THIS tempo.
     if (transport.game && ['bpm', 'key', 'scale', 'drop', 'freestyle', 'nowplaying', 'sample'].includes(m.cmd)) return;
     switch (m.cmd) {
@@ -293,6 +653,7 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
         break;
       }
     }
+    recordEvent(now, 'cmd', 'stage', null, { cmd: m.cmd, value: m.value });
     broadcastState();
     return;
   }
@@ -312,13 +673,15 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
         }
       }
       p.name = String(m.name ?? '').trim().slice(0, 14) || p.name;
+      recordEvent(now, 'join', p.id, p.role, { name: p.name, color: p.color });
       broadcastRoster();
       send(conn.ws, { t: 'you', you: info(p) });
       break;
     case 'role':
-      if (!transport.game && ROLES.includes(m.role)) { p.role = m.role; broadcastRoster(); send(conn.ws, { t: 'you', you: info(p) }); }
+      if (!transport.game && ROLES.includes(m.role)) { p.role = m.role; recordEvent(now, 'role', p.id, p.role, { role: p.role }); broadcastRoster(); send(conn.ws, { t: 'you', you: info(p) }); }
       break;
     case 'speaker':
+      recordEvent(now, 'speaker', p.id, p.role, { on: !!m.on });
       p.speaker = !!m.on; broadcastRoster();
       break;
     case 'gstats': {
@@ -327,6 +690,7 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       const n = (v: unknown, max: number) => Math.max(0, Math.min(max, Math.round(Number(v) || 0)));
       const g: GameStats = { score: n(m.s.score, 1e7), combo: n(m.s.combo, 1e4), maxCombo: n(m.s.maxCombo, 1e4), perfect: n(m.s.perfect, 1e4), good: n(m.s.good, 1e4), miss: n(m.s.miss, 1e4), total: n(m.s.total, 1e4) };
       p.game = g;
+      recordEvent(now, 'gstats', p.id, p.role, { stats: g });
       break;
     }
     case 'stats':
@@ -334,6 +698,7 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       break;
     case 'ctl':
       p.y = clamp01(m.y); p.tilt = Math.max(-1, Math.min(1, m.tilt));
+      recordEvent(now, 'ctl', p.id, p.role, { y: p.y, tilt: p.tilt });
       broadcast({ t: 'ctl', pid: p.id, y: p.y, tilt: p.tilt }, (c) => c !== conn);
       break;
     case 'songreq': {
@@ -349,6 +714,7 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       if (conn.rawTimes.length >= 90 || !['d', 'm', 'u', 's', 't'].includes(m.k)) return;
       conn.rawTimes.push(now);
       const at = Number.isFinite(m.at) ? Math.min(now + 200, Math.max(now - 2000, m.at)) : now;
+      recordEvent(now, 'raw', p.id, p.role, { k: m.k, at, x: Math.max(-1, Math.min(1, +m.x || 0)), y: clamp01(m.y), v: m.v === undefined ? undefined : clamp01(m.v) });
       broadcast({ t: 'raw', pid: p.id, role: p.role, k: m.k, at, x: Math.max(-1, Math.min(1, +m.x || 0)), y: clamp01(m.y), v: m.v === undefined ? undefined : clamp01(m.v) }, (c) => c.kind === 'stage');
       break;
     }
@@ -360,6 +726,7 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       conn.noteTimes = conn.noteTimes.filter((t) => now - t < 1000);
       if (conn.noteTimes.length >= 24) return;
       conn.noteTimes.push(now);
+      recordEvent(now, 'ghit', p.id, p.role, { startStep: g.startStep }, m.step);
       broadcast({ t: 'ghit', startStep: g.startStep, step: m.step, pid: p.id, role: p.role }, (c) => c.kind === 'stage');
       break;
     }
@@ -380,6 +747,7 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       const role: Role = m.role === 'drums' ? 'drums' : p.role; // non-drummers may shake in a hit
       // Explicit pitches are only honoured during a rhythm game (the chart carries the pitch).
       const midi = undefined;
+      recordEvent(now, 'note', p.id, role, { d: Math.max(0, Math.min(15, Math.round(m.d))), v: clamp01(m.v), dur: Math.max(1, Math.min(STEPS_PER_BAR, Math.round(m.dur || 2))), midi }, step);
       broadcast(
         { t: 'note', pid: p.id, role, step, d: Math.max(0, Math.min(15, Math.round(m.d))), v: clamp01(m.v), dur: Math.max(1, Math.min(STEPS_PER_BAR, Math.round(m.dur || 2))), midi },
         (c) => c !== conn,
@@ -399,6 +767,8 @@ setInterval(() => {
 }, 2000);
 // Sync stats change constantly; push them to everyone at 1 Hz instead of per report.
 setInterval(broadcastRoster, 1000);
+
+process.on('exit', () => { stopRecording(serverNow(), 'shutdown'); });
 
 export default server; // Vercel Functions run an exported http.Server (api/ws.ts re-exports it)
 
