@@ -81,7 +81,7 @@ app.innerHTML = `
     <button class="btn" id="spk">SPEAKERS</button>
   </div>
   <div class="cond-cluster record-cluster">
-    <button class="btn rec-btn rec" id="sessrec">START RECORDING</button>
+    <button class="btn rec-btn rec" id="sessrec">RECORD</button>
     <button class="btn rec-btn rec" id="rec">SAVE 30s</button>
     <button class="btn rec-btn" id="viewrecs">SESSIONS</button>
   </div>
@@ -520,7 +520,7 @@ function syncControls() {
   $('free').textContent = ts.freestyle ? '■ STOP · MAKE SONG' : 'FREESTYLE';
   $('spk').classList.toggle('on', ts.speakerMode);
   $('sessrec').classList.toggle('on', !!ts.recording);
-  $('sessrec').textContent = ts.recording ? `■ STOP RECORDING (${ts.recording.events})` : 'START RECORDING';
+  $('sessrec').textContent = ts.recording ? `■ STOP (${ts.recording.events})` : 'RECORD';
   $('keyline').textContent = `${NOTE_NAMES[ts.root]} ${SCALE_LABEL[ts.scale]}${audioOn ? ' · SOUND ON' : ''}`;
   $('bpm').textContent = String(ts.bpm);
 }

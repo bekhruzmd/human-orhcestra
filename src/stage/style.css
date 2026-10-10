@@ -1418,7 +1418,7 @@ select:focus-visible {
 /* ================= polish layer ================= */
 
 /* footer: below ~1750px the controls no longer fit one row, so wrap to two instead of clipping */
-@media (max-width: 1750px) {
+@media (max-width: 2150px) {
 	:root { --cond-h: 128px; }
 	.conductor {
 		flex-wrap: wrap;
@@ -1490,3 +1490,28 @@ select:focus-visible {
 /* difficulty choices share the row equally and wrap their detail line instead of overflowing the modal */
 .diffs .btn { flex: 1 1 0; min-width: 0; white-space: normal; text-align: center; align-items: center; }
 .diffs small { line-height: 1.4; }
+
+/* ---- one button system for the conductor bar: same height, same type size, even widths ---- */
+:root { --btn-h: 44px; }
+.conductor .btn, .conductor .rec-btn, .conductor select {
+	box-sizing: border-box;
+	height: var(--btn-h);
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0 16px;
+	font-size: 11px;
+	line-height: 1;
+	letter-spacing: .08em;
+	border-width: 2px;
+}
+.conductor .modes-cluster .btn { min-width: 124px; }
+.conductor .btn.drop, .conductor .btn.play { font-size: 12px; min-width: 128px; }
+.conductor .btn.play { min-width: 168px; }
+.conductor .record-cluster .rec-btn { width: 124px; padding: 0 8px; }
+.conductor select { justify-content: flex-start; padding: 0 12px; min-width: 64px; }
+.conductor #scale { min-width: 214px; }
+.conductor .ctl { gap: 4px; }
+.conductor .cond-cluster { align-items: flex-end; }
+.conductor .modes-cluster, .conductor .record-cluster { align-items: center; }
+.conductor .ctl input[type=range] { height: var(--btn-h); margin: 0; }
