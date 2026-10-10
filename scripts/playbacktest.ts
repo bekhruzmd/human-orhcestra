@@ -149,7 +149,7 @@ import { souring } from '../shared/participation';
 }
 console.log('✓ Miss feedback: bend, wrong notes and thinning scale with misses; drums swap pieces; clean play is untouched');
 
-// A part nobody answers goes silent: Easy/Medium fade between one and two bars, Hard cuts at two bars; a hit restores it.
+// A part nobody answers goes silent: Easy fades between one and two bars; Medium and Hard cut after two missed notes in a row; a hit restores it.
 {
   const notes = Array.from({ length: 24 }, (_, i) => ({ step: i * 4, dur: 2, v: 0.8, midi: [60 + (i % 5)] }));
   const song = validateGameSong({ id: 'import:quiet', title: 'quiet', artist: 't', bpm: 120, root: 0, scale: 'majorPent', bars: 8, rating: 1,
@@ -161,22 +161,29 @@ console.log('✓ Miss feedback: bend, wrong notes and thinning scale with misses
     const at = (chartStep: number) => stepTime(ts, 32 + chartStep) + 800; // that note has passed unanswered
     return { ts, p, at };
   };
-  for (const d of ['easy', 'medium'] as const) {
-    const { ts, p, at } = run(d);
-    assert.equal(p.quiet(ts, at(8)), 1, `${d}: a short gap stays at full volume`);
+  {
+    const { ts, p, at } = run('easy');
+    assert.equal(p.quiet(ts, at(8)), 1, 'easy: a short gap stays at full volume');
     const mid = p.quiet(ts, at(24));
-    assert.ok(mid > 0 && mid < 1, `${d}: between one and two bars the part fades (${mid.toFixed(2)})`);
-    assert.equal(p.quiet(ts, at(40)), 0, `${d}: two bars unanswered is silence`);
+    assert.ok(mid > 0 && mid < 1, `easy: between one and two bars the part fades (${mid.toFixed(2)})`);
+    assert.equal(p.quiet(ts, at(40)), 0, 'easy: two bars unanswered is silence');
+    p.hit(10, 32 + chartAt(10), ts);
+    assert.equal(p.quiet(ts, at(44)), 1, 'easy: one hit brings the part back');
+  }
+  for (const d of ['medium', 'hard'] as const) {
+    const { ts, p, at } = run(d);
+    assert.equal(p.quiet(ts, at(0)), 1, `${d}: one unanswered note only sours the part`);
+    assert.equal(p.quiet(ts, at(4)), 0, `${d}: two unanswered notes in a row is silence`);
     p.hit(10, 32 + chartAt(10), ts);
     assert.equal(p.quiet(ts, at(44)), 1, `${d}: one hit brings the part back`);
+    // an imperfect player keeps the song: alternating hit / miss never reaches two misses in a row
+    const alt = run(d);
+    for (let i = 0; i < 24; i++) { if (i % 2 === 0) alt.p.hit(i, 32 + chartAt(i), alt.ts); assert.equal(alt.p.quiet(alt.ts, alt.at(chartAt(i))), 1, `${d}: hit-and-miss play stays audible`); }
   }
-  const hard = run('hard');
-  assert.equal(hard.p.quiet(hard.ts, hard.at(28)), 1, 'hard: full volume until the cut');
-  assert.equal(hard.p.quiet(hard.ts, hard.at(36)), 0, 'hard: cuts straight to silence after two bars');
   function chartAt(i: number) { return i * 4; }
   // silence is audible-free but never removes notes from the timeline
   const q = run('easy');
   q.p.quiet(q.ts, q.at(60));
   assert.equal(q.p.chart.length, 24);
 }
-console.log('✓ Unanswered parts fade (Easy/Medium) or cut (Hard) to silence and a hit restores them');
+console.log('✓ Unanswered parts fade (Easy) or cut (Medium/Hard) to silence, imperfect play stays audible, and a hit restores them');

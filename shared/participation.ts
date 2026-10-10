@@ -22,8 +22,10 @@ export function souring(role: Role, loss: number, step: number, drum: number) {
   return { pitch: weird * 0.85 * alternate + shift, drum, gain: 1 - weird * 0.5, dur: 1 - weird * 0.4 };
 }
 
-/** Steps of unanswered notes before a part fades (one bar) and is silent (two bars). */
+/** Easy: steps of unanswered notes before a part fades (one bar) and is silent (two bars). */
 const FADE_FROM = 16, SILENT_AFTER = 32;
+/** Medium and Hard: consecutive unanswered notes before a part goes silent. */
+const SILENT_AFTER_NOTES = 2;
 
 /** Judge expected chart notes, not elapsed silence: musical rests never count as misses. */
 export class Participation {
@@ -34,6 +36,8 @@ export class Participation {
   /** chart step of the latest note the player hit, and of the latest note that has passed unanswered */
   private lastHitStep: number;
   private lastPassedStep: number;
+  /** index of the highest chart note the player has hit (first - 1 before any hit) */
+  private lastHitIndex: number;
 
   constructor(song: GameSong, role: Role, difficulty: Difficulty, ts: TransportState, now: number) {
     this.chart = buildChart(song, role, difficulty);
@@ -42,6 +46,7 @@ export class Participation {
     if (this.first < 0) this.first = this.chart.length;
     this.cursor = this.first;
     this.lastHitStep = this.lastPassedStep = this.chart[this.first]?.step ?? 0;
+    this.lastHitIndex = this.first - 1;
   }
 
   hit(noteId: number, step: number, ts: TransportState) {
@@ -49,18 +54,20 @@ export class Participation {
     if (!note || noteId < this.first || ts.game!.startStep + note.step !== step || this.hits.has(noteId)) return false;
     this.hits.add(noteId);
     this.lastHitStep = Math.max(this.lastHitStep, note.step);
+    this.lastHitIndex = Math.max(this.lastHitIndex, noteId);
     return true;
   }
 
   /**
-   * 1 = the part plays, 0 = it is silent. A part nobody answers for long enough goes quiet: on Hard it cuts out
-   * after two bars of unanswered notes; on Easy and Medium it fades from one bar to two. One hit brings it back.
-   * Measured in chart time, so rests never count and pausing freezes it.
+   * 1 = the part plays, 0 = it is silent. Medium and Hard: the part goes silent once two notes in a row go
+   * unanswered (a single slip only sours it), and one hit brings it back. Easy is forgiving: it fades from one bar
+   * of unanswered notes and is silent at two. A "Good" hit counts the same as a "Perfect" one, so an imperfect
+   * player keeps the full song. Measured in chart notes, so rests never count and pausing freezes it.
    */
   quiet(ts: TransportState, now: number) {
     this.strength(ts, now); // advances the cursor and the latest unanswered note
+    if (ts.game!.difficulty !== 'easy') return this.cursor - 1 - this.lastHitIndex >= SILENT_AFTER_NOTES ? 0 : 1;
     const idle = Math.max(0, this.lastPassedStep - this.lastHitStep);
-    if (ts.game!.difficulty === 'hard') return idle >= SILENT_AFTER ? 0 : 1;
     if (idle <= FADE_FROM) return 1;
     const k = Math.max(0, 1 - (idle - FADE_FROM) / (SILENT_AFTER - FADE_FROM));
     return k * k;
