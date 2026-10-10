@@ -112,10 +112,10 @@ Backup plan: if Wi-Fi is bad, open the Stage and one phone on the same laptop (`
 
 | Criterion | Status |
 |---|---|
-| Sync error < ~30 ms with 3 phones | **Not yet measured on real phones/Wi-Fi.** Headless Chromium on localhost shows 2–9 ms (almost all frame quantisation). The simulation shows 0.1–6 ms across four network profiles, with a floor of half the path asymmetry. Verify at the venue: film all phones plus the Stage at 240 fps (iPhone slo-mo) and compare flash frames. The on-screen number is the estimate; the camera is the ground truth. |
+| Sync error < ~30 ms with 3 phones | **Not yet measured on real phones/Wi-Fi.** Headless Chromium on localhost shows 2–9 ms (almost all frame quantisation). The simulation shows 0–6 ms across four network profiles, with a floor of half the path asymmetry. Verify at the venue: film all phones plus the Stage at 240 fps (iPhone slo-mo) and compare flash frames. The on-screen number is the estimate; the camera is the ground truth. |
 | Musical within 15 s | One tap to join with a prefilled name; one touch on the pad makes a note, and holding makes a pattern. Not timed with real first-time users. |
 | Sound muted, observer can tell who plays what and that all are in time | Lanes, colours, AUTO badges, step-grid dots, synchronized flashes. |
-| Solo mode sounds like a band | Verified: 1 player → 3 AUTO lanes (generated drums/bass/pads/melody for whatever is missing). |
+| Solo mode sounds like a band | Verified in a browser run: 1 player → 3 dashed AUTO lanes for the missing roles. |
 | Clean reconnect | Verified by server restart in the browser test, and by dropped sockets in `scripts/smoke.ts`. |
 
 ## Deviations from the brief
