@@ -62,7 +62,7 @@ The server's clock is `process.hrtime` (monotonic), not `Date.now()`, so an NTP 
 ### 2. Beat-quantized scheduling (`shared/protocol.ts`, `src/player/main.ts`, `src/common/engine.ts`)
 The **server owns the one transport**: `{bpm, epoch, key, scale, drop…}`. Step *N* (a 16th note) sounds at `epoch + N·stepMs`. A BPM change re-anchors `epoch` so the current step position stays continuous.
 
-- A phone never sends a time or a pitch. It sends *"column 5, velocity 0.8, on step 1234"*, where 1234 is the first 16th boundary at least `lead` ms away. `lead` is 60–150 ms, scaled from the measured RTT and jitter.
+- A phone never sends a time or a pitch. It sends *"column 5, velocity 0.8, on step 1234"*, where 1234 is the first 16th boundary at least `lead` ms away. `lead` is 60–260 ms, scaled from the measured RTT and jitter.
 - The server clamps absurd steps and rate-limits each phone, then relays the event.
 - Every listener maps `step → server time → local time → AudioContext time` and schedules the synth at that exact time, compensating output latency. Network delay only decides whether the message arrives *before* its step. If it's late, it plays immediately and counts as a "late note" in the debug drawer. If it's more than 250 ms late, it's dropped.
 - The Stage uses no Tone.Transport; there is exactly one transport and it's on the server.
