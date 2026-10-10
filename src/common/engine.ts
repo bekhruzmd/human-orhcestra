@@ -10,6 +10,7 @@ import * as Tone from 'tone';
 import { dropPhase, stepTime, STEPS_PER_BAR, type NoteEvent, type Role, type TransportState } from '../../shared/protocol';
 import { mtof, resolveEvent, type Key, type Resolved } from '../../shared/music';
 import type { ClockSync } from './clock';
+import { clamp } from './util';
 
 interface Voice {
   out: Tone.Gain;
@@ -17,8 +18,6 @@ interface Voice {
   ctl(y: number, tilt: number): void;
   dispose(): void;
 }
-
-const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
 export class Engine {
   ready = false;
@@ -117,8 +116,8 @@ export class Engine {
   private applyPause(ts: TransportState) {
     if (!this.ready) return;
     const ctx = this.context;
-    if (ts.paused !== null && ctx.state === 'running') { this.suspendedByPause = true; void ctx.suspend(); }
-    else if (ts.paused === null && this.suspendedByPause) { this.suspendedByPause = false; void ctx.resume(); }
+    if (ts.paused != null && ctx.state === 'running') { this.suspendedByPause = true; void ctx.suspend(); }
+    else if (ts.paused == null && this.suspendedByPause) { this.suspendedByPause = false; void ctx.resume(); }
   }
 
   setTransport(ts: TransportState) {

@@ -9,6 +9,7 @@
  */
 import { ROLE_INFO, STEPS_PER_BAR, dropPhase, stepPos, type NoteEvent, type Role, type TransportState } from '../../shared/protocol';
 import { chordAt, resolveEvent } from '../../shared/music';
+import { clamp } from '../common/util';
 
 export interface Lane { id: string; name: string; role: Role; color: string; auto: boolean; connected: boolean; speaker: boolean }
 
@@ -18,6 +19,10 @@ interface Ring { x: number; y: number; t: number; color: string; size: number }
 
 const ROLL_STEPS = STEPS_PER_BAR * 2;
 const GRID_H = 126;
+const INK = '#2b2540';
+const INK_SOFT = '#5c5577';
+const ink = (a: number) => `rgba(43,37,64,${a})`;
+const PIXEL_FONT = '"Silkscreen", ui-monospace, monospace';
 
 const rgba = (hex: string, a: number) => {
   const n = parseInt(hex.slice(1), 16);
@@ -84,12 +89,12 @@ export class Viz {
     }
 
     // ---- background + drum pulse
-    ctx.fillStyle = '#07070d';
+    ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, w, h);
     this.pulse *= 0.9; this.shock *= 0.93; this.glow.forEach((v, k) => this.glow.set(k, v * 0.9));
     const grad = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) * 0.7);
     grad.addColorStop(0, rgba(this.pulseColor, 0.28 * this.pulse + (opts.downbeat ? 0.04 : 0)));
-    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = grad; ctx.fillRect(0, 0, w, h);
 
     // ---- lanes
@@ -111,30 +116,31 @@ export class Viz {
       ctx.save();
       ctx.globalAlpha = lane.connected ? 1 : 0.4;
       // lane body
-      ctx.fillStyle = rgba(lane.color, 0.07 + 0.2 * g);
-      round(ctx, 0, y, w, laneH, 18); ctx.fill();
-      ctx.lineWidth = lane.auto ? 2 : 3;
-      ctx.strokeStyle = rgba(lane.color, lane.auto ? 0.45 : 0.9);
-      if (lane.auto) ctx.setLineDash([10, 8]);
-      round(ctx, 1, y + 1, w - 2, laneH - 2, 18); ctx.stroke();
+      ctx.fillStyle = rgba(lane.color, 0.12 + 0.25 * g);
+      ctx.fillRect(0, y, w, laneH);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = lane.auto ? ink(0.45) : INK;
+      if (lane.auto) ctx.setLineDash([8, 6]);
+      ctx.strokeRect(1.5, y + 1.5, w - 3, laneH - 3);
       ctx.setLineDash([]);
       // colour tab
-      ctx.fillStyle = lane.color; ctx.globalAlpha *= lane.auto ? 0.5 : 1;
-      round(ctx, 0, y, 14, laneH, 14); ctx.fill();
+      ctx.fillStyle = lane.color; ctx.globalAlpha *= lane.auto ? 0.6 : 1;
+      ctx.fillRect(0, y, 14, laneH);
       ctx.globalAlpha = lane.connected ? 1 : 0.4;
+      ctx.fillStyle = INK; ctx.fillRect(14, y, 3, laneH);
       // label
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = INK;
       const roleSize = Math.max(15, Math.min(24, Math.floor(laneH * 0.23)));
-      ctx.font = `800 ${roleSize}px "Silkscreen", ui-rounded, system-ui, sans-serif`;
+      ctx.font = `700 ${roleSize}px ${PIXEL_FONT}`;
       ctx.textBaseline = 'top';
       const roleY = y + Math.max(10, Math.floor(laneH * 0.16));
       ctx.fillText(`${ROLE_INFO[lane.role].icon} ${ROLE_INFO[lane.role].label.toUpperCase()}`, 26, roleY);
 
       const nameSize = Math.max(12, Math.min(17, Math.floor(laneH * 0.17)));
-      ctx.font = `700 ${nameSize}px "Silkscreen", ui-rounded, system-ui, sans-serif`;
+      ctx.font = `700 ${nameSize}px ${PIXEL_FONT}`;
       ctx.textBaseline = 'bottom';
       const nameY = y + laneH - Math.max(10, Math.floor(laneH * 0.16));
-      ctx.fillStyle = rgba(lane.color, 1);
+      ctx.fillStyle = INK_SOFT;
       const isStandby = lane.id.startsWith('standby:');
       const isReplay = lane.id.startsWith('replay:');
       let nameText = isStandby ? 'STANDBY · READY' : isReplay ? 'REPLAY' : lane.auto ? 'AUTO BAND' : lane.name;
@@ -149,7 +155,7 @@ export class Viz {
       ctx.lineWidth = 1;
       for (let k = 0; k <= ROLL_STEPS; k++) {
         const x = x0 + k * cell;
-        ctx.strokeStyle = k % 16 === 0 ? 'rgba(255,255,255,.28)' : k % 4 === 0 ? 'rgba(255,255,255,.14)' : 'rgba(255,255,255,.05)';
+        ctx.strokeStyle = k % 16 === 0 ? ink(0.35) : k % 4 === 0 ? ink(0.16) : ink(0.06);
         ctx.beginPath(); ctx.moveTo(x, y + 8); ctx.lineTo(x, y + laneH - 8); ctx.stroke();
       }
       // hits
@@ -162,12 +168,14 @@ export class Viz {
           const a = Math.pow(Math.max(0, 1 - age / ROLL_STEPS), 0.8);
           const hx = x0 + ((hit.step % ROLL_STEPS) / ROLL_STEPS) * rw;
           const hh = lane.role === 'pads' ? laneH - 24 : Math.max(10, laneH * 0.2);
-          const hy = lane.role === 'pads' ? y + 12 : y + 10 + (1 - clamp01(hit.yN)) * (laneH - 20 - hh);
+          const hy = lane.role === 'pads' ? y + 12 : y + 10 + (1 - clamp(hit.yN, 0, 1)) * (laneH - 20 - hh);
           const hw = Math.max(8, Math.min(hit.dur, ROLL_STEPS - (hit.step % ROLL_STEPS)) * cell - 3);
-          if (hit.muted) { ctx.strokeStyle = rgba(lane.color, a * 0.6); ctx.lineWidth = 2; round(ctx, hx, hy, hw, hh, 5); ctx.stroke(); }
+          if (hit.muted) { ctx.strokeStyle = ink(a * 0.5); ctx.lineWidth = 2; ctx.setLineDash([4, 3]); ctx.strokeRect(hx, hy, hw, hh); ctx.setLineDash([]); }
           else {
-            ctx.fillStyle = rgba(lane.color, a * (lane.role === 'pads' ? 0.35 : 0.5 + 0.5 * hit.v));
-            round(ctx, hx, hy, hw, hh, 5); ctx.fill();
+            ctx.fillStyle = rgba(lane.color, lane.role === 'pads' ? 0.55 * a : a * (0.7 + 0.3 * hit.v));
+            ctx.fillRect(hx, hy, hw, hh);
+            ctx.strokeStyle = ink(a); ctx.lineWidth = 2;
+            ctx.strokeRect(hx + 1, hy + 1, hw - 2, hh - 2);
           }
         }
       }
@@ -176,8 +184,8 @@ export class Viz {
 
     // playhead
     if (lanes.length) {
-      ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(playX, top0 - 4); ctx.lineTo(playX, top0 + totalH + 4); ctx.stroke();
+      ctx.fillStyle = INK;
+      ctx.fillRect(Math.round(playX) - 2, top0 - 6, 4, totalH + 12);
     }
     this.lastPlayhead = playX;
 
@@ -188,19 +196,19 @@ export class Viz {
     if (inBuild && ts.drop) {
       const prog = (pos - ts.drop.startStep) / (ts.drop.dropStep - ts.drop.startStep);
       const flick = 0.35 + 0.35 * Math.sin(pos * Math.PI * (1 + prog * 3));
-      ctx.strokeStyle = `rgba(255,60,90,${flick})`; ctx.lineWidth = 10 + prog * 26;
+      ctx.strokeStyle = `rgba(255,143,171,${flick + 0.2})`; ctx.lineWidth = 10 + prog * 26;
       ctx.strokeRect(0, 0, w, h);
-      ctx.fillStyle = `rgba(255,255,255,${0.15 + 0.5 * prog * prog})`;
+      ctx.fillStyle = ink(0.25 + 0.6 * prog * prog);
       ctx.fillRect(0, h - 10, w * prog, 10);
     }
     if (this.shock > 0.02) {
-      ctx.fillStyle = `rgba(255,255,255,${this.shock * 0.7})`; ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = `rgba(217,204,255,${this.shock * 0.8})`; ctx.fillRect(0, 0, w, h);
     }
   }
 
   private burst(lane: Lane, ev: NoteEvent, yN: number, ts: TransportState) {
     const p = this.laneY.get(lane.id);
-    const y = p ? p.y + p.h * (1 - clamp01(yN)) * 0.8 + p.h * 0.1 : this.h / 2;
+    const y = p ? p.y + p.h * (1 - clamp(yN, 0, 1)) * 0.8 + p.h * 0.1 : this.h / 2;
     const x = this.lastPlayhead;
     const count = Math.round(6 + 26 * ev.v);
     for (let i = 0; i < count && this.particles.length < 700; i++) {
@@ -218,27 +226,27 @@ export class Viz {
   }
 
   /** Called by main when a drop lands. */
-  impact() { this.shock = 1; this.pulse = 1; this.pulseColor = '#ffffff'; }
+  impact() { this.shock = 1; this.pulse = 1; this.pulseColor = '#d9ccff'; }
 
+  /** Square pixel particles and outline rings: additive blending would vanish on the white ground. */
   private drawParticles() {
     const { ctx } = this;
-    ctx.globalCompositeOperation = 'lighter';
     for (let i = this.rings.length - 1; i >= 0; i--) {
       const r = this.rings[i]; r.t += 1;
       const k = r.t / 28;
       if (k >= 1) { this.rings.splice(i, 1); continue; }
-      ctx.strokeStyle = rgba(r.color, 0.8 * (1 - k)); ctx.lineWidth = 6 * (1 - k) + 1;
-      ctx.beginPath(); ctx.arc(r.x, r.y, r.size * (0.25 + k), 0, Math.PI * 2); ctx.stroke();
+      const s = r.size * (0.25 + k);
+      ctx.strokeStyle = rgba(r.color, 0.9 * (1 - k)); ctx.lineWidth = Math.round(5 * (1 - k)) + 1;
+      ctx.strokeRect(Math.round(r.x - s), Math.round(r.y - s), Math.round(s * 2), Math.round(s * 2));
     }
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i]; p.life++;
       if (p.life > p.max) { this.particles.splice(i, 1); continue; }
       p.x += p.vx; p.y += p.vy; p.vx *= 0.96; p.vy *= 0.96;
-      const k = 1 - p.life / p.max;
+      const k = 1 - p.life / p.max, s = Math.max(2, Math.round(p.size * (0.6 + k)));
       ctx.fillStyle = rgba(p.color, k);
-      ctx.beginPath(); ctx.arc(p.x, p.y, p.size * (0.4 + k), 0, Math.PI * 2); ctx.fill();
+      ctx.fillRect(Math.round(p.x - s / 2), Math.round(p.y - s / 2), s, s);
     }
-    ctx.globalCompositeOperation = 'source-over';
   }
 
   /** Bottom strip: 4-bar chord loop + the 16-step grid of the current bar with every player's hits as dots. */
@@ -251,14 +259,16 @@ export class Viz {
     for (let i = 0; i < 4; i++) {
       const c = chordAt(ts, (bar - (bar % 4) + i) * STEPS_PER_BAR);
       const cur = i === bar % 4;
-      ctx.fillStyle = cur ? 'rgba(255,255,255,.95)' : 'rgba(255,255,255,.08)';
-      round(ctx, 4 + i * cw, top + 14, cw - 6, 54, 12); ctx.fill();
-      ctx.fillStyle = cur ? '#0b0b12' : 'rgba(255,255,255,.6)';
-      ctx.font = `800 ${cur ? 20 : 17}px ui-rounded, system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = cur ? INK : ink(0.06);
+      ctx.fillRect(4 + i * cw, top + 14, cw - 6, 54);
+      ctx.strokeStyle = INK; ctx.lineWidth = 2;
+      ctx.strokeRect(5 + i * cw, top + 15, cw - 8, 52);
+      ctx.fillStyle = cur ? '#ffffff' : INK_SOFT;
+      ctx.font = `700 ${cur ? 18 : 15}px ${PIXEL_FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(c.name, 4 + i * cw + (cw - 6) / 2, top + 41);
     }
     ctx.textAlign = 'left';
-    ctx.fillStyle = 'rgba(255,255,255,.45)'; ctx.font = '700 12px ui-rounded, system-ui, sans-serif';
+    ctx.fillStyle = INK_SOFT; ctx.font = `700 12px ${PIXEL_FONT}`;
     ctx.fillText('CHORD LOOP', 6, top + 86);
     ctx.fillText(`BAR ${bar + 1}`, 6, top + 102);
     // 16 step cells
@@ -266,10 +276,10 @@ export class Viz {
     const barStart = bar * STEPS_PER_BAR;
     for (let s = 0; s < STEPS_PER_BAR; s++) {
       const x = gx + s * sw, on = s === inBar, beat = s % 4 === 0;
-      ctx.fillStyle = on ? (building ? 'rgba(255,70,100,.9)' : 'rgba(255,255,255,.92)') : beat ? 'rgba(255,255,255,.16)' : 'rgba(255,255,255,.07)';
-      round(ctx, x + 2, top + 14, sw - 4, 54, 10); ctx.fill();
-      ctx.fillStyle = on ? '#0b0b12' : 'rgba(255,255,255,.4)';
-      ctx.font = '700 13px ui-rounded, system-ui, sans-serif'; ctx.textAlign = 'center';
+      ctx.fillStyle = on ? (building ? '#ff8fab' : INK) : beat ? ink(0.12) : ink(0.04);
+      ctx.fillRect(x + 2, top + 14, sw - 4, 54);
+      ctx.fillStyle = on ? '#ffffff' : ink(0.5);
+      ctx.font = `700 13px ${PIXEL_FONT}`; ctx.textAlign = 'center';
       ctx.fillText(beat ? String(s / 4 + 1) : '·', x + sw / 2, top + 22);
     }
     // each player's hits in this bar, stacked as coloured dots inside the cells
@@ -279,18 +289,13 @@ export class Viz {
         if (s < 0 || s >= STEPS_PER_BAR || hit.step > step) continue;
         const dy = top + 32 + (li % 4) * 9;
         ctx.fillStyle = rgba(lane.color, hit.muted ? 0.35 : 1);
-        ctx.beginPath(); ctx.arc(gx + s * sw + sw / 2, dy, 4, 0, Math.PI * 2); ctx.fill();
+        const dx = Math.round(gx + s * sw + sw / 2 - 4);
+        ctx.fillRect(dx, dy - 4, 8, 8);
+        ctx.strokeStyle = INK; ctx.lineWidth = 1;
+        ctx.strokeRect(dx + 0.5, dy - 3.5, 7, 7);
       }
     });
     ctx.textAlign = 'left';
   }
 }
 
-const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
-function round(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  if (w < 0) { x += w; w = -w; }
-  if (h < 0) { y += h; h = -h; }
-  r = Math.max(0, Math.min(r, w / 2, h / 2));
-  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
-}

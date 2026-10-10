@@ -10,7 +10,7 @@ import { ClockSync } from '../common/clock';
 import { BeatTracker, flashEnv } from '../common/beat';
 import { Engine } from '../common/engine';
 import { Recorder } from '../common/recorder';
-import { fmt, syncHeadline } from '../common/util';
+import { fmt, syncHeadline, esc } from '../common/util';
 import {
   BPM_MAX, BPM_MIN, ROLES, ROLE_INFO, liveNotesAllowed, dropPhase, nextStepAfter, stepPos, stepTime,
   type NoteEvent, type PlayerInfo, type Role, type ScaleName, type TransportState,
@@ -132,16 +132,15 @@ app.innerHTML = `
 </div>
 <div id="landing" class="landing">
   <div class="landing-card">
-    <div class="landing-badge">LIVE MULTIPLAYER SYNTH ARCADE</div>
     <h1 class="landing-title">HUMAN ORCHESTRA</h1>
     <p class="landing-sub">Phones become instruments. A shared server clock keeps everyone in time.</p>
-    <div class="landing-pills">
-      <span class="l-pill">ZERO INSTALL</span>
-      <span class="l-pill">SUB-MS CLOCK SYNC</span>
-      <span class="l-pill">16-BIT SOUND ENGINE</span>
-    </div>
-    <button class="btn-play-now" id="playnow">▶ PLAY NOW</button>
-    <p class="landing-hint">CLICK TO UNLOCK AUDIO & ENTER STAGE</p>
+    <ul class="landing-pills">
+      <li class="l-pill l-pill-mint">ZERO INSTALL</li>
+      <li class="l-pill l-pill-sky">SUB-MS CLOCK SYNC</li>
+      <li class="l-pill l-pill-peach">16-BIT SOUND ENGINE</li>
+    </ul>
+    <button class="btn-play-now" id="playnow">PLAY NOW</button>
+    <p class="landing-hint">CLICK TO UNLOCK AUDIO &amp; ENTER STAGE</p>
   </div>
 </div>
 <div id="card" hidden></div>
@@ -150,7 +149,7 @@ app.innerHTML = `
   <h3>Pick a song</h3>
   <p id="gp-info"></p>
   <p class="hintp">Keep the rhythm to keep your part clear. Missed pills weaken and slightly detune your instrument; hits restore it. Every player counts.</p>
-  <div class="row"><button class="btn" id="gp-import">＋ YOUR SONG (.mid)</button><button class="btn" id="gp-preview">♫ Preview selected</button></div>
+  <div class="row"><button class="btn" id="gp-import">+ YOUR SONG (.mid)</button><button class="btn" id="gp-preview">Preview selected</button></div>
   <input id="gp-file" type="file" accept=".mid,.midi" aria-label="Import game MIDI file" hidden />
   <label class="hintp"><input id="gp-melody" type="checkbox" aria-label="Import melody only" /> Import melody only (highest part)</label>
   <label class="hintp" id="gp-part-label" hidden>Melody part <select id="gp-part" aria-label="Melody part"></select></label>
@@ -158,7 +157,7 @@ app.innerHTML = `
   <div id="gp-songs"></div>
   <div class="diffs" id="gp-diffs"></div>
   <p class="hintp">Jam over melody: the MIDI lead loops while you create drums, bass, piano and guitar. No pills or scoring.</p>
-  <div class="row"><button class="btn drop" id="gp-start">▶ Rhythm game</button><button class="btn" id="gp-jam">Jam over melody</button></div>
+  <div class="row"><button class="btn drop" id="gp-start">Rhythm game</button><button class="btn" id="gp-jam">Jam over melody</button></div>
   <div class="row"><button class="btn" id="gp-close">Close</button></div>
 </div></div>
 <div id="results" hidden></div>
@@ -169,7 +168,7 @@ app.innerHTML = `
   </div>
   <p class="hintp">Choose an MP3 / WAV from this computer. It stays in this browser; nothing is uploaded. Phones then play slices of it on the beat.</p>
   <label class="dropzone" id="sp-drop"><span id="sp-droptext">Drop an audio file here, or <u>choose a file</u></span><input type="file" id="sp-file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.aac,.flac" aria-label="Load sample audio file" hidden></label>
-  <div class="drop-cancel-row" id="sp-pre-actions"><button class="btn" id="sp-cancel">◀ BACK / CLOSE</button></div>
+  <div class="drop-cancel-row" id="sp-pre-actions"><button class="btn" id="sp-cancel">BACK / CLOSE</button></div>
   <div id="sp-panel" hidden>
     <canvas id="sp-wave"></canvas>
     <div class="sp-line"><b id="sp-name"></b><span id="sp-info"></span></div>
@@ -178,7 +177,7 @@ app.innerHTML = `
       <span>GRID</span><button class="btn" data-sp="off-beat">◂ beat</button><button class="btn" data-sp="off+beat">beat ▸</button><button class="btn" data-sp="off-bar">◂ bar</button><button class="btn" data-sp="off+bar">bar ▸</button>
       <span>SLICE</span><button class="btn" data-sp="slice.5">½ beat</button><button class="btn" data-sp="slice1">1 beat</button><button class="btn" data-sp="slice2">2 beats</button>
     </div>
-    <div class="row"><button class="btn play" id="sp-chop">PHONES PLAY SLICES</button><button class="btn" id="sp-back">▶ BACKING LOOP</button><button class="btn" id="sp-stop">■ STOP</button><button class="btn" id="sp-close">Close</button></div>
+    <div class="row"><button class="btn play" id="sp-chop">PHONES PLAY SLICES</button><button class="btn" id="sp-back">BACKING LOOP</button><button class="btn" id="sp-stop">■ STOP</button><button class="btn" id="sp-close">Close</button></div>
     <p class="hintp" id="sp-msg"></p>
   </div>
 </div></div>
@@ -201,7 +200,7 @@ app.innerHTML = `
 </div></div>
 <div id="songs" hidden><div class="box">
   <h3>Pick a song</h3>
-  <div class="modes"><button class="btn on" id="m-tap">Play along (guided song)</button><button class="btn" id="m-band">♫ Listen to arrangement</button><button class="btn" id="m-jam">Jam over melody</button></div>
+  <div class="modes"><button class="btn on" id="m-tap">Play along (guided song)</button><button class="btn" id="m-band">Listen to arrangement</button><button class="btn" id="m-jam">Jam over melody</button></div>
   <div id="songlist"></div>
   <div class="row"><button class="btn" id="s-file">Load .mid file…</button><button class="btn" id="s-stop">■ Stop song</button><button class="btn" id="s-close">Close</button></div>
 </div></div>`;
@@ -272,7 +271,7 @@ new AutoBand(clock, () => ts, () => (ts?.game ? [] : autoRoles()), (ev: NoteEven
 
 // -------------------------------------------------------------------- lanes
 // AUTO lanes get a stable muted per-role colour so they never flicker as players come and go.
-const AUTO_COLORS: Record<Role, string> = { drums: '#7b86a8', bass: '#6f8fb0', melody: '#8f86b8', pads: '#6fa3a0', guitar: '#ff9248' };
+const AUTO_COLORS: Record<Role, string> = { drums: '#c9c2e0', bass: '#b5cde6', melody: '#cdbff0', pads: '#b3dcd5', guitar: '#ffdcc2' };
 const STANDBY_ROLES = ROLES;
 function laneList(): Lane[] {
   const h = humans();
@@ -283,7 +282,7 @@ function laneList(): Lane[] {
     const seen = new Set(songs.song.events.map((e) => e.role));
     for (const r of ROLES) if (seen.has(r)) {
       const c = songs.song.credit[r];
-      l.push({ id: `song:${r}`, name: c ? `♪ from ${c.name}` : '♪ TRACK', role: r, color: c?.color ?? '#ffd23f', auto: false, connected: true, speaker: false });
+      l.push({ id: `song:${r}`, name: c ? `from ${c.name}` : 'TRACK', role: r, color: c?.color ?? '#ffd166', auto: false, connected: true, speaker: false });
     }
   }
   for (const r of autoRoles()) l.push({ id: `auto:${r}`, name: 'AUTO', role: r, color: AUTO_COLORS[r], auto: true, connected: true, speaker: false });
@@ -321,7 +320,6 @@ function renderRoster() {
   syncEl.className = errClass(worst);
   $('syncsub').textContent = `${live.length} phone${live.length > 1 ? 's' : ''} · path bound ±${fmt(bound, bound < 10 ? 1 : 0)} ms`;
 }
-const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
 // -------------------------------------------------------------- conductor UI
 const done = (g: { perfect: number; good: number; miss: number }) => ({ perfect: g.perfect, good: g.good, total: g.perfect + g.good + g.miss });
@@ -490,7 +488,7 @@ function renderRecordingsList(list: RecordedSessionItem[]) {
           </div>
         </div>
         <div class="rec-actions">
-          <button class="btn rec-btn btn-listen" data-id="${r.id}">▶ LISTEN</button>
+          <button class="btn rec-btn btn-listen" data-id="${r.id}">LISTEN</button>
           <button class="btn btn-export" data-id="${r.id}">⤓ JSON</button>
         </div>
       </div>
@@ -607,11 +605,12 @@ $<HTMLCanvasElement>('viz').onclick = () => {
 function syncControls() {
   if (!ts) return;
   const live = !!(ts.game || ts.nowPlaying || ts.sample || ts.autoBand || ts.freestyle || ts.drop);
-  if (ts.paused !== null && !live) cmd('pause', false); // nothing left to pause: don't leave the clock frozen
-  $<HTMLButtonElement>('pause').disabled = !live && ts.paused === null;
-  $('pause').textContent = ts.paused !== null ? 'RESUME' : 'PAUSE';
-  $('pause').classList.toggle('on', ts.paused !== null);
-  document.body.classList.toggle('paused', ts.paused !== null);
+  const paused = ts.paused != null;
+  if (paused && !live) cmd('pause', false); // nothing left to pause: don't leave the clock frozen
+  $<HTMLButtonElement>('pause').disabled = !live && !paused;
+  $('pause').textContent = paused ? 'RESUME' : 'PAUSE';
+  $('pause').classList.toggle('on', paused);
+  document.body.classList.toggle('paused', paused);
   if (document.activeElement !== $('bpmr')) { $<HTMLInputElement>('bpmr').value = String(ts.bpm); $('bpmv').textContent = String(ts.bpm); }
   $<HTMLSelectElement>('key').value = String(ts.root);
   $<HTMLSelectElement>('scale').value = ts.scale;
@@ -734,7 +733,7 @@ function startSong(song: Song, startStep: number, _mode: 'tap' | 'band' = 'band'
   songs.start(song, startStep);
   showCard(song);
   cmd('nowplaying', `band|${song.title}`);
-  flashBig('♪ NOW PLAYING', 1400);
+  flashBig('NOW PLAYING', 1400);
 }
 function stopSong() {
   songLoadVersion++;
@@ -803,7 +802,7 @@ const download = (name: string, data: BlobPart, type: string) => {
 function showCard(song: Song) {
   const c = $('card');
   c.hidden = false;
-  c.innerHTML = `<div class="txt"><h3>♪ ${esc(song.title)}</h3>${song.info.map((l) => `<p>${esc(l)}</p>`).join('')}</div>
+  c.innerHTML = `<div class="txt"><h3>${esc(song.title)}</h3>${song.info.map((l) => `<p>${esc(l)}</p>`).join('')}</div>
     <div class="row"><button class="btn" id="c-restart">↻ Restart</button><button class="btn" id="c-stop">■ Stop</button>
     <button class="btn" id="c-mid">SAVE MIDI</button>${lastDraftLog && song.title === 'Your jam' ? '<button class="btn" id="c-json">SAVE JSON</button>' : ''}</div>`;
   $('c-stop').onclick = () => stopSong();
@@ -870,7 +869,7 @@ function endPreview() {
   songLoadVersion++;
   clearTimeout(previewTimer); previewing = false;
   songs.stop(); engine.silence(); hideCard(); cmd('nowplaying', '');
-  $('gp-preview').textContent = '♫ Preview selected';
+  $('gp-preview').textContent = 'Preview selected';
 }
 function openGamePicker() {
   $('gp-info').textContent = 'Choose a tune, preview it, then play together. Audio comes from this Stage.';
@@ -1032,16 +1031,16 @@ function drawWave() {
   x.setTransform(dpr, 0, 0, dpr, 0, 0);
   x.clearRect(0, 0, w, h);
   const mid = h / 2;
-  x.fillStyle = 'rgba(255,255,255,.35)';
+  x.fillStyle = 'rgba(43,37,64,.4)';
   a.peaks.forEach((p, i) => x.fillRect((i / a.peaks.length) * w, mid - p * mid * 0.95, Math.max(1, w / a.peaks.length), p * h * 0.95));
   // the 16 slices on the beat grid, then the beat lines
   const dur = sampler.duration, sl = sampler.sliceSec;
   for (let i = 0; i < sampler.usable; i++) {
-    x.fillStyle = i % 2 ? 'rgba(124,255,107,.16)' : 'rgba(53,208,255,.16)';
+    x.fillStyle = i % 2 ? 'rgba(189,242,213,.6)' : 'rgba(201,228,255,.6)';
     x.fillRect(((sampler.offset + i * sl) / dur) * w, 0, (sl / dur) * w, h);
   }
   for (let t = sampler.offset, k = 0; t < dur; t += sampler.beatSec, k++) {
-    x.strokeStyle = k % 4 === 0 ? 'rgba(255,255,255,.7)' : 'rgba(255,255,255,.25)';
+    x.strokeStyle = k % 4 === 0 ? 'rgba(43,37,64,.75)' : 'rgba(43,37,64,.25)';
     x.beginPath(); x.moveTo((t / dur) * w, 0); x.lineTo((t / dur) * w, h); x.stroke();
   }
 }
@@ -1115,7 +1114,7 @@ $('sp-back').onclick = async () => {
   cmd('sample', `backing|${sampler.name}`);
   document.body.classList.add('insample');
   $('sampleui').hidden = true;
-  flashBig('▶ BACKING LOOP', 1200);
+  flashBig('BACKING LOOP', 1200);
 };
 $('sp-stop').onclick = stopSample;
 function stopSample() {
@@ -1144,9 +1143,9 @@ async function refreshJoinUrl() {
   }
   if (url !== joinUrl) {
     joinUrl = url;
-    await QRCode.toCanvas($<HTMLCanvasElement>('qr'), url, { width: 560, margin: 0, errorCorrectionLevel: 'M', color: { dark: '#07070d', light: '#ffffff' } });
+    await QRCode.toCanvas($<HTMLCanvasElement>('qr'), url, { width: 560, margin: 0, errorCorrectionLevel: 'M', color: { dark: '#2b2540', light: '#ffffff' } });
     $('url').textContent = url.replace(/^https?:\/\//, '');
-    $('warn').textContent = url.startsWith('https') ? '' : 'http only: phones can’t use shake/tilt. Run `npm run demo` for HTTPS.';
+    $('warn').textContent = url.startsWith('https') ? '' : 'HTTP only: phones can’t use shake/tilt. Run `npm run demo` for HTTPS.';
   }
 }
 refreshJoinUrl(); checkJoinReachability();
@@ -1169,7 +1168,7 @@ function frame(t: number) {
     flashEl.style.opacity = '0';
   } else {
     syncProof.style.opacity = '0';
-    flashEl.style.opacity = String((b.downbeat ? 0.22 : 0.08) * flashEnv(b.since));
+    flashEl.style.opacity = String((b.downbeat ? 0.5 : 0.2) * flashEnv(b.since));
   }
   const pos = stepPos(ts, b.serverMs), step = Math.floor(pos);
 
@@ -1208,7 +1207,6 @@ function frame(t: number) {
       m.textContent = `${n} ${n === 1 ? 'PLAYER' : 'PLAYERS'}${autoRoles().length ? ' + AUTO' : ''}${recTag}`;
       m.className = 'mode';
     }
-    m.textContent += recTag;
     if (rec.seconds > 0) $('rec').textContent = `SAVE LAST ${Math.floor(rec.seconds)} s`;
   }
 }

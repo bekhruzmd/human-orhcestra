@@ -10,7 +10,7 @@ import { Net } from '../common/net';
 import { ClockSync } from '../common/clock';
 import { BeatTracker, flashEnv } from '../common/beat';
 import { Engine } from '../common/engine';
-import { stableId, fmt, clamp } from '../common/util';
+import { stableId, fmt, clamp, esc } from '../common/util';
 import {
   ROLES, ROLE_INFO, liveNotesAllowed, nextStepAfter, stepPos, stepTime,
   type NoteEvent, type PlayerInfo, type RawKind, type Role, type TransportState,
@@ -70,7 +70,7 @@ net.on('state', (m) => {
   const was = ts?.speakerMode;
   ts = m.state; engine.setTransport(m.state);
   if (joined && m.state.speakerMode !== was && was !== undefined) setSpeaker(m.state.speakerMode && engine.ready);
-  document.getElementById('pausedbar')!.hidden = m.state.paused === null;
+  document.getElementById('pausedbar')!.hidden = m.state.paused == null;
   syncGame();
   refreshPadLabels();
 });
@@ -90,14 +90,13 @@ function render() {
   if (joined) return buildJam();
   root.innerHTML = `<div class="screen join">
     <div class="swatch"></div><h1>Human Orchestra</h1>
-    <p>You're <b style="color:${me.color}">this colour</b>. Pick a name.</p>
+    <p>You're <b class="you-c" style="background:${me.color}">this colour</b>. Pick a name.</p>
     <input id="name" name="displayName" aria-label="Display name" maxlength="14" value="${esc(me.name)}" autocomplete="off" autocapitalize="words" spellcheck="false" />
     <button class="big" id="go">JOIN THE BAND</button>
     <div class="hint">Your phone controls the music. Listen to the Stage.</div>
     <a href="/stage" class="stage-link">STAGE SCREEN (HOST / LAPTOP)</a></div>`;
   document.getElementById('go')!.onclick = onJoin;
 }
-const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
 async function onJoin() {
   // Everything that needs a user gesture happens right here, in the tap handler:
@@ -126,7 +125,7 @@ function buildJam() {
       <button class="chip" id="rolebtn">${ROLE_INFO[role].icon} ${ROLE_INFO[role].label} ▾</button>
       <div class="name" id="nm"></div>
       <div class="beats"><i></i><i></i><i></i><i></i></div>
-      <button class="icon" id="songbtn" aria-label="Songs">♫</button>
+      <button class="icon" id="songbtn" aria-label="Songs">SONG</button>
       <button class="icon" id="dbgbtn" aria-label="Sync details">SYNC</button>
     </div>
     <div class="chord" id="chord"></div>
@@ -168,7 +167,7 @@ function refreshPadLabels() {
   const yl = padEl.querySelector<HTMLElement>('.ylabel');
   if (yl) yl.style.display = sampleMode() ? 'none' : '';
   if (sampleMode()) { el.innerHTML = '<span>EACH PAD = A SLICE OF THE TRACK</span>'; return; }
-  if (ts.nowPlaying && ts.nowPlaying.mode !== 'jam') { el.innerHTML = '<span>♫ SONG PREVIEW · LISTEN ON STAGE</span>'; return; }
+  if (ts.nowPlaying && ts.nowPlaying.mode !== 'jam') { el.innerHTML = '<span>SONG PREVIEW · LISTEN ON STAGE</span>'; return; }
   if (ts.freestyle && me.role !== 'drums') { el.innerHTML = '<span>LOW ◂</span><span>FREESTYLE</span><span>▸ HIGH</span>'; return; }
   el.innerHTML = padLabels(me.role, ts).map((l) => `<span>${l}</span>`).join('');
 }
@@ -203,7 +202,7 @@ async function openSongs() {
     ...custom.map((c) => ({ id: `file:${c.file}`, title: c.name, sub: 'your file' })),
   ];
   sheet.innerHTML = `<div class="card"><h3>Pick a song</h3>
-    <div class="song-modes"><button class="tog ${reqMode === 'tap' ? 'on' : ''}" data-m="tap">Play along</button><button class="tog ${reqMode === 'band' ? 'on' : ''}" data-m="band">♫ Listen</button><button class="tog ${reqMode === 'jam' ? 'on' : ''}" data-m="jam">Jam over melody</button></div>
+    <div class="song-modes"><button class="rolebtn ${reqMode === 'tap' ? 'on' : ''}" data-m="tap">Play along</button><button class="rolebtn ${reqMode === 'band' ? 'on' : ''}" data-m="band">Listen</button><button class="rolebtn ${reqMode === 'jam' ? 'on' : ''}" data-m="jam">Jam over melody</button></div>
     ${items.map((i) => `<button class="rolebtn" data-id="${esc(i.id)}" style="font-size:18px">${esc(i.title)}<small style="margin-left:auto;color:var(--dim);font-size:12px">${i.sub}</small></button>`).join('')}
     <button class="rolebtn" data-id="" style="font-size:18px">■ Stop song</button>
     <button class="rolebtn" data-x="1" style="font-size:18px">Close</button></div>`;
@@ -427,21 +426,21 @@ function frame(t: number) {
   } else if (flashMode === 'off' || game.active) { syncProof.style.opacity = '0'; flashEl.style.opacity = '0'; }
   else if (flashMode === 'soft') { // gentle colour pulse, never white
     syncProof.style.opacity = '0';
-    flashEl.style.background = me?.color ?? '#fff';
-    flashEl.style.opacity = String((b.downbeat ? 0.28 : 0.14) * e);
+    flashEl.style.background = me?.color ?? '#d9ccff';
+    flashEl.style.opacity = String((b.downbeat ? 0.45 : 0.25) * e);
   } else {
     syncProof.style.opacity = '0';
-    flashEl.style.background = b.downbeat ? '#fff' : (me?.color ?? '#fff');
-    flashEl.style.opacity = String((b.downbeat ? 0.9 : 0.55) * e);
+    flashEl.style.background = b.downbeat ? '#2b2540' : (me?.color ?? '#d9ccff');
+    flashEl.style.opacity = String(0.55 * e);
   }
 
   if (b.newBeat) {
     navigator.vibrate?.(b.downbeat ? 28 : 10);
     beatDots.forEach((d, i) => { d.classList.toggle('on', i === b.beatInBar); d.classList.toggle('d', i === b.beatInBar && b.downbeat); });
     if (chordEl && sampleMode()) chordEl.innerHTML = `<b>${ts.sample!.title.replace(/[<>&]/g, '')}</b> · tap pads: each plays a slice · hold to repeat`;
-    else if (chordEl && ts.sample?.mode === 'backing') chordEl.innerHTML = `▶ <b>${ts.sample.title.replace(/[<>&]/g, '')}</b> · backing loop · play along`;
+    else if (chordEl && ts.sample?.mode === 'backing') chordEl.innerHTML = `<b>${ts.sample.title.replace(/[<>&]/g, '')}</b> · backing loop · play along`;
     else if (chordEl && ts.nowPlaying?.mode === 'jam') chordEl.textContent = `JAM · ${ts.nowPlaying.title} · ${chordAt(ts, Math.floor(stepPos(ts, b.serverMs))).name} · add your ${ROLE_INFO[me!.role].label.toLowerCase()}`;
-    else if (chordEl && ts.nowPlaying) chordEl.innerHTML = `♪ <b>${ts.nowPlaying.title.replace(/[<>&]/g, '')}</b> · listen on Stage`;
+    else if (chordEl && ts.nowPlaying) chordEl.innerHTML = `<b>${ts.nowPlaying.title.replace(/[<>&]/g, '')}</b> · listen on Stage`;
     else if (chordEl && ts.freestyle) chordEl.innerHTML = '<b>FREESTYLE</b> · play anything, it becomes a song';
     else if (chordEl) {
       const step = Math.floor(stepPos(ts, b.serverMs));
@@ -464,17 +463,19 @@ function drawSamplePad(w: number, h: number, serverMs: number) {
   for (let i = 0; i < 16; i++) {
     const x = gap + (i % 4) * (cw + gap), y = gap + Math.floor(i / 4) * (ch + gap);
     const on = touch?.col === i, fire = fireCell === i;
-    padCtx.fillStyle = hexA(me.color, fire ? 0.85 : on ? 0.55 : 0.14 + 0.05 * ((i + Math.floor(i / 4)) % 2));
-    padCtx.beginPath(); padCtx.roundRect(x, y, cw, ch, 14); padCtx.fill();
-    padCtx.fillStyle = 'rgba(255,255,255,.55)'; padCtx.font = '800 20px ui-rounded, system-ui, sans-serif'; padCtx.textAlign = 'center'; padCtx.textBaseline = 'middle';
+    padCtx.fillStyle = hexA(me.color, fire ? 0.95 : on ? 0.7 : 0.25 + 0.08 * ((i + Math.floor(i / 4)) % 2));
+    padCtx.fillRect(x, y, cw, ch);
+    padCtx.strokeStyle = '#2b2540'; padCtx.lineWidth = 2; padCtx.strokeRect(x + 1, y + 1, cw - 2, ch - 2);
+    padCtx.fillStyle = 'rgba(43,37,64,.6)'; padCtx.font = '700 16px "Silkscreen", monospace'; padCtx.textAlign = 'center'; padCtx.textBaseline = 'middle';
     padCtx.fillText(String(i + 1), x + cw / 2, y + ch / 2);
   }
   padCtx.textAlign = 'left';
   for (let i = ripples.length - 1; i >= 0; i--) {
     const r = ripples[i], age = (performance.now() - r.t) / 600;
     if (age > 1) { ripples.splice(i, 1); continue; }
-    padCtx.strokeStyle = hexA(me.color, 1 - age); padCtx.lineWidth = 4 * (1 - age) + 1;
-    padCtx.beginPath(); padCtx.arc(r.x * w, (1 - r.y) * h, 20 + age * 70, 0, Math.PI * 2); padCtx.stroke();
+    const s = 20 + age * 70;
+    padCtx.strokeStyle = hexA(me.color, 1 - age); padCtx.lineWidth = Math.round(4 * (1 - age)) + 1;
+    padCtx.strokeRect(Math.round(r.x * w - s), Math.round((1 - r.y) * h - s), Math.round(s * 2), Math.round(s * 2));
   }
 }
 
@@ -491,7 +492,7 @@ function drawPad(t: number, serverMs: number) {
   let fireCol = -1, fireV = 0;
   while (fires.length && fires[0].at <= serverMs) { const f = fires.shift()!; fireCol = f.col; fireV = f.v; ripples.push({ x: (f.col + 0.5) / cols, y: 0.05 + 0.5 * f.v, t: performance.now() }); }
   for (let i = 0; i < cols; i++) {
-    padCtx.fillStyle = i % 2 ? 'rgba(255,255,255,.035)' : 'rgba(255,255,255,0)';
+    padCtx.fillStyle = i % 2 ? 'rgba(43,37,64,.05)' : 'rgba(255,255,255,0)';
     padCtx.fillRect(i * cw, 0, cw, h);
   }
   padCtx.fillStyle = me.color;
@@ -505,14 +506,15 @@ function drawPad(t: number, serverMs: number) {
   for (let i = ripples.length - 1; i >= 0; i--) {
     const r = ripples[i], age = (performance.now() - r.t) / 600;
     if (age > 1) { ripples.splice(i, 1); continue; }
-    padCtx.strokeStyle = hexA(me.color, 1 - age); padCtx.lineWidth = 4 * (1 - age) + 1;
-    padCtx.beginPath(); padCtx.arc(r.x * w, (1 - r.y) * h, 20 + age * 90, 0, Math.PI * 2); padCtx.stroke();
+    const s = 20 + age * 90;
+    padCtx.strokeStyle = hexA(me.color, 1 - age); padCtx.lineWidth = Math.round(4 * (1 - age)) + 1;
+    padCtx.strokeRect(Math.round(r.x * w - s), Math.round((1 - r.y) * h - s), Math.round(s * 2), Math.round(s * 2));
   }
   if (touch) {
-    const g = padCtx.createRadialGradient(touch.x * w, (1 - touch.y) * h, 0, touch.x * w, (1 - touch.y) * h, 70);
-    g.addColorStop(0, '#fff'); g.addColorStop(0.25, hexA(me.color, 0.8)); g.addColorStop(1, hexA(me.color, 0));
-    padCtx.fillStyle = g;
-    padCtx.beginPath(); padCtx.arc(touch.x * w, (1 - touch.y) * h, 70, 0, Math.PI * 2); padCtx.fill();
+    // square pixel cursor under the finger
+    const cx = Math.round(touch.x * w), cy = Math.round((1 - touch.y) * h);
+    padCtx.fillStyle = hexA(me.color, 0.9); padCtx.fillRect(cx - 22, cy - 22, 44, 44);
+    padCtx.strokeStyle = '#2b2540'; padCtx.lineWidth = 3; padCtx.strokeRect(cx - 20.5, cy - 20.5, 41, 41);
   }
   void t;
 }
