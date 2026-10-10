@@ -135,9 +135,11 @@ export class Viz {
       ctx.textBaseline = 'bottom';
       const nameY = y + laneH - Math.max(10, Math.floor(laneH * 0.16));
       ctx.fillStyle = rgba(lane.color, 1);
-      let nameText = lane.auto ? 'AUTO BAND' : lane.name;
+      const isStandby = lane.id.startsWith('standby:');
+      const isReplay = lane.id.startsWith('replay:');
+      let nameText = isStandby ? 'STANDBY · READY' : isReplay ? 'REPLAY' : lane.auto ? 'AUTO BAND' : lane.name;
       if (lane.speaker) nameText += ' 📢';
-      if (!lane.connected && !lane.auto) nameText += ' · offline';
+      if (!lane.connected && !lane.auto && !isStandby && !isReplay) nameText += ' · offline';
       const maxW = labelW - 32;
       while (nameText.length > 4 && ctx.measureText(nameText).width > maxW) {
         nameText = nameText.slice(0, -2) + '…';

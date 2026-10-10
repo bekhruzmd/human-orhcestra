@@ -27,6 +27,7 @@ import { LIBRARY, buildSong } from '../songs/library';
 import { Viz, type Lane } from './visuals';
 import { AutoBand } from './auto';
 import { Sampler, SLICES } from './sampler';
+import { SessionPlayer, type DetailedRecording, type RecordedSessionItem } from './sessionplayer';
 
 const net = new Net();
 const clock = new ClockSync((m) => net.send(m));
@@ -81,8 +82,15 @@ app.innerHTML = `
   <div class="cond-cluster record-cluster">
     <button class="btn rec-btn rec" id="sessrec">⏺ START RECORDING</button>
     <button class="btn rec-btn rec" id="rec">⏺ SAVE 30s</button>
+    <button class="btn rec-btn" id="viewrecs">📼 SESSIONS</button>
   </div>
 </footer>
+<div id="replaybar" class="replay-bar" hidden>
+  <span class="replay-dot">⏺</span>
+  <span class="replay-label" id="replay-title">REPLAYING SESSION</span>
+  <span class="replay-time" id="replay-time">00:00 / 00:00</span>
+  <button class="btn btn-close" id="replay-stop" title="Stop replay">■</button>
+</div>
 <div id="landing" class="landing">
   <div class="landing-card">
     <div class="landing-badge">LIVE MULTIPLAYER SYNTH ARCADE</div>
@@ -114,9 +122,13 @@ app.innerHTML = `
 </div></div>
 <div id="results" hidden></div>
 <div id="sampleui" hidden><div class="box">
-  <h3>🎚️ Make music with your own audio</h3>
+  <div class="box-head">
+    <h3>🎚️ Make music with your own audio</h3>
+    <button class="btn-close" id="sp-close-x" aria-label="Close sample modal">✕</button>
+  </div>
   <p class="hintp">Choose an MP3 / WAV from this computer. It stays in this browser; nothing is uploaded. Phones then play slices of it on the beat.</p>
   <label class="dropzone" id="sp-drop"><span id="sp-droptext">Drop an audio file here, or <u>choose a file</u></span><input type="file" id="sp-file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.aac,.flac" aria-label="Load sample audio file" hidden></label>
+  <div class="drop-cancel-row" id="sp-pre-actions"><button class="btn" id="sp-cancel">◀ BACK / CLOSE</button></div>
   <div id="sp-panel" hidden>
     <canvas id="sp-wave"></canvas>
     <div class="sp-line"><b id="sp-name"></b><span id="sp-info"></span></div>
@@ -127,6 +139,23 @@ app.innerHTML = `
     </div>
     <div class="row"><button class="btn play" id="sp-chop">🎛️ PHONES PLAY SLICES</button><button class="btn" id="sp-back">▶ BACKING LOOP</button><button class="btn" id="sp-stop">■ STOP</button><button class="btn" id="sp-close">Close</button></div>
     <p class="hintp" id="sp-msg"></p>
+  </div>
+</div></div>
+<div id="recordingsui" hidden><div class="box">
+  <div class="box-head">
+    <h3>📼 Recorded Sessions</h3>
+    <button class="btn-close" id="rec-close-x" aria-label="Close recordings modal">✕</button>
+  </div>
+  <p class="hintp">Review live sessions captured by the conductor. Replay them through the synth engine or export their event logs.</p>
+  <div class="rec-summary-bar">
+    <span id="rec-count-lbl">Loading sessions…</span>
+    <button class="btn" id="rec-refresh">↻ Refresh</button>
+  </div>
+  <div id="rec-list" class="rec-list"></div>
+  <div class="row" style="margin-top:16px;">
+    <button class="btn" id="rec-stop-all" hidden>■ Stop Playback</button>
+    <button class="btn" id="rec-wav-save">⤓ Save Last 30s Audio (.wav)</button>
+    <button class="btn" id="rec-close">Close</button>
   </div>
 </div></div>
 <div id="songs" hidden><div class="box">
@@ -170,7 +199,16 @@ net.on('songreq', (r) => {
 
 // ------------------------------------------------------------------ AUTO band
 const humans = () => roster.filter((p) => p.connected);
-const autoRoles = (): Role[] => ((ts?.autoBand || ts?.game) && !songs.song ? ROLES.filter((r) => (!ts?.game?.song || ts.game.song.tracks[r].length > 0) && !humans().some((p) => p.role === r)) : []);
+const autoRoles = (): Role[] => {
+  if (!ts || songs.song) return [];
+  const g = ts.game;
+  if (g) return ROLES.filter((r) => (!g.song || g.song.tracks[r].length > 0) && !humans().some((p) => p.role === r));
+  // When no players are connected, do not play default music! Only provide backing when humans are in the band.
+  if (ts.autoBand && humans().length > 0) {
+    return ROLES.filter((r) => !humans().some((p) => p.role === r));
+  }
+  return [];
+};
 const songs = new SongPlayer(clock, () => ts, (ev: NoteEvent) => {
   if (!ts) return;
   engine.play(ev);
@@ -193,18 +231,26 @@ new AutoBand(clock, () => ts, () => (ts?.game ? [] : autoRoles()), (ev: NoteEven
 // -------------------------------------------------------------------- lanes
 // AUTO lanes get a stable muted per-role colour so they never flicker as players come and go.
 const AUTO_COLORS: Record<Role, string> = { drums: '#7b86a8', bass: '#6f8fb0', melody: '#8f86b8', pads: '#6fa3a0' };
+const STANDBY_ROLES: Role[] = ['drums', 'bass', 'melody', 'pads'];
 function laneList(): Lane[] {
-  const l: Lane[] = [...humans(), ...roster.filter((p) => !p.connected)].map((p) => ({
+  const h = humans();
+  const l: Lane[] = [...h, ...roster.filter((p) => !p.connected)].map((p) => ({
     id: p.id, name: p.name, role: p.role, color: p.color, auto: false, connected: p.connected, speaker: p.speaker,
   }));
   if (songs.song) {
     const seen = new Set(songs.song.events.map((e) => e.role));
     for (const r of ROLES) if (seen.has(r)) {
       const c = songs.song.credit[r];
-      l.push({ id: `song:${r}`, name: c ? `♪ from ${c.name}` : '♪ SONG', role: r, color: c?.color ?? '#ffd23f', auto: false, connected: true, speaker: false });
+      l.push({ id: `song:${r}`, name: c ? `♪ from ${c.name}` : '♪ TRACK', role: r, color: c?.color ?? '#ffd23f', auto: false, connected: true, speaker: false });
     }
   }
   for (const r of autoRoles()) l.push({ id: `auto:${r}`, name: 'AUTO', role: r, color: AUTO_COLORS[r], auto: true, connected: true, speaker: false });
+  // If no players and no track is playing, show instruments ready on standby so user can pick a track
+  if (l.length === 0 && !songs.song && !ts?.game) {
+    for (const r of STANDBY_ROLES) {
+      l.push({ id: `standby:${r}`, name: 'STANDBY · READY', role: r, color: AUTO_COLORS[r], auto: true, connected: false, speaker: false });
+    }
+  }
   return l;
 }
 
@@ -279,10 +325,181 @@ $('playnow').onclick = async () => {
     viz.resize();
   }, 350);
 };
+const sessionPlayer = new SessionPlayer(engine, viz, clock, () => ts);
+
+function stopSessionReplay() {
+  sessionPlayer.stop();
+  $('replaybar').hidden = true;
+  if ($('rec-stop-all')) $('rec-stop-all').hidden = true;
+  document.querySelectorAll('.rec-card').forEach((c) => c.classList.remove('playing'));
+}
+
+$('replay-stop').onclick = stopSessionReplay;
+$('rec-stop-all').onclick = stopSessionReplay;
+
+const closeRecordingsUI = () => { $('recordingsui').hidden = true; };
+const closeSampleUI = () => { $('sampleui').hidden = true; document.body.classList.remove('insample'); };
+
+$('viewrecs').onclick = () => { $('recordingsui').hidden = false; loadRecordingsList(); };
+$('rec-close').onclick = closeRecordingsUI;
+$('rec-close-x').onclick = closeRecordingsUI;
+$('rec-refresh').onclick = () => loadRecordingsList();
+$('rec-wav-save').onclick = () => {
+  if (!rec.save()) alert('No recent audio buffer to save. Play some sound first.');
+};
+
+async function loadRecordingsList() {
+  $('rec-count-lbl').textContent = 'Fetching sessions from server…';
+  $('rec-list').innerHTML = '<div class="empty">Loading recorded sessions…</div>';
+  try {
+    const res = await fetch('/api/recordings?limit=50');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    renderRecordingsList(data.recordings || []);
+  } catch (err) {
+    console.warn('loadRecordingsList error', err);
+    $('rec-count-lbl').textContent = 'Could not retrieve sessions';
+    $('rec-list').innerHTML = '<div class="empty">Could not connect to /api/recordings. Check server.</div>';
+  }
+}
+
+function fmtDuration(startedAt: string, endedAt: string) {
+  try {
+    const s = Math.max(0, Math.round((new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 1000));
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m > 0 ? `${m}m ` : ''}${sec}s`;
+  } catch {
+    return '–';
+  }
+}
+
+function fmtTime(ms: number) {
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+}
+
+function renderRecordingsList(list: RecordedSessionItem[]) {
+  if (!list.length) {
+    $('rec-count-lbl').textContent = '0 recorded sessions';
+    $('rec-list').innerHTML = `<div class="empty">No recorded sessions yet.<br>Click "⏺ START RECORDING" in the toolbar during performance, then click again to stop and save.</div>`;
+    return;
+  }
+  $('rec-count-lbl').textContent = `${list.length} recorded session${list.length === 1 ? '' : 's'}`;
+  $('rec-list').innerHTML = list.map((r) => {
+    let dateStr = r.startedAt;
+    try { dateStr = new Date(r.startedAt).toLocaleString(); } catch { /* keep */ }
+    const durStr = fmtDuration(r.startedAt, r.endedAt);
+    const notesCount = r.summary?.byType?.note ?? r.summary?.total ?? 0;
+    return `
+      <div class="rec-card" id="reccard-${r.id}" data-id="${r.id}">
+        <div class="rec-meta">
+          <div class="rec-title-row">
+            <span class="rec-badge">${esc(r.mode || 'FREE')}</span>
+            <span class="rec-date">${esc(dateStr)}</span>
+          </div>
+          <div class="rec-info-row">
+            <span>⏱️ ${durStr}</span>
+            <span>👥 ${r.players} player${r.players === 1 ? '' : 's'}</span>
+            <span>🎵 ${notesCount} note${notesCount === 1 ? '' : 's'}</span>
+          </div>
+        </div>
+        <div class="rec-actions">
+          <button class="btn rec-btn btn-listen" data-id="${r.id}">▶ LISTEN</button>
+          <button class="btn btn-export" data-id="${r.id}">⤓ JSON</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  $('rec-list').querySelectorAll<HTMLElement>('.btn-listen').forEach((btn) => {
+    btn.onclick = async () => {
+      const id = btn.dataset.id!;
+      await startReplayingSession(id);
+    };
+  });
+
+  $('rec-list').querySelectorAll<HTMLElement>('.btn-export').forEach((btn) => {
+    btn.onclick = async () => {
+      const id = btn.dataset.id!;
+      try {
+        const res = await fetch(`/api/recordings/${encodeURIComponent(id)}`);
+        const data = await res.json();
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `recording-${id.slice(0, 8)}.json`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      } catch (err) {
+        alert('Could not export recording JSON.');
+      }
+    };
+  });
+}
+
+async function startReplayingSession(id: string) {
+  try {
+    await enableAudio();
+    const res = await fetch(`/api/recordings/${encodeURIComponent(id)}`);
+    if (!res.ok) throw new Error('Session not found');
+    const fullRec: DetailedRecording = await res.json();
+
+    const started = sessionPlayer.play(
+      fullRec,
+      (elapsedMs, totalMs) => {
+        $('replay-time').textContent = `${fmtTime(elapsedMs)} / ${fmtTime(totalMs)}`;
+      },
+      () => {
+        stopSessionReplay();
+        flashBig('Replay complete', 1200);
+      },
+    );
+
+    if (started) {
+      $('replay-title').textContent = `REPLAYING: ${sessionPlayer.sessionTitle.toUpperCase()}`;
+      $('replaybar').hidden = false;
+      if ($('rec-stop-all')) $('rec-stop-all').hidden = false;
+      document.querySelectorAll('.rec-card').forEach((c) => c.classList.remove('playing'));
+      const card = $(`reccard-${id}`);
+      if (card) card.classList.add('playing');
+      flashBig(`Replaying session`, 1000);
+    } else {
+      alert('This session has no recorded notes to replay.');
+    }
+  } catch (err) {
+    console.warn('startReplayingSession error', err);
+    alert('Could not retrieve or play this session.');
+  }
+}
+
 addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (!$('sampleui').hidden) { closeSampleUI(); return; }
+    if (!$('recordingsui').hidden) { closeRecordingsUI(); return; }
+    if (!$('gamepick').hidden) { $('gamepick').hidden = true; return; }
+    if (!$('songs').hidden) { $('songs').hidden = true; return; }
+    if (!$('results').hidden) { $('results').hidden = true; return; }
+    if (sessionPlayer.isPlaying) { stopSessionReplay(); return; }
+  }
   if (e.key === 'h') $('cond').classList.toggle('hidden');
   if (e.key === 'f') document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
 });
+
+// Close modals when clicking backdrop
+$('sampleui').onclick = (e) => { if (e.target === $('sampleui')) closeSampleUI(); };
+$('recordingsui').onclick = (e) => { if (e.target === $('recordingsui')) closeRecordingsUI(); };
+$('gamepick').onclick = (e) => { if (e.target === $('gamepick')) $('gamepick').hidden = true; };
+$('songs').onclick = (e) => { if (e.target === $('songs')) $('songs').hidden = true; };
+
+// Click anywhere on viz canvas in standby mode to open song/track picker
+$<HTMLCanvasElement>('viz').onclick = () => {
+  if (humans().length === 0 && !songs.song && !ts?.game) {
+    $('songs').hidden = false;
+  }
+};
 function syncControls() {
   if (!ts) return;
   if (document.activeElement !== $('bpmr')) { $<HTMLInputElement>('bpmr').value = String(ts.bpm); $('bpmv').textContent = String(ts.bpm); }
@@ -648,8 +865,10 @@ async function loadSampleFile(f: File) {
     $('sp-droptext').innerHTML = 'Could not read that file. Try an MP3 or WAV. <u>choose a file</u>';
   }
 }
-$('sample').onclick = () => { $('sampleui').hidden = false; refreshSampleUI(); };
-$('sp-close').onclick = () => { $('sampleui').hidden = true; };
+$('sample').onclick = () => { $('sampleui').hidden = false; document.body.classList.add('insample'); refreshSampleUI(); };
+$('sp-close').onclick = closeSampleUI;
+$('sp-close-x').onclick = closeSampleUI;
+$('sp-cancel').onclick = closeSampleUI;
 $<HTMLInputElement>('sp-file').onchange = (e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) loadSampleFile(f); (e.target as HTMLInputElement).value = ''; };
 $('sp-drop').addEventListener('dragover', (e) => e.preventDefault());
 $('sp-drop').addEventListener('drop', (e) => { e.preventDefault(); const f = (e as DragEvent).dataTransfer?.files?.[0]; if (f) loadSampleFile(f); });
@@ -755,9 +974,25 @@ function frame(t: number) {
     $('bar').textContent = `${b.bar + 1} · ${b.beatInBar + 1}`;
     const n = humans().length, m = $('mode');
     const recTag = ts.recording ? ` · REC ${ts.recording.events}` : '';
-    if (n === 0) { m.textContent = 'DEMO · AUTO BAND'; m.className = 'mode auto'; }
-    else if (n === 1 && ts.autoBand) { m.textContent = 'SOLO · AUTO BAND BACKING'; m.className = 'mode auto'; }
-    else { m.textContent = `${n} PLAYERS${autoRoles().length ? ' + AUTO' : ''}`; m.className = 'mode'; }
+    if (sessionPlayer.isPlaying) {
+      m.textContent = `REPLAYING SESSION${recTag}`;
+      m.className = 'mode auto';
+    } else if (songs.song) {
+      m.textContent = `TRACK: ${songs.song.title.toUpperCase()}${recTag}`;
+      m.className = 'mode auto';
+    } else if (ts.game) {
+      m.textContent = `GAME: ${$('gh-title').textContent || 'RHYTHM'}${recTag}`;
+      m.className = 'mode auto';
+    } else if (n === 0) {
+      m.textContent = `STANDBY · READY FOR TRACK${recTag}`;
+      m.className = 'mode';
+    } else if (n === 1 && ts.autoBand) {
+      m.textContent = `SOLO · AUTO BAND BACKING${recTag}`;
+      m.className = 'mode auto';
+    } else {
+      m.textContent = `${n} PLAYERS${autoRoles().length ? ' + AUTO' : ''}${recTag}`;
+      m.className = 'mode';
+    }
     m.textContent += recTag;
     if (rec.seconds > 0) $('rec').textContent = `⏺ SAVE LAST ${Math.floor(rec.seconds)} s`;
   }
