@@ -89,11 +89,11 @@ function render() {
   document.documentElement.style.setProperty('--c', me.color);
   if (joined) return buildJam();
   root.innerHTML = `<div class="screen join">
-    <div class="swatch"></div><h1>Human Orchestra</h1>
-    <p>Desk Section: <b style="color:${me.color}">${ROLE_INFO[me.role].label.toUpperCase()}</b>. Enter musician callsign.</p>
+    <div class="swatch"></div><h1>HUMAN ORCHESTRA</h1>
+    <p>1P CONTROLLER: <b style="color:${me.color}">[${ROLE_INFO[me.role].label.toUpperCase()}]</b>. ENTER 1P NAME:</p>
     <input id="name" maxlength="14" value="${esc(me.name)}" autocomplete="off" autocapitalize="words" />
-    <button class="big" id="go">TAKE YOUR STAND</button>
-    <div class="hint">Phone acts as an orchestral desk. Synced to conductor clock.</div></div>`;
+    <button class="big" id="go">PRESS START</button>
+    <div class="hint">PHONE IS AN 8-BIT CONTROLLER. SYNCED TO STAGE CLOCK.</div></div>`;
   document.getElementById('go')!.onclick = onJoin;
 }
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -123,17 +123,17 @@ function buildJam() {
   const role = me.role;
   root.innerHTML = `<div class="screen">
     <div class="top">
-      <button class="chip" id="rolebtn"><span class="chip-code">${ROLE_INFO[role].icon}</span> <span class="chip-name">${ROLE_INFO[role].label}</span> ▾</button>
+      <button class="chip" id="rolebtn"><span class="chip-code">${ROLE_INFO[role].icon}</span> <span class="chip-name">${ROLE_INFO[role].label}</span> [V]</button>
       <div class="name" id="nm"></div>
       <div class="beats"><i></i><i></i><i></i><i></i></div>
-      <button class="icon" id="songbtn" aria-label="Repertoire">SCORE</button>
+      <button class="icon" id="songbtn" aria-label="Repertoire">SONGS</button>
       <button class="icon" id="dbgbtn" aria-label="Sync telemetry">SYNC</button>
     </div>
     <div class="chord" id="chord"></div>
-    <div id="pad"><canvas></canvas><div class="ylabel">${role === 'drums' ? 'VELOCITY ↑' : 'BRIGHTNESS ↑'}</div><div class="padlabel"></div></div>
+    <div id="pad"><canvas></canvas><div class="ylabel">${role === 'drums' ? 'VELOCITY ^' : 'PITCH ^'}</div><div class="padlabel"></div></div>
     <div class="bottom">
-      <button class="tog" id="shk"><span>${motion === 'granted' || motion === 'none' ? 'SHAKE ACTIVE' : 'ENABLE SHAKE'}</span></button>
-      <button class="tog ${speakerOn ? 'on' : ''}" id="spk">DESK MONITOR</button>
+      <button class="tog" id="shk"><span>${motion === 'granted' || motion === 'none' ? 'SHAKE ON' : 'SHAKE OFF'}</span></button>
+      <button class="tog ${speakerOn ? 'on' : ''}" id="spk">SPEAKER</button>
       <button class="tog" id="fls">${FLASH_LABEL[flashMode]}</button>
     </div></div>`;
   padEl = document.getElementById('pad')!;

@@ -50,70 +50,70 @@ app.innerHTML = `
 <canvas id="viz"></canvas>
 <div id="big"></div>
 <div class="hud">
-  <div class="brand">HUMAN ORCHESTRA<small id="keyline">–</small><span class="mode" id="mode">WAITING</span></div>
-  <div class="chordbox"><span class="lbl">HARMONIC CENTER</span><b id="chord">–</b><small id="next">&nbsp;</small></div>
-  <div class="stat"><span class="lbl">TEMPO</span><b id="bpm">–</b></div>
-  <div class="stat"><span class="lbl">MEASURE · BEAT</span><b id="bar">–</b></div>
-  <div class="stat sync"><span class="lbl">CLOCK DISPERSION (WORST DESK)</span><b id="sync">–</b><small id="syncsub">awaiting performer desks</small></div>
+  <div class="brand">HUMAN ORCHESTRA<small id="keyline">8-BIT CHIPTUNE</small><span class="mode" id="mode">WAITING</span></div>
+  <div class="chordbox"><span class="lbl">CHORD</span><b id="chord">–</b><small id="next">&nbsp;</small></div>
+  <div class="stat"><span class="lbl">BPM</span><b id="bpm">–</b></div>
+  <div class="stat"><span class="lbl">BAR · BEAT</span><b id="bar">–</b></div>
+  <div class="stat sync"><span class="lbl">CLOCK SYNC</span><b id="sync">–</b><small id="syncsub">AWAITING PLAYERS</small></div>
 </div>
 <aside class="side">
   <div class="qrbox"><canvas id="qr"></canvas></div>
-  <div class="scan">JOIN ORCHESTRA</div><div class="join-guide">Phones act as performer desks.<br>Synced to conductor master clock.</div><div id="url"></div><div id="warn"></div>
+  <div class="scan">SCAN TO JOIN [1P-8P]</div><div class="join-guide">PHONES ARE 8-BIT CONTROLLERS.<br>ONE PLAYER STARTS THE BAND.</div><div id="url"></div><div id="warn"></div>
   <div id="roster"></div>
 </aside>
-<button id="audio">MASTER BUS MUTED · CLICK TO ENGAGE AUDIO</button>
+<button id="audio">AUDIO OFF · CLICK TO START [INSERT COIN]</button>
 <footer class="conductor" id="cond">
   <div class="ctl"><span class="lbl">TEMPO <b id="bpmv"></b></span><input id="bpmr" type="range" min="${BPM_MIN}" max="${BPM_MAX}" step="1" /></div>
-  <div class="ctl"><span class="lbl">TONIC</span><select id="key">${NOTE_NAMES.map((n, i) => `<option value="${i}">${n}</option>`).join('')}</select></div>
-  <div class="ctl"><span class="lbl">MODE</span><select id="scale">${(Object.keys(SCALE_LABEL) as ScaleName[]).map((s) => `<option value="${s}">${SCALE_LABEL[s]}</option>`).join('')}</select></div>
-  <button class="btn drop" id="drop">CADENZA</button>
+  <div class="ctl"><span class="lbl">KEY</span><select id="key">${NOTE_NAMES.map((n, i) => `<option value="${i}">${n}</option>`).join('')}</select></div>
+  <div class="ctl"><span class="lbl">SCALE</span><select id="scale">${(Object.keys(SCALE_LABEL) as ScaleName[]).map((s) => `<option value="${s}">${SCALE_LABEL[s]}</option>`).join('')}</select></div>
+  <button class="btn drop" id="drop">! DROP !</button>
   <span class="spacer"></span>
-  <button class="btn play" id="play">PERFORM SCORE</button>
-  <button class="btn free" id="free">FREE IMPROV</button>
-  <button class="btn" id="midi">REPERTOIRE</button>
+  <button class="btn play" id="play">PLAY SONG</button>
+  <button class="btn free" id="free">FREESTYLE</button>
+  <button class="btn" id="midi">SONGS</button>
   <button class="btn sample" id="sample">SAMPLER</button>
   <input id="midifile" type="file" accept=".mid,.midi" hidden />
-  <button class="btn" id="auto">AUTO SECTION</button>
-  <button class="btn" id="spk">DESK MONITORS</button>
-  <button class="btn rec" id="rec">EXPORT AUDIO</button>
+  <button class="btn" id="auto">AUTO BAND</button>
+  <button class="btn" id="spk">SPEAKERS</button>
+  <button class="btn rec" id="rec">REC 30S</button>
 </footer>
 <div id="card" hidden></div>
 <div id="gamehud" hidden><div class="gh-top"><span id="gh-title"></span><b id="gh-team">0</b><span id="gh-acc"></span></div><div class="gh-bar"><i id="gh-prog"></i></div><div id="gh-note"></div></div>
 <div id="gamepick" hidden><div class="box">
-  <h3>Select Orchestral Score</h3>
+  <h3>SELECT SONG</h3>
   <p id="gp-info"></p>
-  <p class="hintp">The arrangement stays strictly in time. Hits lift your section; misses soften your part while the ensemble continues.</p>
-  <div class="row"><button class="btn" id="gp-import">＋ IMPORT MIDI (.mid)</button><button class="btn" id="gp-preview">Audition Selected</button></div>
+  <p class="hintp">The arrangement stays in time. Hits lift your part; misses soften your part while the band keeps going.</p>
+  <div class="row"><button class="btn" id="gp-import">+ LOAD .MID FILE</button><button class="btn" id="gp-preview">PREVIEW SONG</button></div>
   <input id="gp-file" type="file" accept=".mid,.midi" hidden />
   <label class="hintp"><input id="gp-melody" type="checkbox" /> Import melody voice only (highest part)</label>
   <label class="hintp" id="gp-part-label" hidden>Melody voice <select id="gp-part"></select></label>
-  <p class="hintp" id="gp-status" role="status">Load a MIDI arrangement to rehearse. Scores are cached in this browser.</p>
+  <p class="hintp" id="gp-status" role="status">Load a MIDI arrangement to play. Imports are cached in this browser.</p>
   <div id="gp-songs"></div>
   <div class="diffs" id="gp-diffs"></div>
-  <div class="row"><button class="btn drop" id="gp-start">COMMENCE SCORE</button><button class="btn" id="gp-close">Close</button></div>
+  <div class="row"><button class="btn drop" id="gp-start">START GAME</button><button class="btn" id="gp-close">CLOSE</button></div>
 </div></div>
 <div id="results" hidden></div>
 <div id="sampleui" hidden><div class="box">
-  <h3>Audio Sample Ingest Console</h3>
-  <p class="hintp">Select an MP3 or WAV from this workstation. Kept in browser memory. Desks play synchronized measure slices on the beat.</p>
-  <label class="dropzone" id="sp-drop"><span id="sp-droptext">Drop an audio file here, or <u>choose a file</u></span><input type="file" id="sp-file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.aac,.flac" hidden></label>
+  <h3>8-BIT AUDIO SAMPLER</h3>
+  <p class="hintp">Choose an MP3 / WAV from this computer. Kept in browser memory. Phones play 16 slices on the beat grid.</p>
+  <label class="dropzone" id="sp-drop"><span id="sp-droptext">DROP AUDIO FILE HERE OR <u>CLICK TO BROWSE</u></span><input type="file" id="sp-file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.aac,.flac" hidden></label>
   <div id="sp-panel" hidden>
     <canvas id="sp-wave"></canvas>
     <div class="sp-line"><b id="sp-name"></b><span id="sp-info"></span></div>
     <div class="sp-ctl">
-      <span>TEMPO</span><button class="btn" data-sp="half">½×</button><button class="btn" data-sp="bpm-1">−1</button><b id="sp-bpm"></b><button class="btn" data-sp="bpm+1">+1</button><button class="btn" data-sp="double">2×</button>
-      <span>GRID</span><button class="btn" data-sp="off-beat">◂ beat</button><button class="btn" data-sp="off+beat">beat ▸</button><button class="btn" data-sp="off-bar">◂ bar</button><button class="btn" data-sp="off+bar">bar ▸</button>
-      <span>SLICE</span><button class="btn" data-sp="slice.5">½ beat</button><button class="btn" data-sp="slice1">1 beat</button><button class="btn" data-sp="slice2">2 beats</button>
+      <span>TEMPO</span><button class="btn" data-sp="half">1/2x</button><button class="btn" data-sp="bpm-1">-1</button><b id="sp-bpm"></b><button class="btn" data-sp="bpm+1">+1</button><button class="btn" data-sp="double">2x</button>
+      <span>GRID</span><button class="btn" data-sp="off-beat">&lt; BEAT</button><button class="btn" data-sp="off+beat">BEAT &gt;</button><button class="btn" data-sp="off-bar">&lt; BAR</button><button class="btn" data-sp="off+bar">BAR &gt;</button>
+      <span>SLICE</span><button class="btn" data-sp="slice.5">1/2 BEAT</button><button class="btn" data-sp="slice1">1 BEAT</button><button class="btn" data-sp="slice2">2 BEATS</button>
     </div>
-    <div class="row"><button class="btn play" id="sp-chop">ASSIGN SLICES TO DESKS</button><button class="btn" id="sp-back">ENGAGE CONTINUOUS LOOP</button><button class="btn" id="sp-stop">HALT SAMPLE</button><button class="btn" id="sp-close">Close</button></div>
+    <div class="row"><button class="btn play" id="sp-chop">PLAY SLICES ON PADS</button><button class="btn" id="sp-back">BACKING LOOP</button><button class="btn" id="sp-stop">STOP</button><button class="btn" id="sp-close">CLOSE</button></div>
     <p class="hintp" id="sp-msg"></p>
   </div>
 </div></div>
 <div id="songs" hidden><div class="box">
-  <h3>Orchestral Repertoire</h3>
-  <div class="modes"><button class="btn on" id="m-tap">Guided Performance</button><button class="btn" id="m-band">Full Arrangement Audition</button></div>
+  <h3>SONG LIBRARY</h3>
+  <div class="modes"><button class="btn on" id="m-tap">TAP-ALONG MODE</button><button class="btn" id="m-band">LISTEN TO ARRANGEMENT</button></div>
   <div id="songlist"></div>
-  <div class="row"><button class="btn" id="s-file">Load .mid file…</button><button class="btn" id="s-stop">Halt Score</button><button class="btn" id="s-close">Close</button></div>
+  <div class="row"><button class="btn" id="s-file">LOAD .MID FILE</button><button class="btn" id="s-stop">STOP SONG</button><button class="btn" id="s-close">CLOSE</button></div>
 </div></div>`;
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;

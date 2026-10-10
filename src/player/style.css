@@ -1,37 +1,29 @@
 /* ==========================================================================
-   HUMAN ORCHESTRA · PERFORMER'S INSTRUMENT DESK
-   Aesthetic: Physical Musician Stand & Tactile Console
-   Design Tokens: Archival Carbon, 1px Stave Rules, Baton Accent
+   HUMAN ORCHESTRA · 8-BIT CHIPTUNE CONTROLLER
+   Aesthetic: Game Boy / NES 8-Bit Pixel Gamepad
+   Typography: 'Press Start 2P' (Titles/Buttons) + 'Silkscreen' (HUD/Labels)
    ========================================================================== */
 
 :root {
-  --bg: #0d0f0e;
-  --panel: #141715;
-  --surface-alt: #1a1e1b;
-  --border: #262b27;
-  --border-bright: #3c433e;
-  --fg: #e6e8e2;
-  --dim: #7d857b;
-  --dim-faint: #444b43;
-  --baton: #d49226;
-  --baton-subtle: #242017;
-  --alert: #c85a42;
-  
-  --font-serif: "Fraunces", Georgia, Cambria, serif;
-  --font-sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, Arial, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  --bg: #0c0c14;
+  --panel: #181824;
+  --surface-alt: #222234;
+  --border: #f8f8f8;
+  --border-dim: #44445c;
+  --fg: #f8f8f8;
+  --dim: #9494b0;
+  --dim-faint: #5a5a78;
+  --gold: #f8b800;
+  --green: #00e436;
+  --red: #ff0044;
+  --cyan: #00d8f8;
 
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
 
-  /* Modular type scale: ratio 1.25 */
-  --type-neg: 10.24px;
-  --type-0: 12.8px;
-  --type-1: 16px;
-  --type-2: 20px;
-  --type-3: 25px;
-  --type-4: 31.25px;
-  --type-5: 48px;
+  --font-pixel: "Press Start 2P", monospace;
+  --font-silk: "Silkscreen", monospace;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 }
 
 * {
@@ -39,6 +31,9 @@
   -webkit-tap-highlight-color: transparent;
   margin: 0;
   padding: 0;
+  image-rendering: pixelated;
+  -webkit-font-smoothing: none;
+  font-smooth: never;
 }
 
 html, body {
@@ -46,15 +41,14 @@ html, body {
   height: 100%;
   background: var(--bg);
   color: var(--fg);
-  font-family: var(--font-sans);
-  font-size: var(--type-1);
-  line-height: 1.25;
+  font-family: var(--font-silk);
+  font-size: 12px;
+  line-height: 1.3;
   overscroll-behavior: none;
   -webkit-user-select: none;
   user-select: none;
   touch-action: manipulation;
   overflow: hidden;
-  -webkit-font-smoothing: antialiased;
 }
 
 button {
@@ -70,7 +64,6 @@ button {
   inset: 0;
 }
 
-/* Master beat flash: pure server-synchronised clock envelope */
 #flash {
   position: fixed;
   inset: 0;
@@ -85,13 +78,13 @@ button {
   inset: 0;
   display: flex;
   flex-direction: column;
-  padding: calc(var(--safe-t) + 14px) 14px calc(var(--safe-b) + 14px);
-  gap: 10px;
+  padding: calc(var(--safe-t) + 12px) 12px calc(var(--safe-b) + 12px);
+  gap: 8px;
   background: var(--bg);
 }
 
 /* --------------------------------------------------------------------------
-   1. DESK ONBOARDING SCREEN (Join / Stand Assignment)
+   1. 8-BIT JOIN SCREEN
    -------------------------------------------------------------------------- */
 .join {
   justify-content: center;
@@ -101,107 +94,114 @@ button {
 }
 
 .join h1 {
-  font-family: var(--font-serif);
-  font-size: var(--type-4);
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  margin-bottom: 4px;
+  font-family: var(--font-pixel);
+  font-size: 16px;
+  line-height: 1.4;
+  color: var(--gold);
+  margin-bottom: 8px;
+  text-shadow: 2px 2px 0 #000000;
 }
 
 .join p {
-  font-family: var(--font-mono);
-  font-size: var(--type-0);
+  font-family: var(--font-silk);
+  font-size: 11px;
   color: var(--dim);
   margin-bottom: 12px;
 }
 
 .swatch {
-  width: 56px;
-  height: 56px;
+  width: 48px;
+  height: 48px;
   margin: 8px auto 14px;
   background: var(--c);
-  border: 2px solid var(--border-bright);
+  border: 3px solid var(--border);
+  box-shadow: 3px 3px 0 #000000;
 }
 
 .join input {
-  font-family: var(--font-mono);
-  font-size: var(--type-2);
+  font-family: var(--font-pixel);
+  font-size: 13px;
   text-align: center;
-  padding: 12px;
-  border: 1px solid var(--border-bright);
-  background: var(--panel);
-  color: var(--fg);
+  padding: 12px 8px;
+  border: 3px solid var(--border);
+  box-shadow: 3px 3px 0 #000000;
+  background: #000000;
+  color: var(--gold);
   outline: none;
   width: 100%;
   user-select: text;
   -webkit-user-select: text;
   touch-action: auto;
-  border-radius: 0;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 .join input:focus {
-  border-color: var(--baton);
+  border-color: var(--gold);
 }
 
 .big {
   padding: 14px;
-  font-family: var(--font-mono);
-  font-size: var(--type-1);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  background: var(--baton);
-  color: #0c0d0c;
-  border: 1px solid var(--baton);
+  font-family: var(--font-pixel);
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  background: var(--green);
+  color: #000000;
+  border: 3px solid var(--border);
+  box-shadow: 3px 3px 0 #000000;
   cursor: pointer;
 }
 
 .big:active {
-  background: #e2a034;
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 #000000;
 }
 
 .hint {
-  font-family: var(--font-mono);
-  font-size: var(--type-neg);
+  font-family: var(--font-silk);
+  font-size: 10px;
   color: var(--dim);
   margin-top: 10px;
 }
 
 /* --------------------------------------------------------------------------
-   2. DESK CONTROL HEADER (Section Chip, Cadence Ticks, Actions)
+   2. 8-BIT TOP BAR (Section Chip, Beat Dots, Buttons)
    -------------------------------------------------------------------------- */
 .top {
   display: flex;
   align-items: center;
-  gap: 8px;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 8px;
+  gap: 6px;
+  border-bottom: 2px solid var(--border-dim);
+  padding-bottom: 6px;
 }
 
 .chip {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  background: var(--panel);
-  border: 1px solid var(--c);
-  font-family: var(--font-mono);
-  font-weight: 700;
-  font-size: var(--type-0);
+  gap: 4px;
+  padding: 6px 8px;
+  background: #000000;
+  border: 2px solid var(--c);
+  box-shadow: 2px 2px 0 #000000;
+  font-family: var(--font-pixel);
+  font-size: 8px;
   color: var(--fg);
   cursor: pointer;
 }
 
+.chip:active {
+  transform: translate(1px, 1px);
+  box-shadow: none;
+}
+
 .chip-code {
   color: var(--c);
-  font-weight: 700;
 }
 
 .name {
-  font-family: var(--font-sans);
+  font-family: var(--font-silk);
   color: var(--dim);
-  font-weight: 600;
-  font-size: var(--type-0);
+  font-weight: 700;
+  font-size: 11px;
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -215,16 +215,16 @@ button {
 }
 
 .beats i {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   background: var(--surface-alt);
-  border: 1px solid var(--border);
+  border: 2px solid var(--border-dim);
   display: block;
 }
 
 .beats i.on {
-  background: var(--baton);
-  border-color: var(--baton);
+  background: var(--gold);
+  border-color: #ffffff;
 }
 
 .beats i.on.d {
@@ -235,41 +235,45 @@ button {
 .icon {
   padding: 6px 8px;
   background: var(--panel);
-  border: 1px solid var(--border-bright);
-  font-family: var(--font-mono);
-  font-size: var(--type-neg);
-  font-weight: 700;
-  letter-spacing: 0.05em;
+  border: 2px solid var(--border);
+  box-shadow: 2px 2px 0 #000000;
+  font-family: var(--font-pixel);
+  font-size: 8px;
   color: var(--fg);
   cursor: pointer;
+}
+
+.icon:active {
+  transform: translate(1px, 1px);
+  box-shadow: none;
 }
 
 .chord {
   text-align: center;
   color: var(--dim);
-  font-family: var(--font-mono);
-  font-size: var(--type-0);
-  letter-spacing: 0.05em;
-  padding: 4px 0;
+  font-family: var(--font-silk);
+  font-size: 11px;
+  padding: 2px 0;
 }
 
 .chord b {
-  font-family: var(--font-serif);
-  color: var(--baton);
-  font-size: var(--type-2);
+  font-family: var(--font-pixel);
+  color: var(--gold);
+  font-size: 14px;
   margin-left: 6px;
 }
 
 /* --------------------------------------------------------------------------
-   3. TACTILE INSTRUMENT PAD (XY Expression Surface)
+   3. 8-BIT XY INSTRUMENT PAD
    -------------------------------------------------------------------------- */
 #pad {
   position: relative;
   flex: 1;
   overflow: hidden;
   touch-action: none;
-  background: #090a09;
-  border: 1px solid var(--border-bright);
+  background: #000000;
+  border: 3px solid var(--border);
+  box-shadow: 3px 3px 0 #000000;
 }
 
 #pad canvas {
@@ -284,12 +288,11 @@ button {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 8px;
+  bottom: 6px;
   display: flex;
   pointer-events: none;
-  font-family: var(--font-mono);
-  font-size: var(--type-neg);
-  font-weight: 700;
+  font-family: var(--font-pixel);
+  font-size: 8px;
   color: var(--dim);
 }
 
@@ -300,51 +303,53 @@ button {
 
 .ylabel {
   position: absolute;
-  top: 8px;
-  left: 10px;
-  font-family: var(--font-mono);
-  font-size: var(--type-neg);
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  top: 6px;
+  left: 8px;
+  font-family: var(--font-pixel);
+  font-size: 8px;
   color: var(--dim);
   pointer-events: none;
 }
 
 /* --------------------------------------------------------------------------
-   4. DESK HARDWARE SWITCHES (Footer)
+   4. 8-BIT CONTROLLER TOGGLES (Footer)
    -------------------------------------------------------------------------- */
 .bottom {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
 .tog {
   flex: 1;
   padding: 10px 4px;
-  font-family: var(--font-mono);
-  font-size: var(--type-neg);
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-family: var(--font-pixel);
+  font-size: 8px;
   background: var(--panel);
-  border: 1px solid var(--border-bright);
+  border: 2px solid var(--border);
+  box-shadow: 2px 2px 0 #000000;
   color: var(--fg);
   text-align: center;
   cursor: pointer;
 }
 
+.tog:active {
+  transform: translate(1px, 1px);
+  box-shadow: none;
+}
+
 .tog.on {
-  border-color: var(--baton);
-  background: var(--baton-subtle);
-  color: var(--baton);
+  border-color: var(--cyan);
+  background: var(--cyan);
+  color: #000000;
 }
 
 /* --------------------------------------------------------------------------
-   5. MODAL SHEETS & SECTION DIALOGS
+   5. MODAL SHEETS & DIALOGS
    -------------------------------------------------------------------------- */
 .sheet {
   position: absolute;
   inset: 0;
-  background: rgba(10, 11, 10, 0.92);
+  background: rgba(0, 0, 0, 0.9);
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -353,8 +358,8 @@ button {
 
 .sheet .card {
   background: var(--panel);
-  border-top: 1px solid var(--border-bright);
-  padding: 16px 14px calc(var(--safe-b) + 16px);
+  border-top: 3px solid var(--border);
+  padding: 14px 12px calc(var(--safe-b) + 14px);
   display: grid;
   gap: 8px;
   max-height: 82%;
@@ -363,55 +368,56 @@ button {
 }
 
 .sheet h3 {
-  font-family: var(--font-serif);
-  font-size: var(--type-1);
-  color: var(--dim);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-family: var(--font-pixel);
+  font-size: 11px;
+  color: var(--gold);
   margin-bottom: 4px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 2px dashed var(--border-dim);
   padding-bottom: 4px;
 }
 
 .rolebtn {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
-  background: var(--surface-alt);
-  border: 1px solid var(--border);
-  font-family: var(--font-mono);
-  font-size: var(--type-1);
-  font-weight: 600;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #000000;
+  border: 2px solid var(--border-dim);
+  box-shadow: 2px 2px 0 #000000;
+  font-family: var(--font-pixel);
+  font-size: 9px;
   text-align: left;
   cursor: pointer;
 }
 
+.rolebtn:active {
+  transform: translate(1px, 1px);
+  box-shadow: none;
+}
+
 .rolebtn .badge {
-  font-size: var(--type-neg);
-  padding: 2px 6px;
-  background: var(--bg);
-  border: 1px solid var(--border-bright);
-  color: var(--baton);
+  font-size: 8px;
+  padding: 2px 4px;
+  background: var(--surface-alt);
+  color: var(--gold);
 }
 
 .rolebtn.cur {
-  border-color: var(--baton);
-  background: var(--baton-subtle);
-  color: var(--baton);
+  border-color: var(--green);
+  color: var(--green);
 }
 
 .dbg {
-  font-family: var(--font-mono);
-  font-size: var(--type-neg);
-  line-height: 1.5;
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  line-height: 1.6;
   color: var(--dim);
   white-space: pre;
   user-select: text;
   -webkit-user-select: text;
-  background: var(--bg);
+  background: #000000;
   padding: 8px;
-  border: 1px solid var(--border);
+  border: 2px solid var(--border-dim);
 }
 
 .dbg b {
@@ -424,18 +430,18 @@ button {
   left: 50%;
   transform: translateX(-50%);
   z-index: 70;
-  background: var(--alert);
+  background: var(--red);
   color: #ffffff;
-  font-family: var(--font-mono);
-  font-weight: 700;
-  padding: 4px 12px;
-  font-size: var(--type-neg);
-  border: 1px solid #ffffff;
+  font-family: var(--font-pixel);
+  padding: 6px 12px;
+  font-size: 8px;
+  border: 2px solid #ffffff;
+  box-shadow: 2px 2px 0 #000000;
   white-space: nowrap;
 }
 
 /* --------------------------------------------------------------------------
-   6. RHYTHM PERFORMANCE VIEW (Phone Score Highway)
+   6. 8-BIT RHYTHM HIGHWAY (Phone Game Mode)
    -------------------------------------------------------------------------- */
 .game {
   position: absolute;
@@ -444,30 +450,30 @@ button {
   background: var(--bg);
   display: flex;
   flex-direction: column;
-  padding: calc(var(--safe-t) + 8px) 0 calc(var(--safe-b) + 6px);
+  padding: calc(var(--safe-t) + 6px) 0 calc(var(--safe-b) + 6px);
   touch-action: none;
 }
 
 .ghud {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 0 14px 6px;
-  border-bottom: 1px solid var(--border);
+  gap: 6px;
+  padding: 0 10px 4px;
+  border-bottom: 2px solid var(--border-dim);
 }
 
 .ghud small {
   display: block;
-  font-family: var(--font-mono);
+  font-family: var(--font-silk);
   color: var(--dim);
-  font-size: var(--type-neg);
-  letter-spacing: 0.04em;
+  font-size: 9px;
 }
 
 .gs b {
-  font-family: var(--font-serif);
-  font-size: var(--type-1);
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  color: var(--gold);
 }
 
 .gs small {
@@ -482,8 +488,8 @@ button {
 }
 
 .gscore b {
-  font-family: var(--font-mono);
-  font-size: var(--type-3);
+  font-family: var(--font-pixel);
+  font-size: 14px;
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
@@ -493,11 +499,11 @@ button {
 }
 
 .gcombo b {
-  font-family: var(--font-mono);
-  font-size: var(--type-2);
+  font-family: var(--font-pixel);
+  font-size: 12px;
   line-height: 1;
   font-variant-numeric: tabular-nums;
-  color: var(--baton);
+  color: var(--green);
 }
 
 #g-canvas {
@@ -506,64 +512,63 @@ button {
   min-height: 0;
   display: block;
   touch-action: none;
-  background: #090a09;
+  background: #000000;
+  border-top: 2px solid var(--border-dim);
+  border-bottom: 2px solid var(--border-dim);
 }
 
 .glabels {
   display: flex;
   padding: 4px 0 2px;
-  border-top: 1px solid var(--border);
 }
 
 .glabels span {
   flex: 1;
   text-align: center;
-  font-family: var(--font-mono);
-  font-size: var(--type-neg);
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: var(--baton);
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  color: var(--gold);
 }
 
 .gresults {
   position: absolute;
   inset: 0;
-  background: rgba(10, 11, 10, 0.94);
+  background: rgba(0, 0, 0, 0.94);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 20px;
+  gap: 8px;
+  padding: 16px;
   text-align: center;
 }
 
 .gresults .grade {
-  font-family: var(--font-serif);
-  font-size: 80px;
-  font-weight: 800;
+  font-family: var(--font-pixel);
+  font-size: 64px;
   line-height: 1;
-  color: var(--baton);
-  border: 2px solid var(--baton);
+  color: var(--gold);
+  border: 4px solid var(--gold);
+  box-shadow: 4px 4px 0 #000000;
   padding: 4px 16px;
 }
 
 .gresults .gbig {
-  font-family: var(--font-mono);
-  font-size: var(--type-4);
-  font-weight: 700;
+  font-family: var(--font-pixel);
+  font-size: 18px;
+  color: var(--fg);
   font-variant-numeric: tabular-nums;
 }
 
 .gresults .grid {
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 4px 18px;
-  font-family: var(--font-mono);
-  font-size: var(--type-0);
-  min-width: 220px;
+  gap: 4px 14px;
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  min-width: 200px;
   text-align: left;
-  border-top: 1px solid var(--border);
+  border-top: 2px dashed var(--border-dim);
   padding-top: 8px;
 }
 
@@ -572,34 +577,35 @@ button {
 }
 
 .ghelp {
-  padding: 2px 14px 4px;
+  padding: 2px 10px 4px;
   color: var(--dim);
   text-align: center;
-  font-family: var(--font-mono);
-  font-size: var(--type-neg);
+  font-family: var(--font-silk);
+  font-size: 9px;
 }
 
 .gtiming {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  font-family: var(--font-mono);
-  font-size: var(--type-neg);
+  gap: 6px;
+  font-family: var(--font-pixel);
+  font-size: 8px;
   color: var(--dim);
 }
 
 .gtiming button {
-  min-width: 40px;
-  min-height: 36px;
+  min-width: 36px;
+  min-height: 32px;
   background: var(--panel);
-  border: 1px solid var(--border-bright);
-  font-family: var(--font-mono);
-  font-size: var(--type-1);
+  border: 2px solid var(--border);
+  box-shadow: 2px 2px 0 #000000;
+  font-family: var(--font-pixel);
+  font-size: 11px;
   color: var(--fg);
 }
 
-button:focus-visible {
-  outline: 2px solid var(--baton);
-  outline-offset: 2px;
+.gtiming button:active {
+  transform: translate(1px, 1px);
+  box-shadow: none;
 }
