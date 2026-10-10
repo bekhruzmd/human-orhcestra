@@ -17,7 +17,6 @@ interface Particle { x: number; y: number; vx: number; vy: number; life: number;
 interface Ring { x: number; y: number; t: number; color: string; size: number }
 
 const ROLL_STEPS = STEPS_PER_BAR * 2;
-const LABEL_W = 210;
 const GRID_H = 126;
 
 const rgba = (hex: string, a: number) => {
@@ -96,8 +95,10 @@ export class Viz {
     // ---- lanes
     const areaTop = 12, areaH = h - GRID_H - 24;
     const n = Math.max(1, lanes.length);
-    const laneH = Math.min(118, (areaH - (n - 1) * 8) / n);
-    const x0 = LABEL_W + 16, rw = w - x0 - 16, cell = rw / ROLL_STEPS;
+    const maxLaneH = n === 1 ? 180 : n === 2 ? 150 : n <= 4 ? 128 : 100;
+    const laneH = Math.min(maxLaneH, Math.max(64, (areaH - (n - 1) * 8) / n));
+    const labelW = Math.max(220, Math.min(300, Math.floor(w * 0.22)));
+    const x0 = labelW + 16, rw = w - x0 - 16, cell = rw / ROLL_STEPS;
     const playX = x0 + ((pos % ROLL_STEPS) / ROLL_STEPS) * rw;
     this.laneY.clear();
     const totalH = n * laneH + (n - 1) * 8;
@@ -122,18 +123,26 @@ export class Viz {
       round(ctx, 0, y, 14, laneH, 14); ctx.fill();
       ctx.globalAlpha = lane.connected ? 1 : 0.4;
       // label
-      ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle';
-      const big = Math.min(34, laneH * 0.32);
-      ctx.font = `800 ${big}px ui-rounded, system-ui, sans-serif`;
-      ctx.fillText(`${ROLE_INFO[lane.role].icon} ${ROLE_INFO[lane.role].label}`, 30, y + laneH * 0.36);
-      ctx.font = `600 ${Math.min(22, laneH * 0.22)}px ui-rounded, system-ui, sans-serif`;
+      ctx.fillStyle = '#fff';
+      const roleSize = Math.max(15, Math.min(24, Math.floor(laneH * 0.23)));
+      ctx.font = `800 ${roleSize}px "Silkscreen", ui-rounded, system-ui, sans-serif`;
+      ctx.textBaseline = 'top';
+      const roleY = y + Math.max(10, Math.floor(laneH * 0.16));
+      ctx.fillText(`${ROLE_INFO[lane.role].icon} ${ROLE_INFO[lane.role].label.toUpperCase()}`, 26, roleY);
+
+      const nameSize = Math.max(12, Math.min(17, Math.floor(laneH * 0.17)));
+      ctx.font = `700 ${nameSize}px "Silkscreen", ui-rounded, system-ui, sans-serif`;
+      ctx.textBaseline = 'bottom';
+      const nameY = y + laneH - Math.max(10, Math.floor(laneH * 0.16));
       ctx.fillStyle = rgba(lane.color, 1);
-      ctx.fillText(lane.auto ? 'AUTO' : lane.name + (lane.speaker ? '  📢' : '') + (lane.connected ? '' : '  · offline'), 30, y + laneH * 0.7);
-      if (lane.auto) {
-        ctx.font = `800 ${Math.min(16, laneH * 0.15)}px ui-rounded, system-ui, sans-serif`;
-        ctx.fillStyle = 'rgba(255,255,255,.55)';
-        ctx.fillText('generated backing', 30 + ctx.measureText('AUTO').width + 22, y + laneH * 0.7);
+      let nameText = lane.auto ? 'AUTO BAND' : lane.name;
+      if (lane.speaker) nameText += ' 📢';
+      if (!lane.connected && !lane.auto) nameText += ' · offline';
+      const maxW = labelW - 32;
+      while (nameText.length > 4 && ctx.measureText(nameText).width > maxW) {
+        nameText = nameText.slice(0, -2) + '…';
       }
+      ctx.fillText(nameText, 26, nameY);
       // roll grid
       ctx.lineWidth = 1;
       for (let k = 0; k <= ROLL_STEPS; k++) {
@@ -171,7 +180,7 @@ export class Viz {
     this.lastPlayhead = playX;
 
     this.drawParticles();
-    this.drawGrid(ts, pos, lanes, w, h, inBuild);
+    this.drawGrid(ts, pos, lanes, w, h, inBuild, labelW);
 
     // ---- drop overlays
     if (inBuild && ts.drop) {
@@ -231,12 +240,12 @@ export class Viz {
   }
 
   /** Bottom strip: 4-bar chord loop + the 16-step grid of the current bar with every player's hits as dots. */
-  private drawGrid(ts: TransportState, pos: number, lanes: Lane[], w: number, h: number, building: boolean) {
+  private drawGrid(ts: TransportState, pos: number, lanes: Lane[], w: number, h: number, building: boolean, labelW: number) {
     const { ctx } = this;
     const top = h - GRID_H, step = Math.floor(pos), bar = Math.floor(step / STEPS_PER_BAR), inBar = step % STEPS_PER_BAR;
-    const gx = LABEL_W + 16, gw = w - gx - 16;
+    const gx = labelW + 16, gw = w - gx - 16;
     // chord loop (left column)
-    const cw = (LABEL_W - 8) / 4;
+    const cw = (labelW - 8) / 4;
     for (let i = 0; i < 4; i++) {
       const c = chordAt(ts, (bar - (bar % 4) + i) * STEPS_PER_BAR);
       const cur = i === bar % 4;
@@ -277,7 +286,9 @@ export class Viz {
 
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 function round(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  r = Math.min(r, w / 2, h / 2);
+  if (w < 0) { x += w; w = -w; }
+  if (h < 0) { y += h; h = -h; }
+  r = Math.max(0, Math.min(r, w / 2, h / 2));
   ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
   ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
 }

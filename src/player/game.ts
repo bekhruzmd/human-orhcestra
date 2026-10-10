@@ -51,7 +51,7 @@ export class GameUI {
   private hud!: { score: HTMLElement; combo: HTMLElement; acc: HTMLElement };
   private timer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(private app: HTMLElement, private d: Deps) {}
+  constructor(private app: HTMLElement, private d: Deps) { }
 
   get active() { return !!this.el; }
 
@@ -102,7 +102,7 @@ export class GameUI {
     this.ctx = this.canvas.getContext('2d')!;
     this.hud = { score: el.querySelector('#g-score')!, combo: el.querySelector('#g-combo')!, acc: el.querySelector('#g-acc')! };
     const timing = () => { el.querySelector('#g-timing')!.textContent = `Timing ${this.timingMs > 0 ? '+' : ''}${this.timingMs} ms · + if sound feels late`; };
-    const adjust = (delta: number) => { this.timingMs = Math.max(-200, Math.min(200, this.timingMs + delta)); try { localStorage.setItem('ho.game.timing', String(this.timingMs)); } catch {} timing(); };
+    const adjust = (delta: number) => { this.timingMs = Math.max(-200, Math.min(200, this.timingMs + delta)); try { localStorage.setItem('ho.game.timing', String(this.timingMs)); } catch { } timing(); };
     el.querySelector<HTMLButtonElement>('#g-earlier')!.onclick = () => adjust(-10);
     el.querySelector<HTMLButtonElement>('#g-later')!.onclick = () => adjust(10);
     timing();

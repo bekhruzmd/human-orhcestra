@@ -54,30 +54,49 @@ app.innerHTML = `
   <div class="chordbox"><span class="lbl">CHORD</span><b id="chord">–</b><small id="next">&nbsp;</small></div>
   <div class="stat"><span class="lbl">BPM</span><b id="bpm">–</b></div>
   <div class="stat"><span class="lbl">BAR · BEAT</span><b id="bar">–</b></div>
-  <div class="stat sync"><span class="lbl">SYNC ERROR (WORST PHONE)</span><b id="sync">–</b><small id="syncsub">waiting for phones</small></div>
+  <div class="stat sync"><span class="lbl">SYNC ERROR (WORST PHONE)</span><b id="sync">–</b><small id="syncsub" aria-live="polite">waiting for phones</small></div>
 </div>
 <aside class="side">
   <div class="qrbox"><canvas id="qr"></canvas></div>
-  <div class="scan">SCAN TO JOIN</div><div id="url"></div><div id="warn"></div>
+  <div class="scan">SCAN TO JOIN</div><div id="url"></div><div id="warn" aria-live="polite"></div>
   <div id="roster"></div>
 </aside>
 <button id="audio">🔇 SOUND OFF · click to enable audio</button>
 <footer class="conductor" id="cond">
-  <div class="ctl"><span class="lbl">TEMPO <b id="bpmv"></b></span><input id="bpmr" type="range" min="${BPM_MIN}" max="${BPM_MAX}" step="1" /></div>
-  <div class="ctl"><span class="lbl">KEY</span><select id="key">${NOTE_NAMES.map((n, i) => `<option value="${i}">${n}</option>`).join('')}</select></div>
-  <div class="ctl"><span class="lbl">SCALE</span><select id="scale">${(Object.keys(SCALE_LABEL) as ScaleName[]).map((s) => `<option value="${s}">${SCALE_LABEL[s]}</option>`).join('')}</select></div>
-  <button class="btn drop" id="drop">DROP</button>
-  <span class="spacer"></span>
-  <button class="btn play" id="play">🎮 PLAY A SONG</button>
-  <button class="btn free" id="free">🎤 FREESTYLE</button>
-  <button class="btn" id="midi">🎵 SONGS</button>
-  <button class="btn sample" id="sample">🎚️ SAMPLE</button>
-  <input id="midifile" type="file" accept=".mid,.midi" hidden />
-  <button class="btn" id="auto">AUTO</button>
-  <button class="btn" id="spk">📢 SPEAKERS</button>
-  <button class="btn rec" id="sessrec">⏺ START RECORDING</button>
-  <button class="btn rec" id="rec">⏺ SAVE 30 s</button>
+  <div class="cond-cluster transport-cluster">
+    <div class="ctl"><span class="lbl">TEMPO <b id="bpmv"></b></span><input id="bpmr" type="range" min="${BPM_MIN}" max="${BPM_MAX}" step="1" aria-label="Tempo" /></div>
+    <div class="ctl"><span class="lbl">KEY</span><select id="key" aria-label="Key">${NOTE_NAMES.map((n, i) => `<option value="${i}">${n}</option>`).join('')}</select></div>
+    <div class="ctl"><span class="lbl">SCALE</span><select id="scale" aria-label="Scale">${(Object.keys(SCALE_LABEL) as ScaleName[]).map((s) => `<option value="${s}">${SCALE_LABEL[s]}</option>`).join('')}</select></div>
+    <button class="btn drop" id="drop">⚡ DROP</button>
+  </div>
+  <div class="cond-cluster modes-cluster">
+    <button class="btn play" id="play">🎮 PLAY A SONG</button>
+    <button class="btn free" id="free">🎤 FREESTYLE</button>
+    <button class="btn" id="midi">🎵 SONGS</button>
+    <button class="btn sample" id="sample">🎚️ SAMPLE</button>
+    <input id="midifile" type="file" accept=".mid,.midi" aria-label="Load MIDI file" hidden />
+    <button class="btn" id="auto">AUTO</button>
+    <button class="btn" id="spk">📢 SPEAKERS</button>
+  </div>
+  <div class="cond-cluster record-cluster">
+    <button class="btn rec-btn rec" id="sessrec">⏺ START RECORDING</button>
+    <button class="btn rec-btn rec" id="rec">⏺ SAVE 30s</button>
+  </div>
 </footer>
+<div id="landing" class="landing">
+  <div class="landing-card">
+    <div class="landing-badge">LIVE MULTIPLAYER SYNTH ARCADE</div>
+    <h1 class="landing-title">HUMAN ORCHESTRA</h1>
+    <p class="landing-sub">Phones become instruments. A shared server clock keeps everyone in time.</p>
+    <div class="landing-pills">
+      <span class="l-pill">⚡ ZERO INSTALL · SCAN TO JOIN</span>
+      <span class="l-pill">⏱️ SUB-MS CLOCK SYNC</span>
+      <span class="l-pill">👾 16-BIT SOUND ENGINE</span>
+    </div>
+    <button class="btn-play-now" id="playnow">▶ PLAY NOW</button>
+    <p class="landing-hint">CLICK TO UNLOCK AUDIO & ENTER STAGE</p>
+  </div>
+</div>
 <div id="card" hidden></div>
 <div id="gamehud" hidden><div class="gh-top"><span id="gh-title"></span><b id="gh-team">0</b><span id="gh-acc"></span></div><div class="gh-bar"><i id="gh-prog"></i></div><div id="gh-note"></div></div>
 <div id="gamepick" hidden><div class="box">
@@ -85,10 +104,10 @@ app.innerHTML = `
   <p id="gp-info"></p>
   <p class="hintp">The arrangement stays in time. Hits lift your instrument; misses affect your score, not the tune.</p>
   <div class="row"><button class="btn" id="gp-import">＋ YOUR SONG (.mid)</button><button class="btn" id="gp-preview">♫ Preview selected</button></div>
-  <input id="gp-file" type="file" accept=".mid,.midi" hidden />
-  <label class="hintp"><input id="gp-melody" type="checkbox" /> Import melody only (highest part)</label>
-  <label class="hintp" id="gp-part-label" hidden>Melody part <select id="gp-part"></select></label>
-  <p class="hintp" id="gp-status" role="status">Load a MIDI arrangement of a song you want to play. Imports are saved in this browser.</p>
+  <input id="gp-file" type="file" accept=".mid,.midi" aria-label="Import game MIDI file" hidden />
+  <label class="hintp"><input id="gp-melody" type="checkbox" aria-label="Import melody only" /> Import melody only (highest part)</label>
+  <label class="hintp" id="gp-part-label" hidden>Melody part <select id="gp-part" aria-label="Melody part"></select></label>
+  <p class="hintp" id="gp-status" role="status" aria-live="polite">Load a MIDI arrangement of a song you want to play. Imports are saved in this browser.</p>
   <div id="gp-songs"></div>
   <div class="diffs" id="gp-diffs"></div>
   <div class="row"><button class="btn drop" id="gp-start">▶ START</button><button class="btn" id="gp-close">Close</button></div>
@@ -97,7 +116,7 @@ app.innerHTML = `
 <div id="sampleui" hidden><div class="box">
   <h3>🎚️ Make music with your own audio</h3>
   <p class="hintp">Choose an MP3 / WAV from this computer. It stays in this browser; nothing is uploaded. Phones then play slices of it on the beat.</p>
-  <label class="dropzone" id="sp-drop"><span id="sp-droptext">Drop an audio file here, or <u>choose a file</u></span><input type="file" id="sp-file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.aac,.flac" hidden></label>
+  <label class="dropzone" id="sp-drop"><span id="sp-droptext">Drop an audio file here, or <u>choose a file</u></span><input type="file" id="sp-file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.aac,.flac" aria-label="Load sample audio file" hidden></label>
   <div id="sp-panel" hidden>
     <canvas id="sp-wave"></canvas>
     <div class="sp-line"><b id="sp-name"></b><span id="sp-info"></span></div>
@@ -252,6 +271,14 @@ async function enableAudio() {
   $('audio').style.display = 'none'; audioOn = true; syncControls();
 }
 $('audio').onclick = enableAudio;
+$('playnow').onclick = async () => {
+  await enableAudio();
+  $('landing').classList.add('hide');
+  setTimeout(() => {
+    $('landing').style.display = 'none';
+    viz.resize();
+  }, 350);
+};
 addEventListener('keydown', (e) => {
   if (e.key === 'h') $('cond').classList.toggle('hidden');
   if (e.key === 'f') document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
@@ -461,12 +488,14 @@ let pendingMidi: { buffer: ArrayBuffer; title: string; id: string } | null = nul
 function importPendingMidi() {
   if (!pendingMidi) return;
   const selectedPart = $<HTMLSelectElement>('gp-part').value;
-  const source = parseMidi(pendingMidi.buffer, pendingMidi.title, { melodyPart: selectedPart, onParts(parts) {
-    const select = $<HTMLSelectElement>('gp-part');
-    select.replaceChildren(...parts.map((part) => new Option(part.label, part.id)));
-    if (parts.some((p) => p.id === selectedPart)) select.value = selectedPart;
-    $('gp-part-label').hidden = parts.length < 2;
-  } });
+  const source = parseMidi(pendingMidi.buffer, pendingMidi.title, {
+    melodyPart: selectedPart, onParts(parts) {
+      const select = $<HTMLSelectElement>('gp-part');
+      select.replaceChildren(...parts.map((part) => new Option(part.label, part.id)));
+      if (parts.some((p) => p.id === selectedPart)) select.value = selectedPart;
+      $('gp-part-label').hidden = parts.length < 2;
+    }
+  });
   const song = toGameSong(source, pendingMidi.id, $<HTMLInputElement>('gp-melody').checked);
   const old = importedSongs.findIndex((s) => s.id === song.id);
   if (old >= 0) importedSongs.splice(old, 1);

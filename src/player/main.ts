@@ -45,7 +45,7 @@ const FLASH_LABEL: Record<FlashMode, string> = { soft: '✨ Flash: soft', full: 
 let motion: 'unknown' | 'granted' | 'denied' | 'none' = 'unknown';
 
 const app = document.getElementById('app')!;
-app.innerHTML = `<div id="flash"></div><div id="root"></div><div class="banner" id="banner" hidden>Reconnecting…</div>`;
+app.innerHTML = `<div id="flash"></div><div id="root"></div><div class="banner" id="banner" role="status" aria-live="polite" hidden>Reconnecting…</div>`;
 const root = document.getElementById('root')!;
 const flashEl = document.getElementById('flash')!;
 const banner = document.getElementById('banner')!;
@@ -90,16 +90,17 @@ function render() {
   root.innerHTML = `<div class="screen join">
     <div class="swatch"></div><h1>Human Orchestra</h1>
     <p>You're <b style="color:${me.color}">this colour</b>. Pick a name.</p>
-    <input id="name" maxlength="14" value="${esc(me.name)}" autocomplete="off" autocapitalize="words" />
+    <input id="name" name="displayName" aria-label="Display name" maxlength="14" value="${esc(me.name)}" autocomplete="off" autocapitalize="words" spellcheck="false" />
     <button class="big" id="go">JOIN THE BAND</button>
-    <div class="hint">Your phone controls the music. Listen to the Stage.</div></div>`;
+    <div class="hint">Your phone controls the music. Listen to the Stage.</div>
+    <a href="/stage" class="stage-link">🖥️ STAGE SCREEN (HOST / LAPTOP)</a></div>`;
   document.getElementById('go')!.onclick = onJoin;
 }
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
 async function onJoin() {
   // Everything that needs a user gesture happens right here, in the tap handler:
-  engine.start().catch(() => {}); // unlock WebAudio
+  engine.start().catch(() => { }); // unlock WebAudio
   (navigator as any).audioSession && ((navigator as any).audioSession.type = 'playback'); // iOS: play through the silent switch
   requestMotion(); // iOS shows its motion permission prompt only from a gesture
   joined = true;
