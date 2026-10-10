@@ -10,3 +10,17 @@ public/songs/index.json
 .neon
 .env.local
 scratch
+
+# private notes and local tooling (kept on disk, never pushed)
+PRODUCT.md
+DESIGN.md
+SECOND_PASS_REVIEW.md
+audit.md
+CLAUDE.md
+.agents
+.impeccable
+.serena
+.claude
+skills-lock.json
+.env
+.env.*
