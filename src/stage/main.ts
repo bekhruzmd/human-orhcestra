@@ -334,7 +334,7 @@ function updateDemoUI() {
   const guide = $('demo-guide');
   guide.hidden = demoStep === 0;
   $('demo-step').textContent = demoStep === 0 ? 'JUDGE DEMO' : `MOMENT ${demoStep} / 3`;
-  $('demo-hint').textContent = demoStep === 0 ? 'Three quick moments · N to advance' : demoStep === 1 ? 'Scan the QR · play any pad · AUTO fills the band' : demoStep === 2 ? 'Every phone flashes from the shared beat clock' : 'The build is over · hit the DROP';
+  $('demo-hint').textContent = demoStep === 0 ? 'Three quick moments · N to advance' : demoStep === 1 ? 'Scan the QR · play any pad · AUTO fills the band' : demoStep === 2 ? 'Every phone flashes from the shared beat clock' : 'NEXT starts the build · DROP lands on the downbeat';
   $('demo-title').textContent = demoStep === 1 ? 'SCAN + PLAY' : demoStep === 2 ? 'ONE SHARED BEAT' : 'THE DROP';
   $('demo-copy').textContent = demoStep === 1 ? 'A phone joins the song in key. Missing parts are backed by AUTO.' : demoStep === 2 ? `${humans().length} PHONE${humans().length === 1 ? '' : 'S'} · MEASURED SYNC ERROR` : 'Shared transport. Live players. One room-wide impact.';
   const live = humans().filter((p) => p.sync);
@@ -642,11 +642,14 @@ function updatePreflight() {
   $('pf-rtt').textContent = Number.isFinite(rtt) ? `${fmt(rtt, 1)} ms` : 'WAITING';
   $('pf-late').textContent = String(engine.lateCount);
   const warning = $('preflight-warning');
-  const localHttp = location.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
-  warning.hidden = tunnelState !== 'down' || !localHttp;
+  const httpOrigin = location.protocol === 'http:';
+  const localHost = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+  warning.hidden = tunnelState !== 'down' || !httpOrigin;
   warning.textContent = fallbackUsed
     ? 'Tunnel is still unavailable. Use the player tab opened on this laptop; if it did not appear, allow pop-ups and try again.'
-    : 'Tunnel is not reachable yet. Start `npm run demo` and wait for the HTTPS URL, or open the player on this laptop below.';
+    : localHost
+      ? 'Tunnel is not reachable yet. Start `npm run demo` and wait for the HTTPS URL, or open the player on this laptop below.'
+      : 'No HTTPS tunnel is reachable. The LAN QR may work on the same Wi-Fi, but phone motion controls require HTTPS; wait for the tunnel or use the local-player button.';
 }
 
 async function checkJoinReachability() {
