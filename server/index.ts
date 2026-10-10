@@ -39,6 +39,7 @@ const transport: TransportState = {
   drop: null,
   autoBand: true,
   speakerMode: false,
+  freestyle: false,
 };
 let dropTimer: NodeJS.Timeout | null = null;
 
@@ -74,6 +75,7 @@ interface Conn {
   playerId: string | null;
   lastSeen: number;
   noteTimes: number[]; // rate limiter
+  rawTimes: number[];
 }
 interface Player extends PlayerInfo {
   /** Pressed "Join". Until then the seat is only a preview and is invisible on the Stage. */
@@ -174,7 +176,7 @@ const wss = new WebSocketServer({ server, path: ON_VERCEL ? undefined : '/ws', p
 wss.on('connection', (ws, req) => {
   // Disable Nagle: tiny JSON frames must leave immediately or ping RTTs get sticky/asymmetric.
   (req.socket as import('node:net').Socket).setNoDelay(true);
-  const conn: Conn = { ws, kind: 'player', playerId: null, lastSeen: serverNow(), noteTimes: [] };
+  const conn: Conn = { ws, kind: 'player', playerId: null, lastSeen: serverNow(), noteTimes: [], rawTimes: [] };
   conns.add(conn);
 
   ws.on('message', (raw) => {
@@ -229,6 +231,7 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       case 'drop': startDrop(); break;
       case 'auto': transport.autoBand = !!m.value; break;
       case 'speakers': transport.speakerMode = !!m.value; break;
+      case 'freestyle': transport.freestyle = !!m.value; break;
     }
     broadcastState();
     return;
@@ -260,6 +263,15 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       p.y = clamp01(m.y); p.tilt = Math.max(-1, Math.min(1, m.tilt));
       broadcast({ t: 'ctl', pid: p.id, y: p.y, tilt: p.tilt }, (c) => c !== conn);
       break;
+    case 'raw': {
+      // Freestyle gestures go ONLY to the Stage (which records + sonifies them). Light validation + rate limit.
+      conn.rawTimes = conn.rawTimes.filter((t) => now - t < 1000);
+      if (conn.rawTimes.length >= 90 || !['d', 'm', 'u', 's', 't'].includes(m.k)) return;
+      conn.rawTimes.push(now);
+      const at = Number.isFinite(m.at) ? Math.min(now + 200, Math.max(now - 2000, m.at)) : now;
+      broadcast({ t: 'raw', pid: p.id, role: p.role, k: m.k, at, x: Math.max(-1, Math.min(1, +m.x || 0)), y: clamp01(m.y), v: m.v === undefined ? undefined : clamp01(m.v) }, (c) => c.kind === 'stage');
+      break;
+    }
     case 'note': {
       // Guardrail 1: rate limit (a spammy phone can't swamp the stage).
       conn.noteTimes = conn.noteTimes.filter((t) => now - t < 1000);

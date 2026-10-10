@@ -13,7 +13,7 @@ import { Engine } from '../common/engine';
 import { stableId, fmt, clamp } from '../common/util';
 import {
   ROLES, ROLE_INFO, nextStepAfter, stepPos, stepTime,
-  type NoteEvent, type PlayerInfo, type Role, type TransportState,
+  type NoteEvent, type PlayerInfo, type RawKind, type Role, type TransportState,
 } from '../../shared/protocol';
 import { COLS, HOLD_REPEAT, NOTE_DUR, chordAt, grooveVoice, padLabels, SCALE_LABEL, NOTE_NAMES } from '../../shared/music';
 
@@ -151,6 +151,7 @@ function resizePad() {
 function refreshPadLabels() {
   const el = padEl?.querySelector('.padlabel');
   if (!el || !me || !ts) return;
+  if (ts.freestyle && me.role !== 'drums') { el.innerHTML = '<span>LOW ◂</span><span>FREESTYLE</span><span>▸ HIGH</span>'; return; }
   el.innerHTML = padLabels(me.role, ts).map((l) => `<span>${l}</span>`).join('');
 }
 
@@ -240,7 +241,7 @@ let lastCtl = 0;
 const ripples: { x: number; y: number; t: number }[] = [];
 
 function bindPad() {
-  const colsOf = () => COLS[me!.role];
+  const colsOf = () => (ts?.freestyle && me!.role !== 'drums' ? 24 : COLS[me!.role]);
   const read = (e: PointerEvent) => {
     const r = padEl.getBoundingClientRect();
     const x = clamp((e.clientX - r.left) / r.width, 0, 0.9999);
@@ -251,6 +252,7 @@ function bindPad() {
     padEl.setPointerCapture(e.pointerId);
     const p = read(e);
     touch = { x: p.x, y: p.y, col: p.col, vel: 0.3 + 0.7 * p.y };
+    if (ts?.freestyle) { rawSend('d', p.x, p.y); ripples.push({ x: p.x, y: p.y, t: performance.now() }); return; }
     emit(p.col, touch.vel);
     ripples.push({ x: p.x, y: p.y, t: performance.now() });
     sendCtl(true);
@@ -259,11 +261,24 @@ function bindPad() {
     if (!touch) return;
     const p = read(e);
     touch.x = p.x; touch.y = p.y; touch.vel = 0.3 + 0.7 * p.y;
+    if (ts?.freestyle) {
+      const now = performance.now();
+      if (now - lastRawMove > 40) { lastRawMove = now; rawSend('m', p.x, p.y); }
+      touch.col = p.col;
+      return;
+    }
     if (p.col !== touch.col) { touch.col = p.col; emit(p.col, touch.vel); ripples.push({ x: p.x, y: p.y, t: performance.now() }); }
     sendCtl(false);
   };
-  const up = () => { touch = null; };
+  const up = () => { if (touch && ts?.freestyle) rawSend('u', touch.x, touch.y); touch = null; };
   padEl.onpointerup = up; padEl.onpointercancel = up;
+}
+
+let lastRawMove = 0;
+/** Freestyle: stream the gesture as-is, stamped with server time. No quantising, no scale: the Stage records it. */
+function rawSend(k: RawKind, x: number, y: number, v?: number) {
+  if (!clock.isLocked) return;
+  net.send({ t: 'raw', k, at: clock.serverNow(), x, y, v });
 }
 
 let tilt = 0;
@@ -272,11 +287,12 @@ function sendCtl(force: boolean) {
   if (!force && now - lastCtl < 70) return;
   lastCtl = now;
   net.send({ t: 'ctl', y: touch?.y ?? 0.5, tilt });
+  if (ts?.freestyle) rawSend('t', tilt, touch?.y ?? 0.5);
 }
 
 /** Held finger => repeat the note on the role's own rhythm (8ths for melody, quarters for bass, once a bar for pads). */
 function tickHold() {
-  if (!touch || !ts || !me) return;
+  if (!touch || !ts || !me || ts.freestyle) return;
   const period = HOLD_REPEAT[me.role];
   if (!period) return;
   const target = nextStepAfter(ts, clock.serverNow(), leadMs());
@@ -322,6 +338,7 @@ function listenMotion() {
 /** Shake = drum hit, picked by the groove so it always lands in the pattern. Non-drummers add hats/claps. */
 function shake(vel: number) {
   if (!ts || !me) return;
+  if (ts.freestyle) { rawSend('s', 0.5, 0.5, vel); navigator.vibrate?.(20); ripples.push({ x: Math.random(), y: 0.2 + Math.random() * 0.6, t: performance.now() }); return; }
   const step = Math.max(lastStep + 1, nextStepAfter(ts, clock.serverNow(), leadMs()));
   const isDrummer = me.role === 'drums';
   const d = isDrummer ? grooveVoice(step, true) : grooveVoice(step, false);
@@ -351,7 +368,8 @@ function frame(t: number) {
   if (b.newBeat) {
     navigator.vibrate?.(b.downbeat ? 28 : 10);
     beatDots.forEach((d, i) => { d.classList.toggle('on', i === b.beatInBar); d.classList.toggle('d', i === b.beatInBar && b.downbeat); });
-    if (chordEl) {
+    if (chordEl && ts.freestyle) chordEl.innerHTML = '🎤 <b>FREESTYLE</b> · play anything, it becomes a song';
+    else if (chordEl) {
       const step = Math.floor(stepPos(ts, b.serverMs));
       const c = chordAt(ts, step), n = chordAt(ts, step + 16 - (((step % 16) + 16) % 16));
       const st = clock.stats(beats.flashLate);
@@ -366,7 +384,7 @@ requestAnimationFrame(frame);
 
 function drawPad(t: number, serverMs: number) {
   if (!me || !ts) return;
-  const w = padEl.clientWidth, h = padEl.clientHeight, cols = COLS[me.role];
+  const w = padEl.clientWidth, h = padEl.clientHeight, cols = ts.freestyle && me.role !== 'drums' ? 24 : COLS[me.role];
   padCtx.clearRect(0, 0, w, h);
   const cw = w / cols;
   // column fires scheduled for "now"

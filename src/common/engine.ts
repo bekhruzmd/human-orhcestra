@@ -8,7 +8,7 @@
  */
 import * as Tone from 'tone';
 import { dropPhase, stepTime, STEPS_PER_BAR, type NoteEvent, type Role, type TransportState } from '../../shared/protocol';
-import { mtof, resolveEvent, type Key } from '../../shared/music';
+import { mtof, resolveEvent, type Key, type Resolved } from '../../shared/music';
 import type { ClockSync } from './clock';
 
 interface Voice {
@@ -120,6 +120,19 @@ export class Engine {
     try {
       entry.voice.trigger(r, t, Math.max(0.05, ev.dur * stepSec * 0.95), clamp(ev.v, 0.05, 1));
     } catch (err) { console.warn('trigger failed', err); return false; }
+    return true;
+  }
+
+  /** Freestyle: play a raw (unquantised) sound at the gesture's own server time. */
+  playFree(pid: string, role: Role, r: Resolved, serverMs: number, durSec: number, vel: number) {
+    if (!this.ready) return false;
+    let t = this.ctxTime(serverMs);
+    const now = this.context.currentTime;
+    if (t < now) t = now + 0.005;
+    const entry = this.getVoice(pid, role);
+    if (t <= entry.lastT) t = entry.lastT + 0.0015;
+    entry.lastT = t;
+    try { entry.voice.trigger(r, t, durSec, clamp(vel, 0.05, 1)); } catch { return false; }
     return true;
   }
 

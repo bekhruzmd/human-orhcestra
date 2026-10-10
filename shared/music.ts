@@ -127,10 +127,22 @@ export function grooveVoice(step: number, full = true): number {
 
 export const COLS: Record<Role, number> = { melody: MELODY_COLS, bass: BASS_COLS, pads: PAD_COLS, drums: 4 };
 
+// -------------------------------------------------------------- freestyle
+/** Freestyle pitch range per role: the whole pad is a continuous, UN-locked keyboard. */
+export const FREE_RANGE: Record<Role, [number, number]> = { melody: [60, 84], bass: [36, 55], pads: [48, 72], drums: [0, 3] };
+export const freeMidi = (role: Role, x: number) => {
+  const [lo, hi] = FREE_RANGE[role];
+  return lo + Math.round(Math.max(0, Math.min(1, x)) * (hi - lo));
+};
+export const freeZone = (x: number) => Math.max(0, Math.min(3, Math.floor(x * 4)));
+/** A shake's strength picks the drum: hard = kick, medium = snare, soft = hat (clap for non-drummers). */
+export const shakeVoice = (v: number, drummer: boolean) => (v > 0.78 ? 0 : v > 0.58 ? 1 : drummer ? 2 : 3);
+
 export type Resolved = { kind: 'drum'; voice: number } | { kind: 'notes'; midi: number[] };
 
 /** index -> sounding pitches, under the transport's key at the event's own step. */
-export function resolveEvent(ev: Pick<NoteEvent, 'role' | 'step' | 'd'>, key: Key): Resolved {
+export function resolveEvent(ev: Pick<NoteEvent, 'role' | 'step' | 'd'> & { midi?: number[] }, key: Key): Resolved {
+  if (ev.midi?.length && ev.role !== 'drums') return { kind: 'notes', midi: ev.midi }; // composed / imported: pitches are explicit
   const chord = chordAt(key, ev.step);
   switch (ev.role) {
     case 'drums': return { kind: 'drum', voice: Math.max(0, Math.min(3, ev.d)) };

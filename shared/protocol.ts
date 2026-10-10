@@ -59,6 +59,8 @@ export interface TransportState {
   autoBand: boolean;
   /** Phones play their own part locally ("speaker array" mode). */
   speakerMode: boolean;
+  /** Freestyle jam: no quantising, no scale lock. Phones stream raw gestures; the Stage records them. */
+  freestyle: boolean;
 }
 
 export const stepMs = (bpm: number) => 60000 / bpm / STEPS_PER_BEAT;
@@ -124,7 +126,12 @@ export interface NoteEvent {
   v: number;
   /** length in steps (melody 2, bass 2, pads up to a bar) */
   dur: number;
+  /** Explicit pitches (composed songs / imported MIDI). When present they replace the index->pitch mapping. */
+  midi?: number[];
 }
+
+/** Raw gesture kinds: pointer down / move / up, shake, tilt. `at` is SERVER time (ms) at the gesture. */
+export type RawKind = 'd' | 'm' | 'u' | 's' | 't';
 
 export type ClientMsg =
   | { t: 'hello'; kind: 'stage' | 'player'; id?: string }
@@ -135,7 +142,8 @@ export type ClientMsg =
   | { t: 'speaker'; on: boolean }
   | { t: 'note'; step: number; d: number; v: number; dur: number; role?: Role }
   | { t: 'ctl'; y: number; tilt: number }
-  | { t: 'cmd'; cmd: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers'; value?: number | string | boolean };
+  | { t: 'raw'; k: RawKind; at: number; x: number; y: number; v?: number }
+  | { t: 'cmd'; cmd: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'freestyle'; value?: number | string | boolean };
 
 export type ServerMsg =
   | { t: 'welcome'; you: PlayerInfo | null; state: TransportState; serverNow: number }
@@ -144,6 +152,7 @@ export type ServerMsg =
   | { t: 'roster'; players: PlayerInfo[] }
   | ({ t: 'note' } & NoteEvent)
   | { t: 'ctl'; pid: string; y: number; tilt: number }
+  | { t: 'raw'; pid: string; role: Role; k: RawKind; at: number; x: number; y: number; v?: number }
   | { t: 'you'; you: PlayerInfo };
 
 export const BPM_MIN = 60;

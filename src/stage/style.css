@@ -44,10 +44,13 @@ button, select { font: inherit; color: inherit; }
 .ctl { display:flex; flex-direction:column; gap:3px; }
 .ctl input[type=range] { width:190px; accent-color:#35d0ff; }
 .ctl select { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:8px 10px; font-weight:700; }
-.btn { padding:14px 18px; border-radius:14px; background:var(--panel); border:2px solid var(--line); font-weight:900; letter-spacing:.06em; cursor:pointer; white-space:nowrap; }
+.btn { padding:12px 13px; font-size:13px; border-radius:14px; background:var(--panel); border:2px solid var(--line); font-weight:900; letter-spacing:.06em; cursor:pointer; white-space:nowrap; }
 .btn:hover { border-color:#fff6; }
 .btn.on { border-color:#35d0ff; background:#35d0ff22; }
 .btn.drop { background:linear-gradient(135deg,#ff4d6d,#ff9248); color:#07070d; border:0; font-size:20px; padding:14px 30px; }
+.btn.free { border-color:#b388ff; }
+.btn.free.on { background:#b388ff; color:#07070d; animation:pulse 1s infinite; }
+@keyframes pulse { 50% { opacity:.7; } }
 .btn.drop:active { transform:scale(.97); }
 .btn.rec { border-color:#ff4d6d; }
 .spacer { flex:1; }
@@ -55,3 +58,9 @@ button, select { font: inherit; color: inherit; }
 #audio.on { background:#1f3a24; color:#7cff6b; box-shadow:none; font-size:14px; padding:8px 16px; left:640px; bottom:30px; transform:none; }
 #big { position:absolute; left:16px; right:340px; top:104px; bottom:92px; display:flex; align-items:center; justify-content:center; pointer-events:none; font-size:min(14vw,190px); font-weight:900; letter-spacing:.04em; opacity:0; transform:scale(.9); text-shadow:0 0 60px #000; z-index:6; transition:opacity .12s; }
 #big.show { opacity:.95; transform:scale(1); }
+
+#card { position:absolute; left:250px; right:370px; top:112px; z-index:30; padding:10px 16px; border-radius:18px; background:rgba(18,18,28,.92); border:2px solid #ffd23f; backdrop-filter:blur(8px); display:flex; align-items:center; gap:18px; }
+#card[hidden] { display:none; }
+#card .txt { flex:1; min-width:0; } #card h3 { margin:0; font-size:18px; display:inline; margin-right:10px; }
+#card p { margin:2px 0 0; color:var(--dim); font-weight:700; font-size:13px; }
+#card .row { display:flex; gap:8px; } #card .btn { padding:10px 12px; }
