@@ -5,6 +5,12 @@
   "type": "module",
   "description": "Phones become instruments. A shared server clock keeps them in time.",
   "scripts": {
+    "sync": "node scripts/github-sync.mjs",
+    "sync:status": "node scripts/github-sync.mjs status",
+    "sync:start": "node scripts/github-sync-service.mjs start",
+    "sync:stop": "node scripts/github-sync-service.mjs stop",
+    "sync:service": "node scripts/github-sync-service.mjs status",
+    "test:sync": "node --test scripts/github-sync.test.mjs",
     "dev": "concurrently -k -n server,vite -c blue,magenta \"tsx watch server/index.ts\" \"vite\"",
     "songs": "node scripts/songs.mjs",
     "predev": "node scripts/songs.mjs",

@@ -38,6 +38,53 @@ npm run demo                  # build + server + HTTPS tunnel
 
 Stage keys: **N** advances the three-moment Judge demo, **W** opens “How it works,” **H** hides the conductor bar, and **F** toggles fullscreen. Less-used controls, sync test, and demo preflight are under **More**.
 
+## Staying up to date with teammates
+
+This checkout uses `public/master` as the team branch. `origin` is a separate
+repository; the checker deliberately watches `public` only.
+
+| Command | What it does |
+|---|---|
+| `npm run sync` | Fetch team branches now and print incoming commits, changed files, and overlaps with your work |
+| `npm run sync:status` | Read the latest saved report; check its timestamp before relying on it |
+| `npm run sync:start` | Enable a macOS background check every five minutes and at login |
+| `npm run sync:stop` | Disable and uninstall the background check |
+| `npm run sync:service` | Inspect the macOS background service |
+| `npm run test:sync` | Verify fetch safety using isolated local repositories |
+
+The checker only updates `public/*` remote-tracking refs and writes a report to
+`.git/github-sync/latest.md` (Git resolves the location for worktrees). It never
+pulls, merges, rebases, stashes, switches branches, commits, or pushes. Your editor
+may show incoming changes after a fetch, but your working files stay untouched.
+Read the report with `npm run sync:status`; it does not send notifications.
+The report includes up to 25 incoming commits and ten recent remote branch tips.
+File overlap means “review this,” not necessarily a merge conflict.
+
+Background checks run while logged in and awake, using your existing Git
+credentials without interactive prompts. Network/authentication failures are
+reported explicitly and retried at the next interval. The service uses the current
+checkout and Node path; stop and reinstall it if either moves. Keep the checker
+scripts available on branches where you use it.
+
+Before starting work, run `npm run sync` and review the report. For detailed changes:
+
+```bash
+git diff HEAD...public/master
+```
+
+Finish and commit your current work before manually merging:
+
+```bash
+git status
+git merge public/master
+```
+
+Resolve any conflicts, then run `npm run typecheck`, `npm test`, and `npm run build`.
+Start separate tasks on descriptive branches, such as `git switch -c feature/song-picker`.
+Use a shared GitHub issue or draft PR to claim a task; fetched commits cannot show
+work your teammate has not pushed yet. Push only when ready and to the intended
+remote (for example, `git push -u public feature/song-picker`).
+
 ## How it works
 
 ### 1. Clock sync (`src/common/clock.ts`)
