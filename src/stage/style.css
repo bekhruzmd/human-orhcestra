@@ -64,3 +64,15 @@ button, select { font: inherit; color: inherit; }
 #card .txt { flex:1; min-width:0; } #card h3 { margin:0; font-size:18px; display:inline; margin-right:10px; }
 #card p { margin:2px 0 0; color:var(--dim); font-weight:700; font-size:13px; }
 #card .row { display:flex; gap:8px; } #card .btn { padding:10px 12px; }
+
+#songs { position:absolute; inset:0; z-index:40; background:rgba(5,5,10,.82); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; }
+#songs[hidden] { display:none; }
+#songs .box { width:min(780px,92vw); max-height:86vh; overflow:auto; background:var(--panel); border-radius:24px; padding:22px; border:2px solid #ffd23f; }
+#songs h3 { margin:0 0 12px; font-size:24px; }
+#songs .modes { display:flex; gap:10px; margin-bottom:14px; } #songs .modes .btn { flex:1; font-size:14px; }
+#songlist { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin-bottom:14px; }
+.song { text-align:left; padding:12px 14px; border-radius:14px; background:#1b1b29; border:2px solid transparent; color:inherit; cursor:pointer; display:flex; flex-direction:column; gap:2px; position:relative; }
+.song:hover { border-color:#ffd23f; } .song b { font-size:17px; } .song small { color:var(--dim); font-weight:700; }
+.song i { position:absolute; right:12px; top:12px; font-style:normal; font-size:11px; font-weight:900; letter-spacing:.1em; color:#35d0ff; text-transform:uppercase; }
+.hintp { grid-column:1/-1; color:var(--dim); font-size:13px; margin:4px 0; } .hintp code { color:#ffd23f; }
+#songs .row { display:flex; gap:10px; } #songs .row .btn { flex:1; }

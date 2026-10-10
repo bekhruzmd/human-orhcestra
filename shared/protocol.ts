@@ -61,6 +61,8 @@ export interface TransportState {
   speakerMode: boolean;
   /** Freestyle jam: no quantising, no scale lock. Phones stream raw gestures; the Stage records them. */
   freestyle: boolean;
+  /** Song currently looping on the Stage. 'tap' = every phone tap plays the song's next melody note. */
+  nowPlaying: { title: string; mode: 'band' | 'tap' } | null;
 }
 
 export const stepMs = (bpm: number) => 60000 / bpm / STEPS_PER_BEAT;
@@ -143,7 +145,8 @@ export type ClientMsg =
   | { t: 'note'; step: number; d: number; v: number; dur: number; role?: Role }
   | { t: 'ctl'; y: number; tilt: number }
   | { t: 'raw'; k: RawKind; at: number; x: number; y: number; v?: number }
-  | { t: 'cmd'; cmd: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'freestyle'; value?: number | string | boolean };
+  | { t: 'songreq'; id: string; mode: 'band' | 'tap' }
+  | { t: 'cmd'; cmd: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'freestyle' | 'nowplaying'; value?: number | string | boolean };
 
 export type ServerMsg =
   | { t: 'welcome'; you: PlayerInfo | null; state: TransportState; serverNow: number }
@@ -153,6 +156,7 @@ export type ServerMsg =
   | ({ t: 'note' } & NoteEvent)
   | { t: 'ctl'; pid: string; y: number; tilt: number }
   | { t: 'raw'; pid: string; role: Role; k: RawKind; at: number; x: number; y: number; v?: number }
+  | { t: 'songreq'; pid: string; name: string; id: string; mode: 'band' | 'tap' }
   | { t: 'you'; you: PlayerInfo };
 
 export const BPM_MIN = 60;

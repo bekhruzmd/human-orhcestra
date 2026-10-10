@@ -40,6 +40,7 @@ const transport: TransportState = {
   autoBand: true,
   speakerMode: false,
   freestyle: false,
+  nowPlaying: null,
 };
 let dropTimer: NodeJS.Timeout | null = null;
 
@@ -232,6 +233,11 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       case 'auto': transport.autoBand = !!m.value; break;
       case 'speakers': transport.speakerMode = !!m.value; break;
       case 'freestyle': transport.freestyle = !!m.value; break;
+      case 'nowplaying': { // value "tap|Title" / "band|Title" / "" (clear)
+        const [mode, ...rest] = String(m.value ?? '').split('|');
+        transport.nowPlaying = rest.length && (mode === 'tap' || mode === 'band') ? { mode, title: rest.join('|').slice(0, 60) } : null;
+        break;
+      }
     }
     broadcastState();
     return;
@@ -263,6 +269,12 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       p.y = clamp01(m.y); p.tilt = Math.max(-1, Math.min(1, m.tilt));
       broadcast({ t: 'ctl', pid: p.id, y: p.y, tilt: p.tilt }, (c) => c !== conn);
       break;
+    case 'songreq': {
+      // A phone asks the Stage to load a song (the Stage validates the id against its own list).
+      if (typeof m.id !== 'string' || m.id.length > 120 || (m.mode !== 'tap' && m.mode !== 'band')) return;
+      broadcast({ t: 'songreq', pid: p.id, name: p.name, id: m.id, mode: m.mode }, (c) => c.kind === 'stage');
+      break;
+    }
     case 'raw': {
       // Freestyle gestures go ONLY to the Stage (which records + sonifies them). Light validation + rate limit.
       conn.rawTimes = conn.rawTimes.filter((t) => now - t < 1000);

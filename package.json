@@ -6,14 +6,16 @@
   "description": "Phones become instruments. A shared server clock keeps them in time.",
   "scripts": {
     "dev": "concurrently -k -n server,vite -c blue,magenta \"tsx watch server/index.ts\" \"vite\"",
-    "build": "vite build",
+    "songs": "node scripts/songs.mjs",
+    "predev": "node scripts/songs.mjs",
+    "build": "node scripts/songs.mjs && vite build",
     "start": "npm run build && tsx server/index.ts",
     "serve": "tsx server/index.ts",
     "tunnel": "node scripts/tunnel.mjs",
     "demo": "npm run build && concurrently --kill-others-on-fail -n server,tunnel -c blue,green \"tsx server/index.ts\" \"node scripts/tunnel.mjs\"",
     "typecheck": "tsc --noEmit",
     "simtest": "tsx scripts/simtest.ts",
-    "test": "tsx scripts/musictest.ts && tsx scripts/composertest.ts && SECS=8 tsx scripts/simtest.ts"
+    "test": "tsx scripts/musictest.ts && tsx scripts/composertest.ts && tsx scripts/librarytest.ts && SECS=8 tsx scripts/simtest.ts"
   },
   "dependencies": {
     "qrcode": "^1.5.4",

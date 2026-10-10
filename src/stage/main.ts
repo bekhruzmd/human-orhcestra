@@ -19,6 +19,7 @@ import { NOTE_NAMES, SCALE_LABEL, chordAt, freeMidi, freeZone, shakeVoice, type 
 import { analyze, arrange, toMidi, type RawEv, type Song } from './composer';
 import { parseMidi } from './midi';
 import { SongPlayer } from './song';
+import { LIBRARY, buildSong } from '../songs/library';
 import { Viz, type Lane } from './visuals';
 import { AutoBand } from './auto';
 
@@ -60,13 +61,19 @@ app.innerHTML = `
   <button class="btn drop" id="drop">DROP</button>
   <span class="spacer"></span>
   <button class="btn free" id="free">🎤 FREESTYLE</button>
-  <button class="btn" id="midi">🎼 MIDI</button>
+  <button class="btn" id="midi">🎵 SONGS</button>
   <input id="midifile" type="file" accept=".mid,.midi" hidden />
   <button class="btn" id="auto">AUTO</button>
   <button class="btn" id="spk">📢 SPEAKERS</button>
   <button class="btn rec" id="rec">⏺ SAVE 30 s</button>
 </footer>
-<div id="card" hidden></div>`;
+<div id="card" hidden></div>
+<div id="songs" hidden><div class="box">
+  <h3>🎵 Pick a song</h3>
+  <div class="modes"><button class="btn on" id="m-tap">👆 Judges tap it (every tap plays the next note)</button><button class="btn" id="m-band">🎸 Band plays it (jam over it)</button></div>
+  <div id="songlist"></div>
+  <div class="row"><button class="btn" id="s-file">📂 Load .mid file…</button><button class="btn" id="s-stop">■ Stop song</button><button class="btn" id="s-close">Close</button></div>
+</div></div>`;
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const flashEl = $('flash');
@@ -83,8 +90,21 @@ net.on('ctl', (m) => engine.ctl(m.pid, m.y, m.tilt));
 net.on('note', (ev) => {
   if (!ts) return;
   const p = roster.find((x) => x.id === ev.pid);
+  if (tap.active && ev.role !== 'drums' && tap.notes.length) {
+    // Tap-along: the player supplies the RHYTHM, the song supplies the PITCH.
+    const n = tap.notes[tap.cursor++ % tap.notes.length];
+    ev = { ...ev, role: 'melody', d: 0, midi: [n.midi], dur: n.dur };
+    tapProgress();
+  }
   engine.play(ev, !p?.speaker); // a phone playing its own part is not doubled on the Stage
   viz.push(ev, stepTime(ts, ev.step));
+});
+net.on('songreq', (r) => {
+  const now = performance.now();
+  if (now - lastSongReq < 2500) return; // one request at a time
+  lastSongReq = now;
+  flashBig(`${r.name.toUpperCase()}: ${r.id ? 'NEW SONG' : 'STOP'}`, 1200);
+  if (!r.id) stopSong(); else loadSongById(r.id, r.mode);
 });
 
 // ------------------------------------------------------------------ AUTO band
@@ -142,7 +162,7 @@ function renderRoster() {
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
 // -------------------------------------------------------------- conductor UI
-const cmd = (c: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'freestyle', value?: number | string | boolean) => net.send({ t: 'cmd', cmd: c, value });
+const cmd = (c: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'freestyle' | 'nowplaying', value?: number | string | boolean) => net.send({ t: 'cmd', cmd: c, value });
 let bpmTimer = 0;
 $<HTMLInputElement>('bpmr').oninput = (e) => {
   const v = Number((e.target as HTMLInputElement).value);
@@ -153,11 +173,16 @@ $<HTMLSelectElement>('key').onchange = (e) => cmd('key', Number((e.target as HTM
 $<HTMLSelectElement>('scale').onchange = (e) => cmd('scale', (e.target as HTMLSelectElement).value);
 $('drop').onclick = () => cmd('drop');
 $('free').onclick = () => cmd('freestyle', !ts?.freestyle);
-$('midi').onclick = () => $<HTMLInputElement>('midifile').click();
+$('midi').onclick = openSongs;
+$('s-close').onclick = () => { $('songs').hidden = true; };
+$('s-stop').onclick = () => { stopSong(); $('songs').hidden = true; };
+$('s-file').onclick = () => $<HTMLInputElement>('midifile').click();
+$('m-tap').onclick = () => setSongMode('tap');
+$('m-band').onclick = () => setSongMode('band');
 $<HTMLInputElement>('midifile').onchange = async (e) => {
   const f = (e.target as HTMLInputElement).files?.[0];
   if (!f) return;
-  try { await playSong(parseMidi(await f.arrayBuffer(), f.name.replace(/\.midi?$/i, ''))); }
+  try { $('songs').hidden = true; await playSong(parseMidi(await f.arrayBuffer(), f.name.replace(/\.midi?$/i, '')), songMode); }
   catch (err) { flashBig('Bad MIDI', 1500); console.warn(err); }
   (e.target as HTMLInputElement).value = '';
 };
@@ -212,7 +237,7 @@ function onFreestyleChange() {
   wasFree = ts.freestyle;
   if (ts.freestyle) {
     freeLog = []; lastFree.clear();
-    songs.stop(); hideCard();
+    songs.stop(); tap.active = false; hideCard(); cmd('nowplaying', '');
     flashBig('FREESTYLE: PLAY ANYTHING', 1600);
   } else {
     composeFromJam();
@@ -220,7 +245,7 @@ function onFreestyleChange() {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-async function playSong(song: Song) {
+async function playSong(song: Song, mode: 'tap' | 'band' = 'band') {
   // 1. put the shared transport in the song's tempo/key, wait until the server confirms it
   cmd('bpm', song.bpm); cmd('key', song.root); cmd('scale', song.scale);
   for (let i = 0; i < 30 && !(ts && ts.bpm === song.bpm && ts.root === song.root && ts.scale === song.scale); i++) await sleep(100);
@@ -229,12 +254,65 @@ async function playSong(song: Song) {
   let start = Math.ceil(nextStepAfter(ts, clock.serverNow(), 1200) / 16) * 16;
   const aligned = Math.ceil(start / 64) * 64;
   if ((aligned - start) * (60000 / ts.bpm / 4) < 3500) start = aligned;
-  return song.events.length ? startSong(song, start) : undefined;
+  return song.events.length ? startSong(song, start, mode) : undefined;
 }
-function startSong(song: Song, startStep: number) {
-  songs.start(song, startStep);
+function startSong(song: Song, startStep: number, mode: 'tap' | 'band' = 'band') {
+  // Tap-along: pull the melody out of the band track; taps will play it note by note.
+  const melody = song.events.filter((e) => e.role === 'melody' && e.midi?.length).sort((a, b) => a.rel - b.rel);
+  tap.active = mode === 'tap' && melody.length > 0;
+  tap.notes = tap.active ? melody.map((e) => ({ midi: Math.max(...e.midi!), dur: e.dur })) : [];
+  tap.cursor = 0;
+  const playable = tap.active ? { ...song, events: song.events.filter((e) => e.role !== 'melody') } : song;
+  songs.start(playable, startStep);
   showCard(song);
-  flashBig('♪ NOW PLAYING', 1100);
+  cmd('nowplaying', `${tap.active ? 'tap' : 'band'}|${song.title}`);
+  flashBig(tap.active ? '👆 TAP TO PLAY' : '♪ NOW PLAYING', 1400);
+}
+function stopSong() {
+  songs.stop(); tap.active = false; hideCard(); cmd('auto', true); cmd('nowplaying', '');
+}
+const tap = { active: false, notes: [] as { midi: number; dur: number }[], cursor: 0 };
+let lastSongReq = 0;
+let songMode: 'tap' | 'band' = 'tap';
+function setSongMode(m: 'tap' | 'band') { songMode = m; $('m-tap').classList.toggle('on', m === 'tap'); $('m-band').classList.toggle('on', m === 'band'); }
+let tapDom = 0;
+function tapProgress() {
+  const now = performance.now();
+  if (now - tapDom < 150) return;
+  tapDom = now;
+  const el = document.getElementById('tapinfo');
+  if (el) el.textContent = `👆 tap-along: note ${(tap.cursor % tap.notes.length) + 1}/${tap.notes.length}`;
+}
+
+interface Custom { name: string; file: string }
+let custom: Custom[] = [];
+async function refreshCustom() {
+  try { custom = await (await fetch('/songs/index.json', { cache: 'no-store' })).json(); } catch { custom = []; }
+}
+async function openSongs() {
+  await refreshCustom();
+  const items = [
+    ...LIBRARY.map((d) => ({ id: d.id, title: d.title, blurb: d.blurb, tag: d.melody ? 'melody' : 'backing' })),
+    ...custom.map((c) => ({ id: `file:${c.file}`, title: c.name, blurb: 'your MIDI file', tag: 'yours' })),
+  ];
+  $('songlist').innerHTML = items.map((i) => `<button class="song" data-id="${esc(i.id)}"><b>${esc(i.title)}</b><small>${esc(i.blurb)}</small><i>${i.tag}</i></button>`).join('')
+    + (custom.length ? '' : '<p class="hintp">Add your own songs: drop .mid files into <code>public/songs/</code> and rebuild, or use “Load .mid file…”.</p>');
+  $('songlist').querySelectorAll<HTMLElement>('.song').forEach((b) => (b.onclick = () => { $('songs').hidden = true; loadSongById(b.dataset.id!, songMode); }));
+  $('songs').hidden = false;
+}
+/** Resolve a song id (built-in or a file listed in public/songs/index.json; never an arbitrary path) and play it. */
+async function loadSongById(id: string, mode: 'tap' | 'band') {
+  try {
+    const def = LIBRARY.find((d) => d.id === id);
+    if (def) return void (await playSong(buildSong(def), mode));
+    if (id.startsWith('file:')) {
+      if (!custom.length) await refreshCustom();
+      const c = custom.find((x) => `file:${x.file}` === id);
+      if (!c) return;
+      const buf = await (await fetch(`/songs/${encodeURIComponent(c.file)}`)).arrayBuffer();
+      await playSong(parseMidi(buf, c.name), mode);
+    }
+  } catch (err) { flashBig('COULD NOT LOAD SONG', 1500); console.warn(err); }
 }
 
 function composeFromJam() {
@@ -264,10 +342,10 @@ const download = (name: string, data: BlobPart, type: string) => {
 function showCard(song: Song) {
   const c = $('card');
   c.hidden = false;
-  c.innerHTML = `<div class="txt"><h3>♪ ${esc(song.title)}</h3>${song.info.map((l) => `<p>${esc(l)}</p>`).join('')}</div>
+  c.innerHTML = `<div class="txt"><h3>♪ ${esc(song.title)}</h3>${song.info.map((l) => `<p>${esc(l)}</p>`).join('')}${tap.active ? '<p id="tapinfo">👆 tap-along: tap any pad</p>' : ''}</div>
     <div class="row"><button class="btn" id="c-restart">↻ Restart</button><button class="btn" id="c-stop">■ Stop</button>
     <button class="btn" id="c-mid">⬇ MIDI</button>${lastDraftLog && song.title === 'Your jam' ? '<button class="btn" id="c-json">⬇ JSON</button>' : ''}</div>`;
-  $('c-stop').onclick = () => { songs.stop(); hideCard(); cmd('auto', true); };
+  $('c-stop').onclick = () => stopSong();
   $('c-restart').onclick = () => { if (ts) { const st = Math.ceil(nextStepAfter(ts, clock.serverNow(), 800) / 16) * 16; songs.start(song, st); } };
   $('c-mid').onclick = () => download(`${song.title.replace(/\W+/g, '-')}.mid`, toMidi(song).slice().buffer as ArrayBuffer, 'audio/midi');
   const j = document.getElementById('c-json');
@@ -328,5 +406,5 @@ function frame(t: number) {
 }
 requestAnimationFrame(frame);
 
-(window as any).ho = { engine, clock, rec }; // console debugging
+(window as any).ho = { engine, clock, rec, tap }; // console debugging
 net.connect();
