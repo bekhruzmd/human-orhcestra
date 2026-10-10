@@ -1,71 +1,391 @@
+/**
+ * Player (phone) client.
+ *
+ *  - joins, gets a colour + role
+ *  - flashes on every beat from the synced clock (no network message involved)
+ *  - XY pad / shake / tilt -> note events addressed to the NEXT 16th-note step in server time
+ *  - optional "phone speaker" mode: plays its own part locally, at the same step times as the Stage
+ */
 import { Net } from '../common/net';
 import { ClockSync } from '../common/clock';
 import { BeatTracker, flashEnv } from '../common/beat';
-import { stableId, fmt } from '../common/util';
-import type { PlayerInfo, TransportState } from '../../shared/protocol';
+import { Engine } from '../common/engine';
+import { stableId, fmt, clamp } from '../common/util';
+import {
+  ROLES, ROLE_INFO, nextStepAfter, stepPos, stepTime,
+  type NoteEvent, type PlayerInfo, type Role, type TransportState,
+} from '../../shared/protocol';
+import { COLS, HOLD_REPEAT, NOTE_DUR, chordAt, grooveVoice, padLabels, SCALE_LABEL, NOTE_NAMES } from '../../shared/music';
 
-const app = document.getElementById('app')!;
 const net = new Net();
 const id = stableId();
 const clock = new ClockSync((m) => net.send(m));
 const beats = new BeatTracker();
+const engine = new Engine(clock, false);
 
 let ts: TransportState | null = null;
 let me: PlayerInfo | null = null;
 let joined = false;
+let speakerOn = false;
+let motion: 'unknown' | 'granted' | 'denied' | 'none' = 'unknown';
 
+const app = document.getElementById('app')!;
 app.innerHTML = `<div id="flash"></div><div id="root"></div><div class="banner" id="banner" hidden>Reconnecting…</div>`;
 const root = document.getElementById('root')!;
 const flashEl = document.getElementById('flash')!;
 const banner = document.getElementById('banner')!;
 
+// ------------------------------------------------------------------ network
 net.onOpen(() => {
   banner.hidden = true;
   net.send({ t: 'hello', kind: 'player', id });
-  clock.start(true); // offsets can be stale after a drop (frozen tab, new route): relock from scratch
-  if (joined && me) net.send({ t: 'join', name: me.name }); // rejoin keeps seat on the server
+  // After any drop the old offset may be stale (frozen tab, new Wi-Fi route): relock from scratch.
+  clock.start(true);
+  if (joined && me) net.send({ t: 'join', name: me.name });
+  if (joined) net.send({ t: 'speaker', on: speakerOn });
 });
 net.onClose(() => { banner.hidden = false; });
 net.on('pong', (m) => clock.onPong(m));
-net.on('welcome', (m) => { ts = m.state; me = m.you; render(); });
-net.on('state', (m) => { ts = m.state; });
-net.on('you', (m) => { me = m.you; render(); });
+net.on('welcome', (m) => {
+  ts = m.state; engine.setTransport(m.state);
+  if (m.you) { me = m.you; if (!joined) render(); }
+});
+net.on('state', (m) => {
+  const was = ts?.speakerMode;
+  ts = m.state; engine.setTransport(m.state);
+  if (joined && m.state.speakerMode !== was && was !== undefined) setSpeaker(m.state.speakerMode && engine.ready);
+  refreshPadLabels();
+});
+net.on('you', (m) => {
+  const roleChanged = me?.role !== m.you.role;
+  me = m.you;
+  document.documentElement.style.setProperty('--c', me.color);
+  if (joined) { if (roleChanged) buildJam(); }
+  else render();
+});
 
+// ------------------------------------------------------------------- screens
 function render() {
   if (!me) return;
   document.documentElement.style.setProperty('--c', me.color);
-  if (!joined) {
-    root.innerHTML = `<div class="screen join">
-      <div class="swatch"></div><h1>Human Orchestra</h1>
-      <p>You're <b style="color:${me.color}">this colour</b>. Pick a name.</p>
-      <input id="name" maxlength="14" value="${me.name}" autocomplete="off" />
-      <button class="big" id="go">JOIN THE BAND</button>
-      <div class="hint">Turn your volume up. Your phone is an instrument.</div></div>`;
-    document.getElementById('go')!.onclick = () => {
-      joined = true;
-      net.send({ t: 'join', name: (document.getElementById('name') as HTMLInputElement).value });
-      render();
-    };
-  } else {
-    root.innerHTML = `<div class="screen"><div class="top"><div class="chip">${me.role}</div><div class="name">${me.name}</div></div>
-      <pre class="dbg" id="dbg"></pre></div>`;
+  if (joined) return buildJam();
+  root.innerHTML = `<div class="screen join">
+    <div class="swatch"></div><h1>Human Orchestra</h1>
+    <p>You're <b style="color:${me.color}">this colour</b>. Pick a name.</p>
+    <input id="name" maxlength="14" value="${esc(me.name)}" autocomplete="off" autocapitalize="words" />
+    <button class="big" id="go">JOIN THE BAND</button>
+    <div class="hint">Turn your volume up. Your phone is an instrument.</div></div>`;
+  document.getElementById('go')!.onclick = onJoin;
+}
+const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
+
+async function onJoin() {
+  // Everything that needs a user gesture happens right here, in the tap handler:
+  engine.start().catch(() => {}); // unlock WebAudio
+  (navigator as any).audioSession && ((navigator as any).audioSession.type = 'playback'); // iOS: play through the silent switch
+  requestMotion(); // iOS shows its motion permission prompt only from a gesture
+  joined = true;
+  const name = (document.getElementById('name') as HTMLInputElement).value;
+  net.send({ t: 'join', name });
+  if (me) me.name = name.trim().slice(0, 14) || me.name;
+  buildJam();
+}
+
+// ---------------------------------------------------------------------- jam UI
+let padCanvas: HTMLCanvasElement, padCtx: CanvasRenderingContext2D, padEl: HTMLElement;
+let beatDots: HTMLElement[] = [];
+let chordEl: HTMLElement, nameEl: HTMLElement;
+let dbgEl: HTMLElement | null = null;
+
+function buildJam() {
+  if (!me) return;
+  const role = me.role;
+  root.innerHTML = `<div class="screen">
+    <div class="top">
+      <button class="chip" id="rolebtn">${ROLE_INFO[role].icon} ${ROLE_INFO[role].label} ▾</button>
+      <div class="name" id="nm"></div>
+      <div class="beats"><i></i><i></i><i></i><i></i></div>
+      <button class="icon" id="dbgbtn" aria-label="Sync details">⏱</button>
+    </div>
+    <div class="chord" id="chord"></div>
+    <div id="pad"><canvas></canvas><div class="ylabel">${role === 'drums' ? 'HARDER ↑' : 'BRIGHTER ↑'}</div><div class="padlabel"></div></div>
+    <div class="bottom">
+      <button class="tog" id="shk">📳 Shake: <span>${motion === 'granted' || motion === 'none' ? 'on' : 'enable'}</span></button>
+      <button class="tog ${speakerOn ? 'on' : ''}" id="spk">📢 Phone speaker</button>
+    </div></div>`;
+  padEl = document.getElementById('pad')!;
+  padCanvas = padEl.querySelector('canvas')!;
+  padCtx = padCanvas.getContext('2d')!;
+  beatDots = [...root.querySelectorAll<HTMLElement>('.beats i')];
+  chordEl = document.getElementById('chord')!;
+  nameEl = document.getElementById('nm')!;
+  document.getElementById('rolebtn')!.onclick = openRoleSheet;
+  document.getElementById('dbgbtn')!.onclick = openDebug;
+  document.getElementById('spk')!.onclick = () => { engine.start().then(() => setSpeaker(!speakerOn)); };
+  document.getElementById('shk')!.onclick = () => requestMotion();
+  bindPad();
+  resizePad();
+  refreshPadLabels();
+}
+addEventListener('resize', () => { if (padCanvas) resizePad(); });
+function resizePad() {
+  const r = padEl.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
+  padCanvas.width = r.width * dpr; padCanvas.height = r.height * dpr;
+  padCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+function refreshPadLabels() {
+  const el = padEl?.querySelector('.padlabel');
+  if (!el || !me || !ts) return;
+  el.innerHTML = padLabels(me.role, ts).map((l) => `<span>${l}</span>`).join('');
+}
+
+function setSpeaker(on: boolean) {
+  speakerOn = on && engine.ready;
+  document.getElementById('spk')?.classList.toggle('on', speakerOn);
+  net.send({ t: 'speaker', on: speakerOn });
+}
+
+function openRoleSheet() {
+  const sheet = document.createElement('div');
+  sheet.className = 'sheet';
+  sheet.innerHTML = `<div class="card"><h3>Choose your instrument</h3>${ROLES.map((r) =>
+    `<button class="rolebtn ${r === me?.role ? 'cur' : ''}" data-r="${r}">${ROLE_INFO[r].icon} ${ROLE_INFO[r].label}</button>`).join('')}</div>`;
+  sheet.onclick = (e) => {
+    const r = (e.target as HTMLElement).closest<HTMLElement>('[data-r]')?.dataset.r as Role | undefined;
+    if (r) net.send({ t: 'role', role: r });
+    sheet.remove();
+  };
+  app.appendChild(sheet);
+}
+
+function openDebug() {
+  const sheet = document.createElement('div');
+  sheet.className = 'sheet';
+  sheet.innerHTML = `<div class="card"><h3>Sync details</h3><pre class="dbg" id="dbg"></pre>
+    <button class="rolebtn" id="resync">↻ Re-sync clock</button>
+    <div style="display:flex;gap:10px"><button class="rolebtn" id="tm" style="flex:1">− 5 ms audio</button><button class="rolebtn" id="tp" style="flex:1">+ 5 ms audio</button></div>
+    <button class="rolebtn" id="close">Close</button></div>`;
+  dbgEl = sheet.querySelector('#dbg');
+  sheet.querySelector<HTMLElement>('#resync')!.onclick = () => clock.start(true);
+  sheet.querySelector<HTMLElement>('#tm')!.onclick = () => (engine.trimMs -= 5);
+  sheet.querySelector<HTMLElement>('#tp')!.onclick = () => (engine.trimMs += 5);
+  sheet.querySelector<HTMLElement>('#close')!.onclick = () => { sheet.remove(); dbgEl = null; };
+  app.appendChild(sheet);
+  updateDebug();
+}
+function updateDebug() {
+  if (!dbgEl || !ts) return;
+  const s = clock.stats(beats.flashLate);
+  const raw = engine.ready ? engine.context : null;
+  dbgEl.textContent = [
+    `clock offset   ${fmt(s.offset, 2)} ms   (server − local)`,
+    `jitter         ${fmt(s.jitter, 2)} ms   (MAD of kept samples)`,
+    `RTT            ${fmt(s.rttMin)} ms best · ${fmt(s.rttLast)} ms last`,
+    `samples        ${s.samples} (best 30% used, median)`,
+    `sync error     ${fmt(s.err)} ms   p90 of held-out probes`,
+    `  + flash      ${fmt(s.flashLate)} ms   frame quantisation`,
+    `  path bound   ±${fmt(s.rttMin / 2)} ms   (RTT/2, worst case)`,
+    `step / bpm     ${Math.floor(stepPos(ts, clock.serverNow()))} / ${ts.bpm}`,
+    `audio          ${raw ? `${raw.state} base ${fmt((raw.baseLatency ?? 0) * 1000)} out ${fmt((raw.outputLatency ?? 0) * 1000)} ms` : 'off'}`,
+    `audio trim     ${engine.trimMs} ms   late notes ${engine.lateCount}`,
+    `motion         ${motion}`,
+    `socket         ${net.connected ? 'connected' : 'DOWN'}`,
+  ].join('\n');
+}
+
+// ------------------------------------------------------------------ note emit
+/** Lead time: enough for the message to reach every listener before its step. Scales with measured RTT. */
+function leadMs() {
+  const s = clock.stats();
+  return clamp(50 + s.rttMin * 0.6 + s.jitter * 2, 60, 150);
+}
+let lastStep = -1;
+const fires: { at: number; col: number; v: number }[] = []; // visual "your note sounds now" events
+
+function emit(col: number, vel: number, opts: { role?: Role; dur?: number } = {}) {
+  if (!ts || !me || !clock.isLocked) return;
+  // Beat-quantisation: the earliest 16th boundary far enough in the future, and never the same step twice.
+  let step = nextStepAfter(ts, clock.serverNow(), leadMs());
+  if (step <= lastStep) step = lastStep + 1;
+  lastStep = step;
+  const role = opts.role ?? me.role;
+  const dur = opts.dur ?? NOTE_DUR[role];
+  const v = clamp(vel, 0.1, 1);
+  net.send({ t: 'note', step, d: col, v, dur, role: opts.role });
+  if (role === me.role) fires.push({ at: stepTime(ts, step), col, v });
+  if (speakerOn) {
+    const ev: NoteEvent = { pid: me.id, role, step, d: col, v, dur };
+    engine.play(ev);
   }
 }
 
+// ------------------------------------------------------------------- the pad
+let touch: { x: number; y: number; col: number; vel: number } | null = null;
+let lastCtl = 0;
+const ripples: { x: number; y: number; t: number }[] = [];
+
+function bindPad() {
+  const colsOf = () => COLS[me!.role];
+  const read = (e: PointerEvent) => {
+    const r = padEl.getBoundingClientRect();
+    const x = clamp((e.clientX - r.left) / r.width, 0, 0.9999);
+    const y = clamp(1 - (e.clientY - r.top) / r.height, 0, 1);
+    return { x, y, col: Math.floor(x * colsOf()), r };
+  };
+  padEl.onpointerdown = (e) => {
+    padEl.setPointerCapture(e.pointerId);
+    const p = read(e);
+    touch = { x: p.x, y: p.y, col: p.col, vel: 0.3 + 0.7 * p.y };
+    emit(p.col, touch.vel);
+    ripples.push({ x: p.x, y: p.y, t: performance.now() });
+    sendCtl(true);
+  };
+  padEl.onpointermove = (e) => {
+    if (!touch) return;
+    const p = read(e);
+    touch.x = p.x; touch.y = p.y; touch.vel = 0.3 + 0.7 * p.y;
+    if (p.col !== touch.col) { touch.col = p.col; emit(p.col, touch.vel); ripples.push({ x: p.x, y: p.y, t: performance.now() }); }
+    sendCtl(false);
+  };
+  const up = () => { touch = null; };
+  padEl.onpointerup = up; padEl.onpointercancel = up;
+}
+
+let tilt = 0;
+function sendCtl(force: boolean) {
+  const now = performance.now();
+  if (!force && now - lastCtl < 70) return;
+  lastCtl = now;
+  net.send({ t: 'ctl', y: touch?.y ?? 0.5, tilt });
+}
+
+/** Held finger => repeat the note on the role's own rhythm (8ths for melody, quarters for bass, once a bar for pads). */
+function tickHold() {
+  if (!touch || !ts || !me) return;
+  const period = HOLD_REPEAT[me.role];
+  if (!period) return;
+  const target = nextStepAfter(ts, clock.serverNow(), leadMs());
+  if (target > lastStep && target % period === 0) emit(touch.col, touch.vel);
+}
+
+// --------------------------------------------------------------- motion sensors
+async function requestMotion() {
+  const DM = (window as any).DeviceMotionEvent, DO = (window as any).DeviceOrientationEvent;
+  try {
+    if (DM && typeof DM.requestPermission === 'function') {
+      // iOS: call both inside the same gesture; one prompt covers "Motion & Orientation".
+      const [a, b] = await Promise.all([DM.requestPermission(), DO?.requestPermission?.() ?? 'granted']);
+      motion = a === 'granted' && b === 'granted' ? 'granted' : 'denied';
+    } else motion = DM ? 'none' : 'denied'; // other browsers need no permission
+  } catch { motion = 'denied'; }
+  document.querySelector('#shk span')!.textContent = motion === 'granted' || motion === 'none' ? 'on' : 'denied';
+  if (motion === 'granted' || motion === 'none') listenMotion();
+}
+
+let motionBound = false;
+function listenMotion() {
+  if (motionBound) return;
+  motionBound = true;
+  let prev = 0, lastHit = 0;
+  addEventListener('devicemotion', (e) => {
+    const a = e.accelerationIncludingGravity;
+    if (!a || !joined) return;
+    const mag = Math.hypot(a.x ?? 0, a.y ?? 0, a.z ?? 0);
+    const jerk = Math.abs(mag - prev); // change in total acceleration: a shake spikes it, slow tilting does not
+    prev = mag;
+    const now = performance.now();
+    if (jerk > 10 && now - lastHit > 130) { lastHit = now; shake(clamp(jerk / 30, 0.45, 1)); }
+  });
+  addEventListener('deviceorientation', (e) => {
+    // gamma: left/right tilt, -90..90. +-45 deg is the comfortable one-handed range.
+    tilt = clamp((e.gamma ?? 0) / 45, -1, 1);
+    sendCtl(false);
+  });
+}
+
+/** Shake = drum hit, picked by the groove so it always lands in the pattern. Non-drummers add hats/claps. */
+function shake(vel: number) {
+  if (!ts || !me) return;
+  const step = Math.max(lastStep + 1, nextStepAfter(ts, clock.serverNow(), leadMs()));
+  const isDrummer = me.role === 'drums';
+  const d = isDrummer ? grooveVoice(step, true) : grooveVoice(step, false);
+  emit(d, vel, { role: 'drums', dur: 1 });
+  navigator.vibrate?.(20);
+  ripples.push({ x: Math.random(), y: 0.2 + Math.random() * 0.6, t: performance.now() });
+}
+addEventListener('keydown', (e) => { if (e.code === 'Space' && joined) { e.preventDefault(); shake(0.8); } }); // desktop testing
+
+// ---------------------------------------------------------------------- frame
 function frame(t: number) {
   requestAnimationFrame(frame);
   if (!ts || !clock.isLocked) return;
   const b = beats.frame(clock, ts, t);
-  flashEl.style.opacity = String((b.downbeat ? 0.95 : 0.6) * flashEnv(b.since));
-  if (b.newBeat) navigator.vibrate?.(b.downbeat ? 30 : 12);
+
+  // The synchronised flash. Pure function of the synced clock.
+  const e = flashEnv(b.since);
+  flashEl.style.background = b.downbeat ? '#fff' : (me?.color ?? '#fff');
+  flashEl.style.opacity = String((b.downbeat ? 0.9 : 0.55) * e);
+
+  if (b.newBeat) {
+    navigator.vibrate?.(b.downbeat ? 28 : 10);
+    beatDots.forEach((d, i) => { d.classList.toggle('on', i === b.beatInBar); d.classList.toggle('d', i === b.beatInBar && b.downbeat); });
+    if (chordEl) {
+      const step = Math.floor(stepPos(ts, b.serverMs));
+      const c = chordAt(ts, step), n = chordAt(ts, step + 16 - (((step % 16) + 16) % 16));
+      const st = clock.stats(beats.flashLate);
+      chordEl.innerHTML = `${NOTE_NAMES[ts.root]} ${SCALE_LABEL[ts.scale]} · <b>${c.name}</b> → ${n.name} · sync ±${fmt(st.err + st.flashLate, 0)} ms`;
+    }
+    if (nameEl && me) nameEl.textContent = me.name;
+  }
+  tickHold();
+  if (padCtx) drawPad(t, b.serverMs);
 }
 requestAnimationFrame(frame);
 
+function drawPad(t: number, serverMs: number) {
+  if (!me || !ts) return;
+  const w = padEl.clientWidth, h = padEl.clientHeight, cols = COLS[me.role];
+  padCtx.clearRect(0, 0, w, h);
+  const cw = w / cols;
+  // column fires scheduled for "now"
+  let fireCol = -1, fireV = 0;
+  while (fires.length && fires[0].at <= serverMs) { const f = fires.shift()!; fireCol = f.col; fireV = f.v; ripples.push({ x: (f.col + 0.5) / cols, y: 0.05 + 0.5 * f.v, t: performance.now() }); }
+  for (let i = 0; i < cols; i++) {
+    padCtx.fillStyle = i % 2 ? 'rgba(255,255,255,.035)' : 'rgba(255,255,255,0)';
+    padCtx.fillRect(i * cw, 0, cw, h);
+  }
+  padCtx.fillStyle = me.color;
+  if (touch) {
+    const g = padCtx.createLinearGradient(0, h, 0, h * (1 - touch.y));
+    g.addColorStop(0, hexA(me.color, 0.1)); g.addColorStop(1, hexA(me.color, 0.55));
+    padCtx.fillStyle = g;
+    padCtx.fillRect(touch.col * cw, h * (1 - touch.y), cw, h * touch.y);
+  }
+  if (fireCol >= 0) { padCtx.fillStyle = hexA(me.color, 0.35 + 0.4 * fireV); padCtx.fillRect(fireCol * cw, 0, cw, h); }
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    const r = ripples[i], age = (performance.now() - r.t) / 600;
+    if (age > 1) { ripples.splice(i, 1); continue; }
+    padCtx.strokeStyle = hexA(me.color, 1 - age); padCtx.lineWidth = 4 * (1 - age) + 1;
+    padCtx.beginPath(); padCtx.arc(r.x * w, (1 - r.y) * h, 20 + age * 90, 0, Math.PI * 2); padCtx.stroke();
+  }
+  if (touch) {
+    const g = padCtx.createRadialGradient(touch.x * w, (1 - touch.y) * h, 0, touch.x * w, (1 - touch.y) * h, 70);
+    g.addColorStop(0, '#fff'); g.addColorStop(0.25, hexA(me.color, 0.8)); g.addColorStop(1, hexA(me.color, 0));
+    padCtx.fillStyle = g;
+    padCtx.beginPath(); padCtx.arc(touch.x * w, (1 - touch.y) * h, 70, 0, Math.PI * 2); padCtx.fill();
+  }
+  void t;
+}
+const hexA = (hex: string, a: number) => {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`;
+};
+
+// ------------------------------------------------------------------ housekeeping
 setInterval(() => {
-  const s = clock.stats(beats.flashLate);
-  net.send({ t: 'stats', stats: s });
-  const d = document.getElementById('dbg');
-  if (d) d.textContent = `offset ${fmt(s.offset, 2)} ms\njitter ${fmt(s.jitter, 2)} ms\nrtt   ${fmt(s.rttMin)} min / ${fmt(s.rttLast)} last\nerr   ${fmt(s.err)} ms  flash ${fmt(s.flashLate)} ms`;
+  net.send({ t: 'stats', stats: clock.stats(beats.flashLate) });
+  updateDebug();
 }, 1000);
+setInterval(updateDebug, 250);
 
 net.connect();
