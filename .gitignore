@@ -9,3 +9,4 @@ public/songs/*.MID
 public/songs/index.json
 .neon
 .env.local
+scratch
