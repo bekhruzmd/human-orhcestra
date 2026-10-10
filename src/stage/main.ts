@@ -51,6 +51,7 @@ app.innerHTML = `
 <div id="flash"></div>
 <canvas id="viz"></canvas>
 <div id="big"></div>
+<section id="demo-guide" aria-live="polite" hidden><b id="demo-title"></b><span id="demo-copy"></span><strong id="demo-sync"></strong></section>
 <div class="hud">
   <div class="brand">HUMAN ORCHESTRA<small id="keyline">–</small><span class="mode" id="mode">WAITING</span></div>
   <div class="chordbox"><span class="lbl">CHORD</span><b id="chord">–</b><small id="next">&nbsp;</small></div>
@@ -65,6 +66,10 @@ app.innerHTML = `
 </aside>
 <button id="audio">SOUND OFF · click to enable audio</button>
 <footer class="conductor" id="cond">
+  <div class="demo-flow"><div><b id="demo-step">JUDGE DEMO</b><small id="demo-hint">Three quick moments · N to advance</small></div><button class="btn play" id="demo-next" aria-label="Advance judge demo">NEXT <kbd>N</kbd></button></div>
+  <details id="more">
+    <summary>MORE</summary>
+    <div class="more-controls">
   <div class="cond-cluster transport-cluster">
     <div class="ctl"><span class="lbl">TEMPO <b id="bpmv"></b></span><input id="bpmr" type="range" min="${BPM_MIN}" max="${BPM_MAX}" step="1" aria-label="Tempo" /></div>
     <div class="ctl"><span class="lbl">KEY</span><select id="key" aria-label="Key">${NOTE_NAMES.map((n, i) => `<option value="${i}">${n}</option>`).join('')}</select></div>
@@ -86,6 +91,8 @@ app.innerHTML = `
     <button class="btn rec-btn rec" id="rec">SAVE 30s</button>
     <button class="btn rec-btn" id="viewrecs">SESSIONS</button>
   </div>
+    </div>
+  </details>
 </footer>
 <div id="replaybar" class="replay-bar" hidden>
   <span class="replay-dot"></span>
@@ -289,6 +296,34 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 // -------------------------------------------------------------- conductor UI
 const done = (g: { perfect: number; good: number; miss: number }) => ({ perfect: g.perfect, good: g.good, total: g.perfect + g.good + g.miss });
 const cmd = (c: 'bpm' | 'pause' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'freestyle' | 'nowplaying' | 'sample' | 'recordingStart' | 'recordingStop', value?: number | string | boolean) => net.send({ t: 'cmd', cmd: c, value });
+let demoStep = 0;
+function updateDemoUI() {
+  const guide = $('demo-guide');
+  guide.hidden = demoStep === 0;
+  $('demo-step').textContent = demoStep === 0 ? 'JUDGE DEMO' : `MOMENT ${demoStep} / 3`;
+  $('demo-hint').textContent = demoStep === 0 ? 'Three quick moments · N to advance' : demoStep === 1 ? 'Scan the QR · play any pad · AUTO fills the band' : demoStep === 2 ? 'Every phone flashes from the shared beat clock' : 'The build is over · hit the DROP';
+  $('demo-title').textContent = demoStep === 1 ? 'SCAN + PLAY' : demoStep === 2 ? 'ONE SHARED BEAT' : 'THE DROP';
+  $('demo-copy').textContent = demoStep === 1 ? 'A phone joins the song in key. Missing parts are backed by AUTO.' : demoStep === 2 ? `${humans().length} PHONE${humans().length === 1 ? '' : 'S'} · MEASURED SYNC ERROR` : 'Shared transport. Live players. One room-wide impact.';
+  const live = humans().filter((p) => p.sync);
+  const worst = live.length ? Math.max(...live.map((p) => syncHeadline(p.sync).err)) : NaN;
+  $('demo-sync').textContent = Number.isFinite(worst) ? `±${fmt(worst, 0)} ms` : 'WAITING FOR PHONES';
+  $('demo-next').innerHTML = demoStep === 0 ? 'NEXT <kbd>N</kbd>' : demoStep === 3 ? 'RESTART <kbd>N</kbd>' : 'NEXT <kbd>N</kbd>';
+  $('sync').closest('.stat')?.classList.toggle('demo-sync-highlight', demoStep === 2);
+  $('app').classList.toggle('demo-active', demoStep > 0);
+}
+async function advanceDemo() {
+  if (demoStep === 0 || demoStep === 3) {
+    if (!audioOn) await enableAudio();
+    demoStep = 1;
+    cmd('auto', true);
+  } else if (demoStep === 1) demoStep = 2;
+  else {
+    demoStep = 3;
+    cmd('drop');
+  }
+  updateDemoUI();
+}
+$('demo-next').onclick = () => { void advanceDemo().catch((err) => { console.warn('Could not start judge demo', err); flashBig('AUDIO UNAVAILABLE', 1200); }); };
 let bpmTimer = 0;
 $<HTMLInputElement>('bpmr').oninput = (e) => {
   const v = Number((e.target as HTMLInputElement).value);
@@ -483,6 +518,8 @@ async function startReplayingSession(id: string) {
 }
 
 addEventListener('keydown', (e) => {
+  const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement || (e.target instanceof HTMLElement && e.target.isContentEditable);
+  if (!typing && !e.repeat && e.key.toLowerCase() === 'n') { e.preventDefault(); void advanceDemo(); }
   if (e.key === 'Escape') {
     if (!$('sampleui').hidden) { closeSampleUI(); return; }
     if (!$('recordingsui').hidden) { closeRecordingsUI(); return; }
@@ -491,6 +528,7 @@ addEventListener('keydown', (e) => {
     if (!$('results').hidden) { $('results').hidden = true; return; }
     if (sessionPlayer.isPlaying) { stopSessionReplay(); return; }
   }
+  if (typing) return;
   if (e.key === ' ' && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLButtonElement)) { e.preventDefault(); if (!$<HTMLButtonElement>('pause').disabled) $('pause').click(); }
   if (e.key === 'h') $('cond').classList.toggle('hidden');
   if (e.key === 'f') document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
@@ -1030,6 +1068,7 @@ function frame(t: number) {
   viz.draw(b.serverMs, ts, laneList(), { beatPulse: flashEnv(b.since), downbeat: b.downbeat });
 
   if (b.newBeat) {
+    updateDemoUI();
     const c = chordAt(ts, step), nx = chordAt(ts, step - (step % 16) + 16);
     $('chord').textContent = c.name;
     $('next').textContent = `next ${nx.name}`;
