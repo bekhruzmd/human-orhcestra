@@ -94,6 +94,20 @@ export function parseMidi(buf: ArrayBuffer, title: string, options: { melodyPart
   // group melodic notes by (track, channel) and rank by average pitch
   const groups = new Map<string, MNote[]>();
   for (const n of notes) if (n.ch !== 9) (groups.get(`${n.track}:${n.ch}`) ?? groups.set(`${n.track}:${n.ch}`, []).get(`${n.track}:${n.ch}`)!).push(n);
+  // Single-instrument files (e.g. an MP3->MIDI converter's piano output): split that one part by pitch
+  // so the band still gets bass, pads and melody. Below E3 -> bass; the top note of each onset -> melody; the rest -> pads.
+  if (groups.size === 1) {
+    const [[id, g]] = [...groups.entries()];
+    const low = g.filter((n) => n.midi < 52);
+    const high = g.filter((n) => n.midi >= 52);
+    const topAt = new Map<number, number>();
+    for (const n of high) topAt.set(n.start, Math.max(topAt.get(n.start) ?? 0, n.midi));
+    const mel = high.filter((n) => topAt.get(n.start) === n.midi);
+    const pad = high.filter((n) => topAt.get(n.start) !== n.midi);
+    groups.clear();
+    for (const [suffix, part] of [['mel', mel], ['pad', pad], ['bass', low]] as const) if (part.length >= 4) groups.set(`${id}:${suffix}`, part);
+    if (!groups.size) groups.set(id, g);
+  }
   const ranked = [...groups.entries()].map(([id, g]) => ({ id, g, avg: g.reduce((s, n) => s + n.midi, 0) / g.length })).sort((a, b) => b.avg - a.avg);
   options.onParts?.(ranked.map(({ id, g }) => ({ id, label: `${trackNames.get(g[0].track) || `Track ${g[0].track + 1}`} · channel ${g[0].ch + 1} · ${g.length} notes` })));
   const selected = ranked.findIndex((part) => part.id === options.melodyPart);
