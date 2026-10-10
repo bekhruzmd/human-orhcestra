@@ -1652,7 +1652,8 @@ select:focus-visible {
 		flex-wrap: wrap;
 		align-content: center;
 		row-gap: 10px;
-		overflow: hidden;
+		/* More opens above the footer; scrolling stays inside .more-controls. */
+		overflow: visible;
 		white-space: normal;
 	}
 	.transport-cluster { order: 1; }
