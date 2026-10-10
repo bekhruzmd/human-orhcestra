@@ -53,6 +53,22 @@ app.innerHTML = `
 <canvas id="viz"></canvas>
 <div id="big"></div>
 <section id="demo-guide" aria-live="polite" hidden><b id="demo-title"></b><span id="demo-copy"></span><strong id="demo-sync"></strong></section>
+<section id="how-it-works" hidden aria-labelledby="how-title">
+  <header><div><small>HUMAN ORCHESTRA · UNDER THE HOOD</small><h1 id="how-title">One clock. Every instrument.</h1></div><button class="btn" id="how-close">CLOSE <kbd>W</kbd></button></header>
+  <div class="architecture" aria-label="Phones send timing pings to the server transport clock, which schedules audio on the Stage">
+    <div class="arch-node"><span>01 · INPUT</span><b>PHONES</b><small>Join · ping · play</small></div><i aria-hidden="true">→</i>
+    <div class="arch-node server-node"><span>02 · SHARED TIME</span><b>SERVER CLOCK</b><small>One transport · one beat grid</small></div><i aria-hidden="true">→</i>
+    <div class="arch-node"><span>03 · OUTPUT</span><b>STAGE AUDIO</b><small>Schedule ahead · play together</small></div>
+  </div>
+  <div class="clock-explain"><div><h2>How a phone finds the beat</h2><p class="formula">offset = server time − midpoint(phone send, phone receive)</p><p>Each ping/pong exchange gives a time-offset estimate. We keep the lowest-RTT 30% to reduce queue-delay noise, then take their median and gently slew the clock.</p></div><div class="clock-rule">LOWEST RTT<br><b>30%</b><br>MEDIAN OFFSET</div></div>
+  <div class="how-metrics" aria-live="polite">
+    <div><small>PHONES CONNECTED</small><b id="how-phones">–</b></div>
+    <div><small>STAGE RTT · LAST</small><b id="how-rtt">–</b></div>
+    <div><small>STAGE JITTER</small><b id="how-jitter">–</b></div>
+    <div><small>WORST PHONE P90</small><b id="how-error">–</b></div>
+  </div>
+  <footer>Timing is estimated from each device’s own monotonic clock. No beat-by-beat network trigger is needed.</footer>
+</section>
 <div class="hud">
   <div class="brand">HUMAN ORCHESTRA<small id="keyline">–</small><span class="mode" id="mode">WAITING</span></div>
   <div class="chordbox"><span class="lbl">CHORD</span><b id="chord">–</b><small id="next">&nbsp;</small></div>
@@ -72,6 +88,7 @@ app.innerHTML = `
     <summary>MORE</summary>
     <div class="more-controls">
     <button class="btn" id="sync-test">SYNC TEST: OFF</button>
+    <button class="btn" id="how-open">HOW IT WORKS <kbd>W</kbd></button>
   <div class="cond-cluster transport-cluster">
     <div class="ctl"><span class="lbl">TEMPO <b id="bpmv"></b></span><input id="bpmr" type="range" min="${BPM_MIN}" max="${BPM_MAX}" step="1" aria-label="Tempo" /></div>
     <div class="ctl"><span class="lbl">KEY</span><select id="key" aria-label="Key">${NOTE_NAMES.map((n, i) => `<option value="${i}">${n}</option>`).join('')}</select></div>
@@ -336,6 +353,8 @@ $<HTMLSelectElement>('key').onchange = (e) => cmd('key', Number((e.target as HTM
 $<HTMLSelectElement>('scale').onchange = (e) => cmd('scale', (e.target as HTMLSelectElement).value);
 $('drop').onclick = () => cmd('drop');
 $('sync-test').onclick = () => cmd('syncTest', !ts?.syncTest);
+$('how-open').onclick = () => toggleHow(true);
+$('how-close').onclick = () => toggleHow(false);
 $('pause').onclick = () => cmd('pause', ts?.paused == null);
 $('free').onclick = () => cmd('freestyle', !ts?.freestyle);
 $('play').onclick = () => openGamePicker();
@@ -522,8 +541,9 @@ async function startReplayingSession(id: string) {
 
 addEventListener('keydown', (e) => {
   const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement || (e.target instanceof HTMLElement && e.target.isContentEditable);
-  if (!typing && !e.repeat && e.key.toLowerCase() === 'n') { e.preventDefault(); void advanceDemo(); }
+  if (!typing && $('how-it-works').hidden && !e.repeat && e.key.toLowerCase() === 'n') { e.preventDefault(); void advanceDemo(); }
   if (e.key === 'Escape') {
+    if (!$('how-it-works').hidden) { toggleHow(false); return; }
     if (!$('sampleui').hidden) { closeSampleUI(); return; }
     if (!$('recordingsui').hidden) { closeRecordingsUI(); return; }
     if (!$('gamepick').hidden) { $('gamepick').hidden = true; return; }
@@ -533,9 +553,25 @@ addEventListener('keydown', (e) => {
   }
   if (typing) return;
   if (e.key === ' ' && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLButtonElement)) { e.preventDefault(); if (!$<HTMLButtonElement>('pause').disabled) $('pause').click(); }
+  if (e.key.toLowerCase() === 'w') toggleHow($('how-it-works').hidden === true);
   if (e.key === 'h') $('cond').classList.toggle('hidden');
   if (e.key === 'f') document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
 });
+
+function toggleHow(open: boolean) {
+  $('how-it-works').hidden = !open;
+  if (open) refreshHow();
+}
+function refreshHow() {
+  const s = clock.stats(beats.flashLate);
+  const live = humans().filter((p) => p.sync);
+  const worst = live.length ? Math.max(...live.map((p) => syncHeadline(p.sync).err)) : NaN;
+  $('how-phones').textContent = String(humans().length);
+  $('how-rtt').textContent = `${fmt(s.rttLast, 1)} ms`;
+  $('how-jitter').textContent = `${fmt(s.jitter, 2)} ms`;
+  $('how-error').textContent = Number.isFinite(worst) ? `±${fmt(worst, 1)} ms` : 'WAITING';
+}
+setInterval(() => { if (!$('how-it-works').hidden) refreshHow(); }, 500);
 
 // Close modals when clicking backdrop
 $('sampleui').onclick = (e) => { if (e.target === $('sampleui')) closeSampleUI(); };
