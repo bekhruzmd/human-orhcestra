@@ -27,6 +27,15 @@ let ts: TransportState | null = null;
 let me: PlayerInfo | null = null;
 let joined = false;
 let speakerOn = false;
+/** Beat-flash intensity: soft (default, colour only), full (white downbeats), off. Remembered per phone. */
+type FlashMode = 'soft' | 'full' | 'off';
+let flashMode: FlashMode = 'soft';
+try {
+  const q = new URLSearchParams(location.search).get('flash');
+  const saved = q === '0' ? 'off' : localStorage.getItem('ho.flash');
+  if (saved === 'soft' || saved === 'full' || saved === 'off') flashMode = saved;
+} catch { /* storage blocked: keep default */ }
+const FLASH_LABEL: Record<FlashMode, string> = { soft: '✨ Flash: soft', full: '⚡ Flash: full', off: '🌑 Flash: off' };
 let motion: 'unknown' | 'granted' | 'denied' | 'none' = 'unknown';
 
 const app = document.getElementById('app')!;
@@ -110,8 +119,9 @@ function buildJam() {
     <div class="chord" id="chord"></div>
     <div id="pad"><canvas></canvas><div class="ylabel">${role === 'drums' ? 'HARDER ↑' : 'BRIGHTER ↑'}</div><div class="padlabel"></div></div>
     <div class="bottom">
-      <button class="tog" id="shk">📳 Shake: <span>${motion === 'granted' || motion === 'none' ? 'on' : 'enable'}</span></button>
-      <button class="tog ${speakerOn ? 'on' : ''}" id="spk">📢 Phone speaker</button>
+      <button class="tog" id="shk">📳 <span>${motion === 'granted' || motion === 'none' ? 'Shake on' : 'Enable shake'}</span></button>
+      <button class="tog ${speakerOn ? 'on' : ''}" id="spk">📢 Speaker</button>
+      <button class="tog" id="fls">${FLASH_LABEL[flashMode]}</button>
     </div></div>`;
   padEl = document.getElementById('pad')!;
   padCanvas = padEl.querySelector('canvas')!;
@@ -123,6 +133,11 @@ function buildJam() {
   document.getElementById('dbgbtn')!.onclick = openDebug;
   document.getElementById('spk')!.onclick = () => { engine.start().then(() => setSpeaker(!speakerOn)); };
   document.getElementById('shk')!.onclick = () => requestMotion();
+  document.getElementById('fls')!.onclick = (e) => {
+    flashMode = flashMode === 'soft' ? 'full' : flashMode === 'full' ? 'off' : 'soft';
+    try { localStorage.setItem('ho.flash', flashMode); } catch { /* ignore */ }
+    (e.currentTarget as HTMLElement).textContent = FLASH_LABEL[flashMode];
+  };
   bindPad();
   resizePad();
   refreshPadLabels();
@@ -278,7 +293,8 @@ async function requestMotion() {
       motion = a === 'granted' && b === 'granted' ? 'granted' : 'denied';
     } else motion = DM ? 'none' : 'denied'; // other browsers need no permission
   } catch { motion = 'denied'; }
-  document.querySelector('#shk span')!.textContent = motion === 'granted' || motion === 'none' ? 'on' : 'denied';
+  const shkSpan = document.querySelector('#shk span');
+  if (shkSpan) shkSpan.textContent = motion === 'granted' || motion === 'none' ? 'Shake on' : 'Shake denied';
   if (motion === 'granted' || motion === 'none') listenMotion();
 }
 
@@ -323,8 +339,14 @@ function frame(t: number) {
 
   // The synchronised flash. Pure function of the synced clock.
   const e = flashEnv(b.since);
-  flashEl.style.background = b.downbeat ? '#fff' : (me?.color ?? '#fff');
-  flashEl.style.opacity = String((b.downbeat ? 0.9 : 0.55) * e);
+  if (flashMode === 'off') flashEl.style.opacity = '0';
+  else if (flashMode === 'soft') { // gentle colour pulse, never white
+    flashEl.style.background = me?.color ?? '#fff';
+    flashEl.style.opacity = String((b.downbeat ? 0.28 : 0.14) * e);
+  } else {
+    flashEl.style.background = b.downbeat ? '#fff' : (me?.color ?? '#fff');
+    flashEl.style.opacity = String((b.downbeat ? 0.9 : 0.55) * e);
+  }
 
   if (b.newBeat) {
     navigator.vibrate?.(b.downbeat ? 28 : 10);

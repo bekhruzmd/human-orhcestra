@@ -46,7 +46,7 @@ button { font: inherit; color: inherit; border: 0; background: none; }
 .ylabel { position: absolute; top: 10px; left: 14px; font-size: 12px; font-weight: 800; letter-spacing: .12em; color: color-mix(in srgb, var(--c) 60%, #fff); opacity: .7; pointer-events: none; }
 
 .bottom { display: flex; gap: 10px; }
-.tog { flex: 1; padding: 14px 8px; border-radius: 16px; background: var(--panel); font-weight: 700; font-size: 15px; border: 2px solid transparent; }
+.tog { flex: 1; padding: 14px 4px; font-size: 13px !important; border-radius: 16px; background: var(--panel); font-weight: 700; font-size: 15px; border: 2px solid transparent; }
 .tog.on { border-color: var(--c); background: color-mix(in srgb, var(--c) 22%, var(--panel)); }
 
 /* sheets */
