@@ -13,7 +13,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { getSong } from '../shared/songs.js';
-import { DIFFICULTIES, songSteps, validateGameSong, type GameStats } from '../shared/game.js';
+import { buildChart, DIFFICULTIES, songSteps, validateGameSong, type GameStats, type ChartNote } from '../shared/game.js';
 import {
   BPM_MAX, BPM_MIN, COLORS, DROP_BUILD_STEPS, ROLES, STEPS_PER_BAR,
   type ClientMsg, type PlayerInfo, type Role, type ScaleName, type ServerMsg, type TransportState,
@@ -47,6 +47,8 @@ const transport: TransportState = {
   sample: null,
 };
 let dropTimer: NodeJS.Timeout | null = null;
+let lastGameStart = -1;
+const gameCharts = new Map<Role, ChartNote[]>();
 let gameTimer: NodeJS.Timeout | null = null;
 const RESULTS_GRACE_MS = 45_000; // how long a finished game stays up so the results screens can be read
 
@@ -91,6 +93,7 @@ interface Player extends PlayerInfo {
   droppedAt: number | null;
   y: number;
   tilt: number;
+  hits: Set<number>;
 }
 const players = new Map<string, Player>();
 const conns = new Set<Conn>();
@@ -124,7 +127,7 @@ function seat(id: string): Player {
   const others = joinedPlayers();
   const p: Player = {
     id, name: `Player ${others.length + 1}`, color: pickColor(others), role: pickRole(others), connected: true,
-    speaker: false, sync: null, game: null, joined: false, conn: null, droppedAt: null, y: 0.5, tilt: 0,
+    speaker: false, sync: null, game: null, joined: false, conn: null, droppedAt: null, y: 0.5, tilt: 0, hits: new Set(),
   };
   players.set(id, p);
   return p;
@@ -178,7 +181,7 @@ const server = http.createServer((req, res) => {
 // -------------------------------------------------------------- WebSocket
 // On Vercel the function lives at /api/ws and the client's /ws is rewritten to it, so don't pin the path there.
 const ON_VERCEL = !!process.env.VERCEL;
-const wss = new WebSocketServer({ server, path: ON_VERCEL ? undefined : '/ws', perMessageDeflate: false });
+const wss = new WebSocketServer({ server, path: ON_VERCEL ? undefined : '/ws', perMessageDeflate: false, maxPayload: 2_000_000 });
 
 wss.on('connection', (ws, req) => {
   // Disable Nagle: tiny JSON frames must leave immediately or ping RTTs get sticky/asymmetric.
@@ -192,6 +195,7 @@ wss.on('connection', (ws, req) => {
     conn.lastSeen = rx;
     let m: ClientMsg;
     try { m = JSON.parse(raw.toString()); } catch { return; }
+    if (!m || typeof m !== 'object' || Array.isArray(m) || typeof m.t !== 'string') return;
     if (m.t === 'ping') return void send(ws, { t: 'pong', id: m.id, c0: m.c0, s: rx });
     handle(conn, m, rx);
   });
@@ -208,6 +212,8 @@ wss.on('connection', (ws, req) => {
 
 function handle(conn: Conn, m: ClientMsg, now: number) {
   if (m.t === 'hello') {
+    if (!['stage', 'player'].includes(m.kind) || (m.kind === 'player' && (typeof m.id !== 'string' || !m.id || m.id.length > 100))) return;
+    if (conn.playerId || conn.kind === 'stage') return;
     conn.kind = m.kind;
     if (m.kind === 'player') {
       // Reconnect: same id => same seat, name, colour, role.
@@ -247,10 +253,13 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
     transport.root = song.root; transport.scale = song.scale;
     setBpm(song.bpm);
     const lead = Math.max(4000, 4 * (60000 / song.bpm) + 1500);
-    const startStep = Math.ceil(stepPos(transport, serverNow() + lead) / STEPS_PER_BAR) * STEPS_PER_BAR;
+    const startStep = Math.max(lastGameStart + STEPS_PER_BAR, Math.ceil(stepPos(transport, serverNow() + lead) / STEPS_PER_BAR) * STEPS_PER_BAR);
+    lastGameStart = startStep;
+    gameCharts.clear();
+    for (const role of ROLES) gameCharts.set(role, buildChart(song, role, difficulty));
     transport.game = { ...(m.song ? { song } : {}), songId: song.id, difficulty, startStep, endStep: startStep + songSteps(song) + STEPS_PER_BAR };
     for (const pl of players.values()) {
-      pl.game = null;
+      pl.game = null; pl.hits.clear();
       if (m.song && !song.tracks[pl.role].length) {
         const available = ROLES.filter((r) => song.tracks[r].length);
         pl.role = available.find((r) => !joinedPlayers().some((p) => p.id !== pl.id && p.role === r)) ?? available[0];
@@ -274,8 +283,8 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
     // While a rhythm game runs, tempo/key/mode are locked: every chart is addressed in steps of THIS tempo.
     if (transport.game && ['bpm', 'key', 'scale', 'drop', 'freestyle', 'nowplaying', 'sample'].includes(m.cmd)) return;
     switch (m.cmd) {
-      case 'bpm': setBpm(Number(m.value)); break;
-      case 'key': transport.root = ((Math.round(Number(m.value)) % 12) + 12) % 12; break;
+      case 'bpm': if (typeof m.value === 'number' && Number.isFinite(m.value)) setBpm(Number(m.value)); break;
+      case 'key': if (typeof m.value !== 'number' || !Number.isFinite(m.value)) return; transport.root = ((Math.round(Number(m.value)) % 12) + 12) % 12; break;
       case 'scale': if (SCALES.includes(m.value as ScaleName)) transport.scale = m.value as ScaleName; break;
       case 'drop': startDrop(); break;
       case 'auto': transport.autoBand = !!m.value; break;
@@ -323,17 +332,25 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       break;
     case 'gstats': {
       // Each phone judges its own taps against the shared timeline and reports the totals; clamp to sane ranges.
-      if (!transport.game) return;
+      if (!transport.game || m.startStep !== transport.game.startStep || !m.s || typeof m.s !== 'object') return;
+      const song = transport.game.song ?? getSong(transport.game.songId);
+      if (!song) return;
+      const maxNotes = gameCharts.get(p.role)?.length ?? 0;
+      if (!['score', 'combo', 'maxCombo', 'perfect', 'good', 'miss', 'total'].every((k) => { const v = (m.s as unknown as Record<string, number>)[k]; return Number.isInteger(v) && v >= 0; })) return;
+      if (m.s.score > m.s.perfect * 200 + m.s.good * 120) return;
+      if (m.s.total > maxNotes || m.s.perfect + m.s.good + m.s.miss > m.s.total || m.s.combo > m.s.maxCombo || m.s.maxCombo > m.s.perfect + m.s.good) return;
+      if (p.game && (m.s.score < p.game.score || m.s.perfect < p.game.perfect || m.s.good < p.game.good || m.s.miss < p.game.miss)) return;
       const n = (v: unknown, max: number) => Math.max(0, Math.min(max, Math.round(Number(v) || 0)));
-      const g: GameStats = { score: n(m.s.score, 1e7), combo: n(m.s.combo, 1e4), maxCombo: n(m.s.maxCombo, 1e4), perfect: n(m.s.perfect, 1e4), good: n(m.s.good, 1e4), miss: n(m.s.miss, 1e4), total: n(m.s.total, 1e4) };
+      const g: GameStats = { score: n(m.s.score, 1e7), combo: n(m.s.combo, maxNotes), maxCombo: n(m.s.maxCombo, maxNotes), perfect: n(m.s.perfect, maxNotes), good: n(m.s.good, maxNotes), miss: n(m.s.miss, maxNotes), total: n(m.s.total, maxNotes) };
       p.game = g;
       break;
     }
     case 'stats':
+      if (!m.stats || typeof m.stats !== 'object' || !['offset', 'jitter', 'rttMin', 'rttLast', 'err', 'flashLate', 'samples'].every((k) => Number.isFinite((m.stats as unknown as Record<string, number>)[k]))) return;
       p.sync = m.stats; // roster is re-broadcast on a timer, not per report
       break;
     case 'ctl':
-      p.y = clamp01(m.y); p.tilt = Math.max(-1, Math.min(1, m.tilt));
+      p.y = clamp01(m.y); p.tilt = Math.max(-1, Math.min(1, Number.isFinite(m.tilt) ? m.tilt : 0));
       broadcast({ t: 'ctl', pid: p.id, y: p.y, tilt: p.tilt }, (c) => c !== conn);
       break;
     case 'songreq': {
@@ -355,11 +372,15 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
     case 'ghit': {
       const g = transport.game;
       if (!g || m.startStep !== g.startStep || !Number.isInteger(m.step) || m.step < g.startStep || m.step >= g.endStep) return;
+      const song = g.song ?? getSong(g.songId);
+      const note = song && Number.isInteger(m.noteId) ? gameCharts.get(p.role)?.[m.noteId] : undefined;
+      if (!note || note.step + g.startStep !== m.step || p.hits.has(m.noteId)) return;
       const age = now - (transport.epoch + m.step * stepMs(transport.bpm));
       if (age < -200 || age > 2000) return;
       conn.noteTimes = conn.noteTimes.filter((t) => now - t < 1000);
       if (conn.noteTimes.length >= 24) return;
       conn.noteTimes.push(now);
+      p.hits.add(m.noteId);
       broadcast({ t: 'ghit', startStep: g.startStep, step: m.step, pid: p.id, role: p.role }, (c) => c.kind === 'stage');
       break;
     }
@@ -371,6 +392,7 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       if (conn.noteTimes.length >= 24) return;
       conn.noteTimes.push(now);
       // Guardrail 2: only integer steps in a sane window: the grid is the only place a note can live.
+      if (![m.step, m.d, m.v].every(Number.isFinite)) return;
       const cur = stepPos(transport, now);
       let step = Math.round(m.step);
       if (!Number.isFinite(step) || step > cur + 48) return;

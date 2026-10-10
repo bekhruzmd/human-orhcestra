@@ -57,7 +57,7 @@ export class GameConductor {
         const player = this.playerFor(role);
         const lift = Math.max(0, 1 - (now - (this.lifts.get(role) ?? -Infinity)) / 2400);
         // The tune always remains audible. Hits gently lift the next phrase, with no duplicated notes.
-        const gain = player ? 0.72 + 0.28 * lift : 0.82;
+        const gain = player ? 0.38 + 0.62 * lift : 0.82;
         this.emit({ pid: `game:${role}`, role, step: this.next, d: n.d ?? 0, v: n.v * gain, dur: n.dur, midi: n.midi });
       }
       this.next++;

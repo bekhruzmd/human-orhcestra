@@ -23,9 +23,9 @@ import { getSong } from '../../shared/songs';
 const LOOKAHEAD_MS = 1900;
 const HIT_Y = 0.8;
 const LANE_COLORS: Record<number, string[]> = {
-  2: ['#ff4d6d', '#35d0ff'],
-  3: ['#ff4d6d', '#ffd23f', '#35d0ff'],
-  4: ['#ff4d6d', '#ffd23f', '#35d0ff', '#7cff6b'],
+  2: ['#c85a42', '#d49226'],
+  3: ['#c85a42', '#d49226', '#7a9a5b'],
+  4: ['#c85a42', '#d49226', '#c98934', '#7a9a5b'],
 };
 const DRUM_NAMES: Record<number, string[]> = { 2: ['KICK', 'SNARE'], 3: ['KICK', 'SNARE', 'HATS'], 4: ['KICK', 'SNARE', 'HAT', 'CLAP'] };
 
@@ -51,7 +51,7 @@ export class GameUI {
   private hud!: { score: HTMLElement; combo: HTMLElement; acc: HTMLElement };
   private timer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(private app: HTMLElement, private d: Deps) {}
+  constructor(private app: HTMLElement, private d: Deps) { d.net.onOpen(() => { this.lastSent = ''; }); }
 
   get active() { return !!this.el; }
 
@@ -82,6 +82,14 @@ export class GameUI {
     const now = this.d.clock.serverNow() - this.timingMs, good = DIFF[g.difficulty].good;
     this.chart.forEach((n, i) => { if (stepTime(ts, g.startStep + n.step) < now - good) this.status[i] = 3; });
     this.stats = emptyStats(this.status.filter((s) => s === 0).length);
+    // A reload resumes exactly the same chart, including already judged notes.
+    try {
+      const saved = JSON.parse(sessionStorage.getItem('ho.performance') ?? 'null');
+      if (saved?.key === key && saved.status?.length === this.chart.length) {
+        this.status = saved.status;
+        this.stats = saved.stats;
+      }
+    } catch { /* storage can be unavailable */ }
     this.lastSent = '';
 
     const inst = INSTRUMENT[me.role];
@@ -93,7 +101,7 @@ export class GameUI {
         <div class="gscore"><b id="g-score">0</b><small id="g-acc">accuracy –</small></div>
         <div class="gcombo"><b id="g-combo">0</b><small>COMBO</small></div>
       </div>
-      <div class="ghelp">Follow the tune · hits lift your instrument · sound on Stage</div><canvas id="g-canvas"></canvas>
+      <div class="ghelp">Tap a lane when its note reaches the line · listen to Stage</div><canvas id="g-canvas"></canvas>
       <div class="glabels">${this.laneLabels(me)}</div>
       <div class="gtiming"><button id="g-earlier" aria-label="Move hit timing 10 milliseconds earlier">−</button><span id="g-timing"></span><button id="g-later" aria-label="Move hit timing 10 milliseconds later">+</button></div>`;
     this.app.appendChild(el);
@@ -106,6 +114,7 @@ export class GameUI {
     el.querySelector<HTMLButtonElement>('#g-earlier')!.onclick = () => adjust(-10);
     el.querySelector<HTMLButtonElement>('#g-later')!.onclick = () => adjust(10);
     timing();
+    this.updateHud();
     this.resize();
     addEventListener('resize', this.onResize);
     this.canvas.onpointerdown = (e) => { e.preventDefault(); this.tap(e); };
@@ -156,17 +165,18 @@ export class GameUI {
       const err = tTap - t;
       if (Math.abs(err) <= spec.good && Math.abs(err) < Math.abs(bestErr)) { best = i; bestErr = err; }
     }
-    if (best < 0) return; // a tap with no note nearby: no sound, no penalty (beginner-friendly)
+    if (best < 0) { this.say('FOLLOW THE LINE', '#8b8ba3'); return; } // a tap with no note nearby: no sound, no penalty (beginner-friendly)
     const j = judge(g.difficulty, bestErr) as Judgement;
     const n = this.chart[best];
     this.status[best] = 1;
     this.stats = applyHit(this.stats, j);
-    this.say(j === 'perfect' ? 'PERFECT' : 'GOOD', j === 'perfect' ? '#7cff6b' : '#ffd23f');
+    this.say(j === 'perfect' ? 'PERFECT' : bestErr < 0 ? 'GOOD · EARLY' : 'GOOD · LATE', j === 'perfect' ? '#7cff6b' : '#ffd23f');
     this.bursts.push({ x: (lane + 0.5) / this.lanes, y: HIT_Y, t: performance.now(), color: LANE_COLORS[this.lanes][lane] });
     navigator.vibrate?.(8);
     // Report participation; the Stage never retriggers a past note.
-    this.d.net.send({ t: 'ghit', startStep: g.startStep, step: g.startStep + n.step });
+    this.d.net.send({ t: 'ghit', startStep: g.startStep, step: g.startStep + n.step, noteId: n.id });
     this.updateHud();
+    this.persist();
   }
 
   private say(text: string, color: string) { this.feedback = { text, color, t: performance.now() }; }
@@ -177,11 +187,18 @@ export class GameUI {
     this.hud.acc.textContent = `accuracy ${accuracy({ ...this.stats, total: this.stats.perfect + this.stats.good + this.stats.miss }).toFixed(0)}%`;
   }
 
+  private persist() {
+    try { sessionStorage.setItem('ho.performance', JSON.stringify({ key: this.key, status: this.status, stats: this.stats })); } catch {}
+  }
+
   private report(force: boolean) {
+    this.persist();
+    const g = this.d.getTs()?.game;
+    if (!g || !this.d.net.connected) return;
     const s = JSON.stringify(this.stats);
     if (!force && s === this.lastSent) return;
     this.lastSent = s;
-    this.d.net.send({ t: 'gstats', s: this.stats });
+    this.d.net.send({ t: 'gstats', startStep: g.startStep, s: this.stats });
   }
 
   // ----------------------------------------------------------------- frame
@@ -304,11 +321,11 @@ export class GameUI {
     const s = this.stats, acc = accuracy(s), gr = grade(acc);
     const card = document.createElement('div');
     card.className = 'gresults';
-    card.innerHTML = `<div class="grade g${gr}">${gr}</div>
+    card.innerHTML = `<div class="grade g${gr}">${s.total ? gr : '–'}</div>
       <div class="gbig">${s.score.toLocaleString()}</div>
       <div class="grid"><span>Accuracy</span><b>${acc.toFixed(0)}%</b><span>Max combo</span><b>${s.maxCombo}</b>
       <span>Perfect</span><b>${s.perfect}</b><span>Good</span><b>${s.good}</b><span>Missed</span><b>${s.miss}</b></div>
-      <p>Team results are on the big screen…</p>`;
+      <p>${s.total === 0 ? 'You joined after the last note. Play again with the band!' : acc >= 85 ? 'Great timing! Try the next difficulty.' : s.miss > s.good ? 'Keep your eyes on the line. Tap as each note crosses it.' : 'You found the rhythm. Aim for the line to earn more Perfects.'}</p><p>Band results are on the big screen.</p>`;
     this.el.appendChild(card);
   }
 

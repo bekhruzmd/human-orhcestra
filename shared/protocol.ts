@@ -22,14 +22,14 @@ export type Role = 'drums' | 'bass' | 'melody' | 'pads';
 export const ROLES: Role[] = ['drums', 'bass', 'melody', 'pads'];
 
 export const ROLE_INFO: Record<Role, { label: string; icon: string }> = {
-  drums: { label: 'Drums', icon: '🥁' },
-  bass: { label: 'Bass', icon: '🎸' },
-  melody: { label: 'Synth', icon: '🎛️' },
-  pads: { label: 'Piano', icon: '🎹' },
+  drums: { label: 'Percussion', icon: 'DRM' },
+  bass: { label: 'Double Bass', icon: 'BSS' },
+  melody: { label: 'Solo Lead', icon: 'LEAD' },
+  pads: { label: 'Grand Piano', icon: 'PNO' },
 };
 
-/** Auto-assigned player colours (distinct on a projector and under a colour-blind filter). */
-export const COLORS = ['#ff4d6d', '#35d0ff', '#ffd23f', '#7cff6b', '#b388ff', '#ff9248', '#2dffc4', '#ff6bd6'];
+/** Auto-assigned player desk colours (restrained warm orchestral palette: strictly no purple/indigo/blue). */
+export const COLORS = ['#d49226', '#c85a42', '#7a9a5b', '#c98934', '#9b6b43', '#8a9955', '#bb733f', '#a88548'];
 
 export type ScaleName = 'minorPent' | 'majorPent' | 'dorian' | 'blues';
 
@@ -153,8 +153,8 @@ export type ClientMsg =
   | { t: 'speaker'; on: boolean }
   | { t: 'note'; step: number; d: number; v: number; dur: number; role?: Role; midi?: number[] }
   | { t: 'game'; action: 'start' | 'stop'; songId?: string; song?: GameSong; difficulty?: Difficulty }
-  | { t: 'ghit'; startStep: number; step: number }
-  | { t: 'gstats'; s: GameStats }
+  | { t: 'ghit'; startStep: number; step: number; noteId: number }
+  | { t: 'gstats'; startStep: number; s: GameStats }
   | { t: 'ctl'; y: number; tilt: number }
   | { t: 'raw'; k: RawKind; at: number; x: number; y: number; v?: number }
   | { t: 'songreq'; id: string; mode: 'band' | 'tap' }

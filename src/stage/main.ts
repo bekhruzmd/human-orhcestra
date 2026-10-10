@@ -51,51 +51,51 @@ app.innerHTML = `
 <div id="big"></div>
 <div class="hud">
   <div class="brand">HUMAN ORCHESTRA<small id="keyline">–</small><span class="mode" id="mode">WAITING</span></div>
-  <div class="chordbox"><span class="lbl">CHORD</span><b id="chord">–</b><small id="next">&nbsp;</small></div>
-  <div class="stat"><span class="lbl">BPM</span><b id="bpm">–</b></div>
-  <div class="stat"><span class="lbl">BAR · BEAT</span><b id="bar">–</b></div>
-  <div class="stat sync"><span class="lbl">SYNC ERROR (WORST PHONE)</span><b id="sync">–</b><small id="syncsub">waiting for phones</small></div>
+  <div class="chordbox"><span class="lbl">HARMONIC CENTER</span><b id="chord">–</b><small id="next">&nbsp;</small></div>
+  <div class="stat"><span class="lbl">TEMPO</span><b id="bpm">–</b></div>
+  <div class="stat"><span class="lbl">MEASURE · BEAT</span><b id="bar">–</b></div>
+  <div class="stat sync"><span class="lbl">CLOCK DISPERSION (WORST DESK)</span><b id="sync">–</b><small id="syncsub">awaiting performer desks</small></div>
 </div>
 <aside class="side">
   <div class="qrbox"><canvas id="qr"></canvas></div>
-  <div class="scan">SCAN TO JOIN</div><div id="url"></div><div id="warn"></div>
+  <div class="scan">JOIN ORCHESTRA</div><div class="join-guide">Phones act as performer desks.<br>Synced to conductor master clock.</div><div id="url"></div><div id="warn"></div>
   <div id="roster"></div>
 </aside>
-<button id="audio">🔇 SOUND OFF · click to enable audio</button>
+<button id="audio">MASTER BUS MUTED · CLICK TO ENGAGE AUDIO</button>
 <footer class="conductor" id="cond">
   <div class="ctl"><span class="lbl">TEMPO <b id="bpmv"></b></span><input id="bpmr" type="range" min="${BPM_MIN}" max="${BPM_MAX}" step="1" /></div>
-  <div class="ctl"><span class="lbl">KEY</span><select id="key">${NOTE_NAMES.map((n, i) => `<option value="${i}">${n}</option>`).join('')}</select></div>
-  <div class="ctl"><span class="lbl">SCALE</span><select id="scale">${(Object.keys(SCALE_LABEL) as ScaleName[]).map((s) => `<option value="${s}">${SCALE_LABEL[s]}</option>`).join('')}</select></div>
-  <button class="btn drop" id="drop">DROP</button>
+  <div class="ctl"><span class="lbl">TONIC</span><select id="key">${NOTE_NAMES.map((n, i) => `<option value="${i}">${n}</option>`).join('')}</select></div>
+  <div class="ctl"><span class="lbl">MODE</span><select id="scale">${(Object.keys(SCALE_LABEL) as ScaleName[]).map((s) => `<option value="${s}">${SCALE_LABEL[s]}</option>`).join('')}</select></div>
+  <button class="btn drop" id="drop">CADENZA</button>
   <span class="spacer"></span>
-  <button class="btn play" id="play">🎮 PLAY A SONG</button>
-  <button class="btn free" id="free">🎤 FREESTYLE</button>
-  <button class="btn" id="midi">🎵 SONGS</button>
-  <button class="btn sample" id="sample">🎚️ SAMPLE</button>
+  <button class="btn play" id="play">PERFORM SCORE</button>
+  <button class="btn free" id="free">FREE IMPROV</button>
+  <button class="btn" id="midi">REPERTOIRE</button>
+  <button class="btn sample" id="sample">SAMPLER</button>
   <input id="midifile" type="file" accept=".mid,.midi" hidden />
-  <button class="btn" id="auto">AUTO</button>
-  <button class="btn" id="spk">📢 SPEAKERS</button>
-  <button class="btn rec" id="rec">⏺ SAVE 30 s</button>
+  <button class="btn" id="auto">AUTO SECTION</button>
+  <button class="btn" id="spk">DESK MONITORS</button>
+  <button class="btn rec" id="rec">EXPORT AUDIO</button>
 </footer>
 <div id="card" hidden></div>
 <div id="gamehud" hidden><div class="gh-top"><span id="gh-title"></span><b id="gh-team">0</b><span id="gh-acc"></span></div><div class="gh-bar"><i id="gh-prog"></i></div><div id="gh-note"></div></div>
 <div id="gamepick" hidden><div class="box">
-  <h3>🎮 Pick a song</h3>
+  <h3>Select Orchestral Score</h3>
   <p id="gp-info"></p>
-  <p class="hintp">The arrangement stays in time. Hits lift your instrument; misses affect your score, not the tune.</p>
-  <div class="row"><button class="btn" id="gp-import">＋ YOUR SONG (.mid)</button><button class="btn" id="gp-preview">♫ Preview selected</button></div>
+  <p class="hintp">The arrangement stays strictly in time. Hits lift your section; misses soften your part while the ensemble continues.</p>
+  <div class="row"><button class="btn" id="gp-import">＋ IMPORT MIDI (.mid)</button><button class="btn" id="gp-preview">Audition Selected</button></div>
   <input id="gp-file" type="file" accept=".mid,.midi" hidden />
-  <label class="hintp"><input id="gp-melody" type="checkbox" /> Import melody only (highest part)</label>
-  <label class="hintp" id="gp-part-label" hidden>Melody part <select id="gp-part"></select></label>
-  <p class="hintp" id="gp-status" role="status">Load a MIDI arrangement of a song you want to play. Imports are saved in this browser.</p>
+  <label class="hintp"><input id="gp-melody" type="checkbox" /> Import melody voice only (highest part)</label>
+  <label class="hintp" id="gp-part-label" hidden>Melody voice <select id="gp-part"></select></label>
+  <p class="hintp" id="gp-status" role="status">Load a MIDI arrangement to rehearse. Scores are cached in this browser.</p>
   <div id="gp-songs"></div>
   <div class="diffs" id="gp-diffs"></div>
-  <div class="row"><button class="btn drop" id="gp-start">▶ START</button><button class="btn" id="gp-close">Close</button></div>
+  <div class="row"><button class="btn drop" id="gp-start">COMMENCE SCORE</button><button class="btn" id="gp-close">Close</button></div>
 </div></div>
 <div id="results" hidden></div>
 <div id="sampleui" hidden><div class="box">
-  <h3>🎚️ Make music with your own audio</h3>
-  <p class="hintp">Choose an MP3 / WAV from this computer. It stays in this browser; nothing is uploaded. Phones then play slices of it on the beat.</p>
+  <h3>Audio Sample Ingest Console</h3>
+  <p class="hintp">Select an MP3 or WAV from this workstation. Kept in browser memory. Desks play synchronized measure slices on the beat.</p>
   <label class="dropzone" id="sp-drop"><span id="sp-droptext">Drop an audio file here, or <u>choose a file</u></span><input type="file" id="sp-file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.aac,.flac" hidden></label>
   <div id="sp-panel" hidden>
     <canvas id="sp-wave"></canvas>
@@ -105,15 +105,15 @@ app.innerHTML = `
       <span>GRID</span><button class="btn" data-sp="off-beat">◂ beat</button><button class="btn" data-sp="off+beat">beat ▸</button><button class="btn" data-sp="off-bar">◂ bar</button><button class="btn" data-sp="off+bar">bar ▸</button>
       <span>SLICE</span><button class="btn" data-sp="slice.5">½ beat</button><button class="btn" data-sp="slice1">1 beat</button><button class="btn" data-sp="slice2">2 beats</button>
     </div>
-    <div class="row"><button class="btn play" id="sp-chop">🎛️ PHONES PLAY SLICES</button><button class="btn" id="sp-back">▶ BACKING LOOP</button><button class="btn" id="sp-stop">■ STOP</button><button class="btn" id="sp-close">Close</button></div>
+    <div class="row"><button class="btn play" id="sp-chop">ASSIGN SLICES TO DESKS</button><button class="btn" id="sp-back">ENGAGE CONTINUOUS LOOP</button><button class="btn" id="sp-stop">HALT SAMPLE</button><button class="btn" id="sp-close">Close</button></div>
     <p class="hintp" id="sp-msg"></p>
   </div>
 </div></div>
 <div id="songs" hidden><div class="box">
-  <h3>🎵 Pick a song</h3>
-  <div class="modes"><button class="btn on" id="m-tap">🎮 Play along (guided song)</button><button class="btn" id="m-band">♫ Listen to arrangement</button></div>
+  <h3>Orchestral Repertoire</h3>
+  <div class="modes"><button class="btn on" id="m-tap">Guided Performance</button><button class="btn" id="m-band">Full Arrangement Audition</button></div>
   <div id="songlist"></div>
-  <div class="row"><button class="btn" id="s-file">📂 Load .mid file…</button><button class="btn" id="s-stop">■ Stop song</button><button class="btn" id="s-close">Close</button></div>
+  <div class="row"><button class="btn" id="s-file">Load .mid file…</button><button class="btn" id="s-stop">Halt Score</button><button class="btn" id="s-close">Close</button></div>
 </div></div>`;
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -123,7 +123,8 @@ const viz = new Viz($<HTMLCanvasElement>('viz'));
 // ------------------------------------------------------------------ network
 net.onOpen(() => { net.send({ t: 'hello', kind: 'stage' }); clock.start(true); });
 net.on('pong', (m) => clock.onPong(m));
-net.on('welcome', (m) => { ts = m.state; wasFree = m.state.freestyle; engine.setTransport(m.state); syncControls(); onGameChange(); });
+net.onClose(() => { $('mode').textContent = 'RECONNECTING…'; });
+net.on('welcome', (m) => { ts = m.state; wasFree = m.state.freestyle; engine.setTransport(m.state); syncControls(); onGameChange(); checkSampleState(); });
 net.on('state', (m) => { ts = m.state; engine.setTransport(m.state); syncControls(); onFreestyleChange(); onGameChange(); checkSampleState(); });
 net.on('raw', (r) => onRaw(r));
 net.on('roster', (m) => { roster = m.players; engine.prune(new Set(roster.map((p) => p.id))); renderRoster(); });
@@ -162,7 +163,7 @@ const gameConductor = new GameConductor(clock, () => ts, (role) => humans().find
   const owners = humans().filter((p) => p.role === ev.role);
   for (const pid of owners.length ? owners.map((p) => p.id) : [`auto:${ev.role}`]) viz.push({ ...ev, pid }, stepTime(ts, ev.step));
 });
-net.on('ghit', (m) => gameConductor.hit(m.startStep, m.step, m.role));
+net.on('ghit', (m) => { gameConductor.hit(m.startStep, m.step, m.role); viz.participate(m.pid); });
 net.on('error', (m) => { $('gp-status').textContent = m.message; $('gamepick').hidden = false; });
 new AutoBand(clock, () => ts, () => (ts?.game ? [] : autoRoles()), (ev: NoteEvent) => {
   if (!ts) return;
@@ -249,8 +250,9 @@ async function enableAudio() {
   await engine.start(); rec.start().catch((e) => console.warn('recorder unavailable', e));
   $('audio').style.display = 'none'; audioOn = true; syncControls();
 }
-$('audio').onclick = enableAudio;
+$('audio').onclick = () => { void enableAudio().catch(() => { $('audio').textContent = 'Audio unavailable · click to retry'; }); };
 addEventListener('keydown', (e) => {
+  if ((e.target as HTMLElement).matches('input, select, textarea')) return;
   if (e.key === 'h') $('cond').classList.toggle('hidden');
   if (e.key === 'f') document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
 });
@@ -263,6 +265,8 @@ function syncControls() {
   $('free').classList.toggle('on', ts.freestyle);
   $('free').textContent = ts.freestyle ? '■ STOP · MAKE SONG' : '🎤 FREESTYLE';
   $('spk').classList.toggle('on', ts.speakerMode);
+  for (const id of ['bpmr', 'key', 'scale', 'drop', 'free', 'midi', 'sample', 'spk']) ($<HTMLButtonElement>(id)).disabled = !!ts.game;
+  $<HTMLInputElement>('bpmr').disabled = !!ts.game || !!ts.sample;
   $('keyline').textContent = `${NOTE_NAMES[ts.root]} ${SCALE_LABEL[ts.scale]}${audioOn ? ' · 🔊' : ''}`;
   $('bpm').textContent = String(ts.bpm);
 }
@@ -296,7 +300,7 @@ function onFreestyleChange() {
     freeLog = []; lastFree.clear();
     songs.stop(); hideCard(); cmd('nowplaying', '');
     flashBig('FREESTYLE: PLAY ANYTHING', 1600);
-  } else {
+  } else if (!ts.game && !ts.sample) {
     composeFromJam();
   }
 }
@@ -506,6 +510,7 @@ function onGameChange() {
   const key = g ? `${g.songId}:${g.startStep}` : '';
   if (key === gameKey) return;
   engine.silence();
+  viz.reset();
   gameLateBaseline = engine.lateCount;
   gameKey = key; resultsShown = false; lastCount = -9;
   document.body.classList.toggle('ingame', !!g);
@@ -540,7 +545,7 @@ function gameTick(serverMs: number) {
 function teamStats() {
   const rows = roster.filter((p) => p.game);
   const sum = (f: (p: PlayerInfo) => number) => rows.reduce((a, p) => a + f(p), 0);
-  const total = sum((p) => p.game!.total);
+  const total = sum((p) => resultsShown ? p.game!.total : p.game!.perfect + p.game!.good + p.game!.miss);
   const weighted = sum((p) => p.game!.perfect + 0.6 * p.game!.good);
   return { rows, score: sum((p) => p.game!.score), acc: total ? (weighted / total) * 100 : 0, maxCombo: Math.max(0, ...rows.map((p) => p.game!.maxCombo)) };
 }
@@ -553,9 +558,9 @@ function showResults() {
   const rows = [...t.rows].sort((a, b) => b.game!.score - a.game!.score);
   $('results').innerHTML = `<div class="box"><h3>${esc(song.title)} · ${g.difficulty.toUpperCase()}</h3>
     <div class="big-team"><div class="grade g${grade(t.acc)}">${t.rows.length ? grade(t.acc) : '–'}</div><div><b>${t.score.toLocaleString()}</b><small>${solo ? 'SOLO SCORE' : 'TEAM SCORE'} · ${t.acc.toFixed(0)}% accuracy · best combo ${t.maxCombo}</small></div></div>
-    <div class="rows">${rows.map((p) => `<div class="pl" style="--c:${p.color}"><div class="n">${ROLE_INFO[p.role].icon} ${esc(p.name)}<small>${INSTRUMENT[p.role].name} · ${p.game!.perfect} perfect · ${p.game!.good} good · ${p.game!.miss} missed</small></div><div class="e">${p.game!.score.toLocaleString()} <small>${accuracy(done(p.game!)).toFixed(0)}%</small></div></div>`).join('') || '<div class="empty">No scores were recorded.</div>'}</div>
+    <div class="rows">${rows.map((p) => `<div class="pl" style="--c:${p.color}"><div class="n">${ROLE_INFO[p.role].icon} ${esc(p.name)}<small>${INSTRUMENT[p.role].name} · ${p.game!.perfect} perfect · ${p.game!.good} good · ${p.game!.miss} missed</small></div><div class="e">${p.game!.score.toLocaleString()} <small>${accuracy(p.game!).toFixed(0)}%</small></div></div>`).join('') || '<div class="empty">No scores were recorded.</div>'}</div>
     ${solo && t.rows.length ? '<p class="hintp">Assisted performance: the arrangement stayed in time while your hits shaped the dynamics.</p>' : ''}
-    <div class="row"><button class="btn drop" id="r-again">↻ PLAY AGAIN</button><button class="btn" id="r-pick">🎮 PICK ANOTHER</button><button class="btn" id="r-free">■ FREE PLAY</button></div></div>`;
+    <div class="row"><button class="btn drop" id="r-again">REHEARSE AGAIN</button><button class="btn" id="r-pick">SELECT SCORE</button><button class="btn" id="r-free">FREE IMPROV</button></div></div>`;
   $('results').hidden = false;
   $('r-again').onclick = () => { $('results').hidden = true; void startGame(song, g.difficulty).catch((e) => { $('gp-status').textContent = String(e); openGamePicker(); }); };
   $('r-pick').onclick = () => { $('results').hidden = true; net.send({ t: 'game', action: 'stop' }); openGamePicker(); };
@@ -566,7 +571,7 @@ setInterval(() => {
   const t = teamStats();
   $('gh-team').textContent = t.score.toLocaleString();
   $('gh-acc').textContent = `${t.rows.length > 1 ? 'TEAM' : humans().length === 1 ? 'SOLO' : 'AUTO DEMO'} · ${t.acc.toFixed(0)}%`;
-  $('gh-note').textContent = `Hits lift upcoming notes · audio on Stage · ${engine.lateCount - gameLateBaseline} late audio events`;
+  $('gh-note').textContent = `Tap with the beat · hits bring your instrument forward · best streak ${t.maxCombo}${engine.lateCount > gameLateBaseline ? ' · audio catching up' : ''}`;
 }, 250);
 
 // ------------------------------------------------------------ sampler (your own audio)
@@ -648,7 +653,7 @@ $('sp-chop').onclick = async () => {
   cmd('sample', `chop|${sampler.name}`);
   document.body.classList.add('insample');
   $('sampleui').hidden = true;
-  flashBig('🎚️ TAP THE PADS', 1500);
+  flashBig('PLAY SLICE PADS', 1500);
 };
 $('sp-back').onclick = async () => {
   if (!sampler.buffer) return;
@@ -661,7 +666,7 @@ $('sp-back').onclick = async () => {
   cmd('sample', `backing|${sampler.name}`);
   document.body.classList.add('insample');
   $('sampleui').hidden = true;
-  flashBig('▶ BACKING LOOP', 1200);
+  flashBig('LOOP ENGAGED', 1200);
 };
 $('sp-stop').onclick = stopSample;
 function stopSample() {
@@ -684,13 +689,14 @@ async function refreshJoinUrl() {
     try {
       const info = await (await fetch('/api/info', { cache: 'no-store' })).json();
       url = info.publicUrl ?? info.lanUrls?.[0] ?? location.origin;
+      if (!info.publicUrl && location.port === '5173') { const lan = new URL(url); lan.port = location.port; url = lan.origin; }
     } catch { /* keep origin */ }
   }
   if (url !== joinUrl) {
     joinUrl = url;
-    await QRCode.toCanvas($<HTMLCanvasElement>('qr'), url, { width: 560, margin: 0, errorCorrectionLevel: 'M', color: { dark: '#07070d', light: '#ffffff' } });
+    await QRCode.toCanvas($<HTMLCanvasElement>('qr'), url, { width: 560, margin: 4, errorCorrectionLevel: 'M', color: { dark: '#07070d', light: '#ffffff' } });
     $('url').textContent = url.replace(/^https?:\/\//, '');
-    $('warn').textContent = url.startsWith('https') ? '' : '⚠ http only: phones can’t use shake/tilt. Run `npm run demo` for HTTPS.';
+    $('warn').textContent = url.startsWith('https') ? '' : 'Use the same Wi-Fi. Touch controls are ready.';
   }
 }
 refreshJoinUrl(); setInterval(refreshJoinUrl, 4000);
@@ -719,11 +725,13 @@ function frame(t: number) {
     const c = chordAt(ts, step), nx = chordAt(ts, step - (step % 16) + 16);
     $('chord').textContent = c.name;
     $('next').textContent = `next ${nx.name}`;
-    $('bar').textContent = `${b.bar + 1} · ${b.beatInBar + 1}`;
+    const songBar = ts.game ? Math.max(0, Math.floor((step - ts.game.startStep) / 16) + 1) : b.bar + 1;
+    $('bar').textContent = `${songBar || 'READY'} · ${b.beatInBar + 1}`;
     const n = humans().length, m = $('mode');
-    if (n === 0) { m.textContent = 'DEMO · AUTO BAND'; m.className = 'mode auto'; }
-    else if (n === 1 && ts.autoBand) { m.textContent = 'SOLO · AUTO BAND BACKING'; m.className = 'mode auto'; }
-    else { m.textContent = `${n} PLAYERS${autoRoles().length ? ' + AUTO' : ''}`; m.className = 'mode'; }
+    if (!net.connected) { m.textContent = 'RECONNECTING…'; m.className = 'mode'; }
+    else if (n === 0) { m.textContent = ts.game || ts.autoBand ? 'DEMO · AUTO BAND' : 'SCAN TO START'; m.className = 'mode auto'; }
+    else if (n === 1 && (ts.autoBand || ts.game)) { m.textContent = 'SOLO · AUTO BAND BACKING'; m.className = 'mode auto'; }
+    else { m.textContent = `${n} PLAYER${n === 1 ? '' : 'S'}${autoRoles().length ? ' + AUTO' : ''}`; m.className = 'mode'; }
     if (rec.seconds > 0) $('rec').textContent = `⏺ SAVE LAST ${Math.floor(rec.seconds)} s`;
   }
 }

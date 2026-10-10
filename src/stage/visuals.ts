@@ -53,6 +53,10 @@ export class Viz {
 
   push(ev: NoteEvent, at: number, muted = false) { this.pending.push({ at, ev, muted }); }
 
+  participate(pid: string) { this.glow.set(pid, 2.5); }
+
+  reset() { this.pending = []; this.hits.clear(); this.glow.clear(); this.particles = []; this.rings = []; }
+
   /** Pitch/voice -> vertical position inside the lane (0 bottom .. 1 top). */
   private yNorm(ev: NoteEvent, ts: TransportState): { yN: number; voice: number } {
     const r = resolveEvent(ev, ts);
@@ -96,7 +100,7 @@ export class Viz {
     // ---- lanes
     const areaTop = 12, areaH = h - GRID_H - 24;
     const n = Math.max(1, lanes.length);
-    const laneH = Math.min(118, (areaH - (n - 1) * 8) / n);
+    const laneH = Math.max(12, Math.min(118, (areaH - (n - 1) * 8) / n));
     const x0 = LABEL_W + 16, rw = w - x0 - 16, cell = rw / ROLL_STEPS;
     const playX = x0 + ((pos % ROLL_STEPS) / ROLL_STEPS) * rw;
     this.laneY.clear();
@@ -239,17 +243,17 @@ export class Viz {
     const cw = (LABEL_W - 8) / 4;
     for (let i = 0; i < 4; i++) {
       const c = chordAt(ts, (bar - (bar % 4) + i) * STEPS_PER_BAR);
-      const cur = i === bar % 4;
+      const cur = i === (ts.game ? Math.floor(inBar / 4) : bar % 4);
       ctx.fillStyle = cur ? 'rgba(255,255,255,.95)' : 'rgba(255,255,255,.08)';
       round(ctx, 4 + i * cw, top + 14, cw - 6, 54, 12); ctx.fill();
       ctx.fillStyle = cur ? '#0b0b12' : 'rgba(255,255,255,.6)';
       ctx.font = `800 ${cur ? 20 : 17}px ui-rounded, system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(c.name, 4 + i * cw + (cw - 6) / 2, top + 41);
+      ctx.fillText(ts.game ? String(i + 1) : c.name, 4 + i * cw + (cw - 6) / 2, top + 41);
     }
     ctx.textAlign = 'left';
     ctx.fillStyle = 'rgba(255,255,255,.45)'; ctx.font = '700 12px ui-rounded, system-ui, sans-serif';
-    ctx.fillText('CHORD LOOP', 6, top + 86);
-    ctx.fillText(`BAR ${bar + 1}`, 6, top + 102);
+    ctx.fillText(ts.game ? 'FOLLOW THE BEAT' : 'CHORD LOOP', 6, top + 86);
+    ctx.fillText(`BAR ${ts.game ? Math.max(0, bar - ts.game.startStep / 16 + 1) : bar + 1}`, 6, top + 102);
     // 16 step cells
     const sw = gw / STEPS_PER_BAR;
     const barStart = bar * STEPS_PER_BAR;

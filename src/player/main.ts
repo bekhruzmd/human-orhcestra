@@ -32,6 +32,7 @@ const syncGame = () => { if (joined) game.sync(ts, me); };
 let ts: TransportState | null = null;
 let me: PlayerInfo | null = null;
 let joined = false;
+try { joined = sessionStorage.getItem('ho.joined') === '1'; } catch {}
 let speakerOn = false;
 /** Beat-flash intensity: soft (default, colour only), full (white downbeats), off. Remembered per phone. */
 type FlashMode = 'soft' | 'full' | 'off';
@@ -41,11 +42,11 @@ try {
   const saved = q === '0' ? 'off' : localStorage.getItem('ho.flash');
   if (saved === 'soft' || saved === 'full' || saved === 'off') flashMode = saved;
 } catch { /* storage blocked: keep default */ }
-const FLASH_LABEL: Record<FlashMode, string> = { soft: '✨ Flash: soft', full: '⚡ Flash: full', off: '🌑 Flash: off' };
+const FLASH_LABEL: Record<FlashMode, string> = { soft: 'FLASH: SOFT', full: 'FLASH: FULL', off: 'FLASH: OFF' };
 let motion: 'unknown' | 'granted' | 'denied' | 'none' = 'unknown';
 
 const app = document.getElementById('app')!;
-app.innerHTML = `<div id="flash"></div><div id="root"></div><div class="banner" id="banner" hidden>Reconnecting…</div>`;
+app.innerHTML = `<div id="flash"></div><div id="root"></div><div class="banner" id="banner" hidden>Clock Disconnected · Re-acquiring…</div>`;
 const root = document.getElementById('root')!;
 const flashEl = document.getElementById('flash')!;
 const banner = document.getElementById('banner')!;
@@ -59,11 +60,11 @@ net.onOpen(() => {
   if (joined && me) net.send({ t: 'join', name: me.name });
   if (joined) net.send({ t: 'speaker', on: speakerOn });
 });
-net.onClose(() => { banner.hidden = false; });
+net.onClose(() => { banner.hidden = false; touch = null; lastStep = -1; });
 net.on('pong', (m) => clock.onPong(m));
 net.on('welcome', (m) => {
   ts = m.state; engine.setTransport(m.state);
-  if (m.you) { me = m.you; if (!joined) render(); }
+  if (m.you) { me = m.you; render(); if (joined) { net.send({ t: 'join', name: me.name }); net.send({ t: 'speaker', on: speakerOn }); } }
   syncGame();
 });
 net.on('state', (m) => {
@@ -89,10 +90,10 @@ function render() {
   if (joined) return buildJam();
   root.innerHTML = `<div class="screen join">
     <div class="swatch"></div><h1>Human Orchestra</h1>
-    <p>You're <b style="color:${me.color}">this colour</b>. Pick a name.</p>
+    <p>Desk Section: <b style="color:${me.color}">${ROLE_INFO[me.role].label.toUpperCase()}</b>. Enter musician callsign.</p>
     <input id="name" maxlength="14" value="${esc(me.name)}" autocomplete="off" autocapitalize="words" />
-    <button class="big" id="go">JOIN THE BAND</button>
-    <div class="hint">Your phone controls the music. Listen to the Stage.</div></div>`;
+    <button class="big" id="go">TAKE YOUR STAND</button>
+    <div class="hint">Phone acts as an orchestral desk. Synced to conductor clock.</div></div>`;
   document.getElementById('go')!.onclick = onJoin;
 }
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -101,8 +102,9 @@ async function onJoin() {
   // Everything that needs a user gesture happens right here, in the tap handler:
   engine.start().catch(() => {}); // unlock WebAudio
   (navigator as any).audioSession && ((navigator as any).audioSession.type = 'playback'); // iOS: play through the silent switch
-  requestMotion(); // iOS shows its motion permission prompt only from a gesture
+  // Motion is optional: ask only when the player chooses Enable shake.
   joined = true;
+  try { sessionStorage.setItem('ho.joined', '1'); } catch {}
   const name = (document.getElementById('name') as HTMLInputElement).value;
   net.send({ t: 'join', name });
   if (me) me.name = name.trim().slice(0, 14) || me.name;
@@ -121,17 +123,17 @@ function buildJam() {
   const role = me.role;
   root.innerHTML = `<div class="screen">
     <div class="top">
-      <button class="chip" id="rolebtn">${ROLE_INFO[role].icon} ${ROLE_INFO[role].label} ▾</button>
+      <button class="chip" id="rolebtn"><span class="chip-code">${ROLE_INFO[role].icon}</span> <span class="chip-name">${ROLE_INFO[role].label}</span> ▾</button>
       <div class="name" id="nm"></div>
       <div class="beats"><i></i><i></i><i></i><i></i></div>
-      <button class="icon" id="songbtn" aria-label="Songs">🎵</button>
-      <button class="icon" id="dbgbtn" aria-label="Sync details">⏱</button>
+      <button class="icon" id="songbtn" aria-label="Repertoire">SCORE</button>
+      <button class="icon" id="dbgbtn" aria-label="Sync telemetry">SYNC</button>
     </div>
     <div class="chord" id="chord"></div>
-    <div id="pad"><canvas></canvas><div class="ylabel">${role === 'drums' ? 'HARDER ↑' : 'BRIGHTER ↑'}</div><div class="padlabel"></div></div>
+    <div id="pad"><canvas></canvas><div class="ylabel">${role === 'drums' ? 'VELOCITY ↑' : 'BRIGHTNESS ↑'}</div><div class="padlabel"></div></div>
     <div class="bottom">
-      <button class="tog" id="shk">📳 <span>${motion === 'granted' || motion === 'none' ? 'Shake on' : 'Enable shake'}</span></button>
-      <button class="tog ${speakerOn ? 'on' : ''}" id="spk">📢 Speaker</button>
+      <button class="tog" id="shk"><span>${motion === 'granted' || motion === 'none' ? 'SHAKE ACTIVE' : 'ENABLE SHAKE'}</span></button>
+      <button class="tog ${speakerOn ? 'on' : ''}" id="spk">DESK MONITOR</button>
       <button class="tog" id="fls">${FLASH_LABEL[flashMode]}</button>
     </div></div>`;
   padEl = document.getElementById('pad')!;
@@ -165,9 +167,9 @@ function refreshPadLabels() {
   if (!el || !me || !ts) return;
   const yl = padEl.querySelector<HTMLElement>('.ylabel');
   if (yl) yl.style.display = sampleMode() ? 'none' : '';
-  if (sampleMode()) { el.innerHTML = '<span>🎚️ EACH PAD = A SLICE OF THE TRACK</span>'; return; }
-  if (ts.nowPlaying) { el.innerHTML = '<span>♫ SONG PREVIEW · LISTEN ON STAGE</span>'; return; }
-  if (ts.freestyle && me.role !== 'drums') { el.innerHTML = '<span>LOW ◂</span><span>FREESTYLE</span><span>▸ HIGH</span>'; return; }
+  if (sampleMode()) { el.innerHTML = '<span>SAMPLE MODE // EACH PAD ASSIGNED TO MEASURE SLICE</span>'; return; }
+  if (ts.nowPlaying) { el.innerHTML = '<span>REPERTOIRE PREVIEW // LISTEN ON MASTER SCORE</span>'; return; }
+  if (ts.freestyle && me.role !== 'drums') { el.innerHTML = '<span>LOW ◂</span><span>FREE IMPROV</span><span>▸ HIGH</span>'; return; }
   el.innerHTML = padLabels(me.role, ts).map((l) => `<span>${l}</span>`).join('');
 }
 
@@ -180,8 +182,8 @@ function setSpeaker(on: boolean) {
 function openRoleSheet() {
   const sheet = document.createElement('div');
   sheet.className = 'sheet';
-  sheet.innerHTML = `<div class="card"><h3>Choose your instrument</h3>${ROLES.map((r) =>
-    `<button class="rolebtn ${r === me?.role ? 'cur' : ''}" data-r="${r}">${ROLE_INFO[r].icon} ${ROLE_INFO[r].label}</button>`).join('')}</div>`;
+  sheet.innerHTML = `<div class="card"><h3>Assign Section</h3>${ROLES.map((r) =>
+    `<button class="rolebtn ${r === me?.role ? 'cur' : ''}" data-r="${r}"><span class="badge">${ROLE_INFO[r].icon}</span> ${ROLE_INFO[r].label}</button>`).join('')}</div>`;
   sheet.onclick = (e) => {
     const r = (e.target as HTMLElement).closest<HTMLElement>('[data-r]')?.dataset.r as Role | undefined;
     if (r) net.send({ t: 'role', role: r });
@@ -200,11 +202,11 @@ async function openSongs() {
     ...LIBRARY.map((d) => ({ id: d.id, title: d.title, sub: d.melody ? 'melody' : 'backing track' })),
     ...custom.map((c) => ({ id: `file:${c.file}`, title: c.name, sub: 'your file' })),
   ];
-  sheet.innerHTML = `<div class="card"><h3>Pick a song</h3>
-    <div style="display:flex;gap:8px"><button class="tog ${reqMode === 'tap' ? 'on' : ''}" data-m="tap">🎮 Play along</button><button class="tog ${reqMode === 'band' ? 'on' : ''}" data-m="band">♫ Listen</button></div>
-    ${items.map((i) => `<button class="rolebtn" data-id="${esc(i.id)}" style="font-size:18px">${esc(i.title)}<small style="margin-left:auto;color:var(--dim);font-size:12px">${i.sub}</small></button>`).join('')}
-    <button class="rolebtn" data-id="" style="font-size:18px">■ Stop song</button>
-    <button class="rolebtn" data-x="1" style="font-size:18px">Close</button></div>`;
+  sheet.innerHTML = `<div class="card"><h3>Orchestral Repertoire</h3>
+    <div style="display:flex;gap:8px"><button class="tog ${reqMode === 'tap' ? 'on' : ''}" data-m="tap">Guided Score</button><button class="tog ${reqMode === 'band' ? 'on' : ''}" data-m="band">Audition</button></div>
+    ${items.map((i) => `<button class="rolebtn" data-id="${esc(i.id)}" style="font-size:16px">${esc(i.title)}<small style="margin-left:auto;color:var(--dim);font-size:12px">${i.sub}</small></button>`).join('')}
+    <button class="rolebtn" data-id="" style="font-size:16px">■ Halt Score</button>
+    <button class="rolebtn" data-x="1" style="font-size:16px">Close</button></div>`;
   sheet.onclick = (e) => {
     const t = (e.target as HTMLElement).closest<HTMLElement>('button');
     if (!t) return void (e.target === sheet && sheet.remove());
@@ -268,7 +270,7 @@ const sampleMode = () => !!ts && ts.sample?.mode === 'chop' && !ts.game && !ts.f
 const sampleCell = (x: number, y: number) => Math.min(3, Math.floor((1 - y) * 4)) * 4 + Math.min(3, Math.floor(x * 4));
 
 function emit(col: number, vel: number, opts: { role?: Role; dur?: number } = {}) {
-  if (!ts || !me || !clock.isLocked || ts.game || ts.nowPlaying) return;
+  if (!ts || !me || !clock.isLocked || !net.connected || ts.game || ts.nowPlaying) return;
   // Beat-quantisation: the earliest 16th boundary far enough in the future, and never the same step twice.
   let step = nextStepAfter(ts, clock.serverNow(), leadMs());
   if (step <= lastStep) step = lastStep + 1;
@@ -427,7 +429,7 @@ function frame(t: number) {
   }
 
   if (b.newBeat) {
-    navigator.vibrate?.(b.downbeat ? 28 : 10);
+    if (!game.active) navigator.vibrate?.(b.downbeat ? 28 : 10);
     beatDots.forEach((d, i) => { d.classList.toggle('on', i === b.beatInBar); d.classList.toggle('d', i === b.beatInBar && b.downbeat); });
     if (chordEl && sampleMode()) chordEl.innerHTML = `🎚️ <b>${ts.sample!.title.replace(/[<>&]/g, '')}</b> · tap pads: each plays a slice · hold to repeat`;
     else if (chordEl && ts.sample?.mode === 'backing') chordEl.innerHTML = `▶ <b>${ts.sample.title.replace(/[<>&]/g, '')}</b> · backing loop · play along`;

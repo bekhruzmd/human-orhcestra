@@ -13,9 +13,10 @@
     "serve": "tsx server/index.ts",
     "tunnel": "node scripts/tunnel.mjs",
     "demo": "npm run build && concurrently --kill-others-on-fail -n server,tunnel -c blue,green \"tsx server/index.ts\" \"node scripts/tunnel.mjs\"",
+    "test:network": "node scripts/networktest.mjs",
     "typecheck": "tsc --noEmit",
-    "simtest": "tsx scripts/simtest.ts",
-    "test": "tsx scripts/musictest.ts && tsx scripts/composertest.ts && tsx scripts/librarytest.ts && tsx scripts/gametest.ts && tsx scripts/audiotest.ts && tsx scripts/playbacktest.ts && SECS=8 tsx scripts/simtest.ts"
+    "simtest": "node --import tsx scripts/simtest.ts",
+    "test": "node --import tsx scripts/musictest.ts && node --import tsx scripts/composertest.ts && node --import tsx scripts/librarytest.ts && node --import tsx scripts/gametest.ts && node --import tsx scripts/audiotest.ts && node --import tsx scripts/playbacktest.ts && SECS=8 node --import tsx scripts/simtest.ts"
   },
   "dependencies": {
     "qrcode": "^1.5.4",
