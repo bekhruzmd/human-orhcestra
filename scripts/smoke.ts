@@ -99,9 +99,15 @@ await sleep(1100);
 check(stage.log.filter((m) => m.t === 'roster').at(-1)!.players.find((p) => p.id === 'p-a')?.game?.score === 100, 'current performance stats reach the Stage');
 const waitForNote = stepTime(stage.ts!, firstStart) - stage.clock.serverNow();
 if (waitForNote > 0) await sleep(waitForNote);
+for (const packet of [
+  { t: 'ghit', startStep: firstStart, step: firstStart, noteId: 999 },
+  { t: 'ghit', startStep: firstStart, step: firstStart, noteId: 1 },
+  { t: 'ghit', startStep: firstStart - 16, step: firstStart, noteId: 0 },
+  { t: 'gstats', startStep: firstStart },
+]) phones[0].ws.send(JSON.stringify(packet));
 for (let i = 0; i < 2; i++) phones[0].ws.send(JSON.stringify({ t: 'ghit', startStep: firstStart, step: firstStart, noteId: 0 }));
 await sleep(100);
-check(stage.log.filter((m) => m.t === 'ghit').length === 1, 'duplicate note hits relay only once');
+check(stage.log.filter((m) => m.t === 'ghit').length === 1, 'invalid and stale hits rejected; duplicate note hits relay only once');
 stage.ws.send(JSON.stringify({ t: 'game', action: 'start', song: imported, difficulty: 'easy' }));
 await sleep(100);
 check(stage.ts!.game!.startStep !== firstStart, 'restart gets a distinct performance identity');
@@ -111,6 +117,45 @@ check(stage.log.filter((m) => m.t === 'roster').at(-1)!.players.find((p) => p.id
 stage.ws.send(JSON.stringify({ t: 'game', action: 'stop' }));
 await sleep(100);
 check(stage.ts?.game === null, 'stop clears imported game');
+
+// Melody jams allow live accompaniment while reserving the imported lead.
+const jamSong = { ...imported, tracks: { ...imported.tracks, bass: [{ step: 0, dur: 16, v: 0.8, midi: [36] }], guitar: [] } };
+phones[0].ws.send(JSON.stringify({ t: 'jam', action: 'start', song: jamSong }));
+await sleep(100);
+check(stage.ts?.nowPlaying === null, 'phones cannot start a jam without the host');
+stage.ws.send(JSON.stringify({ t: 'jam', action: 'start', song: jamSong }));
+await sleep(150);
+check(stage.ts?.nowPlaying?.mode === 'jam' && stage.ts.game === null && !stage.ts.autoBand, 'jam starts atomically with automatic backing disabled');
+check(phones[0].me.role === 'guitar', 'melody players get guitar while the imported lead loops');
+const jamState = stage.ts!.nowPlaying;
+const jamStart = jamState?.mode === 'jam' ? jamState.startStep : -1;
+const jamNotes = stage.log.filter((m) => m.t === 'note').length;
+phones[0].ws.send(JSON.stringify({ t: 'note', step: Math.ceil(stepPos(stage.ts!, stage.clock.serverNow())) + 2, d: 0, v: 0.8, dur: 3 }));
+await sleep(100);
+const strum = stage.log.filter((m) => m.t === 'note').at(-1);
+check(stage.log.filter((m) => m.t === 'note').length === jamNotes + 1 && strum?.role === 'guitar' && strum.midi?.length === 3, 'live guitar strums relay with server-resolved chord pitches');
+phones[0].ws.send(JSON.stringify({ t: 'role', role: 'bass' }));
+phones[1].ws.send(JSON.stringify({ t: 'role', role: 'melody' }));
+stage.ws.send(JSON.stringify({ t: 'cmd', cmd: 'bpm', value: 70 }));
+await sleep(100);
+check(phones[0].me.role === 'bass' && stage.ts?.bpm === 120, 'jam players can change accompaniment instruments while the MIDI tempo stays locked');
+const jamLate = client('player', 'late-jam');
+await sleep(100); jamLate.ws.send(JSON.stringify({ t: 'join', name: 'Jam late' }));
+await sleep(150);
+check(jamLate.ts?.nowPlaying?.mode === 'jam' && jamLate.me?.role !== 'melody', 'late joiners receive the jam and an accompaniment role');
+stage.ws.send(JSON.stringify({ t: 'cmd', cmd: 'pause', value: true }));
+await sleep(100);
+const beforePauseNote = stage.log.filter((m) => m.t === 'note').length;
+phones[0].ws.send(JSON.stringify({ t: 'note', step: jamStart, d: 0, v: 1, dur: 3 }));
+await sleep(100);
+check(stage.log.filter((m) => m.t === 'note').length === beforePauseNote, 'paused jams reject live notes');
+stage.ws.send(JSON.stringify({ t: 'jam', action: 'start', song: { ...jamSong, tracks: { ...jamSong.tracks, melody: [] } } }));
+await sleep(100);
+check(stage.ts?.nowPlaying?.mode === 'jam' && stage.ts.nowPlaying.startStep === jamStart, 'missing melody cannot replace a working jam');
+stage.ws.send(JSON.stringify({ t: 'jam', action: 'stop' }));
+await sleep(100);
+check(stage.ts?.nowPlaying === null && stage.ts.paused === null, 'stopping a paused jam returns to free play');
+jamLate.ws.close();
 
 console.log(failed ? `\n${failed} FAILED` : '\nall good');
 process.exit(failed ? 1 : 0);

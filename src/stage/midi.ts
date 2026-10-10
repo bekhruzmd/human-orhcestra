@@ -3,7 +3,7 @@
  * (We ship no song data; bring your own files.)
  *
  *  - channel 10 (index 9) -> drums via the General MIDI map; other channels are ranked by average pitch:
- *    highest -> melody, lowest (if there are 2+) -> bass, the rest -> pads
+ *    highest -> melody, lowest (if there are 2+) -> bass, the rest -> pads; named GM guitar parts -> guitar
  *  - original pitches are kept (events carry explicit `midi`), the key is detected so phones' pads fit
  *  - up to 256 bars; rejects longer files rather than silently cutting off the tune
  */
@@ -11,7 +11,7 @@ import { STEPS_PER_BAR, type Role } from '../../shared/protocol';
 import { detectKey, type Song, type SongEv } from './composer';
 import { NOTE_NAMES, SCALE_LABEL } from '../../shared/music';
 
-interface MNote { ch: number; track: number; midi: number; start: number; end: number; vel: number }
+interface MNote { ch: number; track: number; midi: number; start: number; end: number; vel: number; program: number }
 
 const GM_DRUM = (n: number) => (n === 35 || n === 36 ? 0 : [37, 38, 40, 41, 43, 45, 47, 48, 50].includes(n) ? 1 : n === 39 || n === 49 || n === 57 ? 3 : 2);
 
@@ -41,7 +41,8 @@ export function parseMidi(buf: ArrayBuffer, title: string, options: { melodyPart
     const len = u32(), end = p + len;
     if (end > u8.length) throw new Error('Truncated MIDI track');
     let tick = 0, status = 0;
-    const active = new Map<number, { start: number; vel: number }>();
+    const programs = new Array<number>(16).fill(0);
+    const active = new Map<number, { start: number; vel: number; program: number }>();
     const vlq = () => { let n = 0; for (let i = 0; i < 4; i++) { if (p >= end) throw new Error('Truncated MIDI event'); const b = u8[p++]; n = (n << 7) | (b & 0x7f); if (!(b & 0x80)) return n; } throw new Error('Invalid MIDI event length'); };
     while (p < end) {
       tick += vlq();
@@ -66,10 +67,11 @@ export function parseMidi(buf: ArrayBuffer, title: string, options: { melodyPart
         const a = u8[p++], c = kind === 0xc0 || kind === 0xd0 ? 0 : u8[p++];
         if (p > end || a > 127 || c > 127) throw new Error('Invalid MIDI note');
         const key = ch * 128 + a;
-        if (kind === 0x90 && c > 0) active.set(key, { start: tick, vel: c / 127 });
+        if (kind === 0xc0) programs[ch] = a;
+        if (kind === 0x90 && c > 0) active.set(key, { start: tick, vel: c / 127, program: programs[ch] });
         else if (kind === 0x80 || (kind === 0x90 && c === 0)) {
           const on = active.get(key);
-          if (on) { notes.push({ ch, track: t, midi: a, start: on.start, end: Math.max(tick, on.start + 1), vel: on.vel }); active.delete(key); }
+          if (on) { notes.push({ ch, track: t, midi: a, start: on.start, end: Math.max(tick, on.start + 1), vel: on.vel, program: on.program }); active.delete(key); }
         }
       }
     }
@@ -86,7 +88,8 @@ export function parseMidi(buf: ArrayBuffer, title: string, options: { melodyPart
   const spq = 4 * (bpm / bpmOrig); // steps per quarter note
   const toStep = (tick: number) => Math.round((tick / ppq) * spq);
 
-  const lastStep = Math.max(...notes.map((n) => toStep(n.end)));
+  if (notes.length > 12000) throw new Error('Use an excerpt of up to 256 bars and 12,000 notes');
+  const lastStep = notes.reduce((last, n) => Math.max(last, toStep(n.end)), 0);
   const bars = Math.max(4, Math.ceil(lastStep / STEPS_PER_BAR / 4) * 4);
   if (bars > 256 || notes.length > 12000) throw new Error('Use an excerpt of up to 256 bars and 12,000 notes');
   const steps = bars * STEPS_PER_BAR;
@@ -105,7 +108,7 @@ export function parseMidi(buf: ArrayBuffer, title: string, options: { melodyPart
     const mel = high.filter((n) => topAt.get(n.start) === n.midi);
     const pad = high.filter((n) => topAt.get(n.start) !== n.midi);
     groups.clear();
-    for (const [suffix, part] of [['mel', mel], ['pad', pad], ['bass', low]] as const) if (part.length >= 4) groups.set(`${id}:${suffix}`, part);
+    for (const [suffix, part] of [['mel', mel], ['pad', pad], ['bass', low]] as const) if (part.length) groups.set(`${id}:${suffix}`, part);
     if (!groups.size) groups.set(id, g);
   }
   const ranked = [...groups.entries()].map(([id, g]) => ({ id, g, avg: g.reduce((s, n) => s + n.midi, 0) / g.length })).sort((a, b) => b.avg - a.avg);
@@ -116,7 +119,7 @@ export function parseMidi(buf: ArrayBuffer, title: string, options: { melodyPart
 
   const events: SongEv[] = [];
   ranked.forEach(({ g }, i) => {
-    const role = roleOf(i);
+    const role: Role = i > 0 && g[0].program >= 24 && g[0].program <= 31 ? 'guitar' : roleOf(i);
     const byStart = new Map<number, MNote[]>();
     for (const n of g) { const s = toStep(n.start); if (s < steps) (byStart.get(s) ?? byStart.set(s, []).get(s)!).push(n); }
     for (const [s, ns] of byStart) {

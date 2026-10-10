@@ -12,13 +12,14 @@ import { Engine } from '../common/engine';
 import { Recorder } from '../common/recorder';
 import { fmt, syncHeadline } from '../common/util';
 import {
-  BPM_MAX, BPM_MIN, ROLES, ROLE_INFO, dropPhase, nextStepAfter, stepPos, stepTime,
+  BPM_MAX, BPM_MIN, ROLES, ROLE_INFO, liveNotesAllowed, dropPhase, nextStepAfter, stepPos, stepTime,
   type NoteEvent, type PlayerInfo, type Role, type ScaleName, type TransportState,
 } from '../../shared/protocol';
 import { NOTE_NAMES, SCALE_LABEL, chordAt, freeMidi, freeZone, shakeVoice, type Resolved } from '../../shared/music';
 import { analyze, arrange, toMidi, type RawEv, type Song } from './composer';
 import { parseMidi } from './midi';
 import { toGameSong, toLoopSong } from './importsong';
+import { melodyBacking } from '../../shared/jam';
 import { SongPlayer } from './song';
 import { GameConductor } from './gameconductor';
 import { SONGS, getSong } from '../../shared/songs';
@@ -111,7 +112,7 @@ app.innerHTML = `
 <div id="gamepick" hidden><div class="box">
   <h3>Pick a song</h3>
   <p id="gp-info"></p>
-  <p class="hintp">The arrangement stays in time. Hits lift your instrument; misses affect your score, not the tune.</p>
+  <p class="hintp">Keep the rhythm to keep your part clear. Missed pills weaken and slightly detune your instrument; hits restore it. Every player counts.</p>
   <div class="row"><button class="btn" id="gp-import">＋ YOUR SONG (.mid)</button><button class="btn" id="gp-preview">♫ Preview selected</button></div>
   <input id="gp-file" type="file" accept=".mid,.midi" aria-label="Import game MIDI file" hidden />
   <label class="hintp"><input id="gp-melody" type="checkbox" aria-label="Import melody only" /> Import melody only (highest part)</label>
@@ -119,7 +120,9 @@ app.innerHTML = `
   <p class="hintp" id="gp-status" role="status" aria-live="polite">Load a MIDI arrangement of a song you want to play. Imports are saved in this browser.</p>
   <div id="gp-songs"></div>
   <div class="diffs" id="gp-diffs"></div>
-  <div class="row"><button class="btn drop" id="gp-start">▶ START</button><button class="btn" id="gp-close">Close</button></div>
+  <p class="hintp">Jam over melody: the MIDI lead loops while you create drums, bass, piano and guitar. No pills or scoring.</p>
+  <div class="row"><button class="btn drop" id="gp-start">▶ Rhythm game</button><button class="btn" id="gp-jam">Jam over melody</button></div>
+  <div class="row"><button class="btn" id="gp-close">Close</button></div>
 </div></div>
 <div id="results" hidden></div>
 <div id="sampleui" hidden><div class="box">
@@ -161,7 +164,7 @@ app.innerHTML = `
 </div></div>
 <div id="songs" hidden><div class="box">
   <h3>Pick a song</h3>
-  <div class="modes"><button class="btn on" id="m-tap">Play along (guided song)</button><button class="btn" id="m-band">♫ Listen to arrangement</button></div>
+  <div class="modes"><button class="btn on" id="m-tap">Play along (guided song)</button><button class="btn" id="m-band">♫ Listen to arrangement</button><button class="btn" id="m-jam">Jam over melody</button></div>
   <div id="songlist"></div>
   <div class="row"><button class="btn" id="s-file">Load .mid file…</button><button class="btn" id="s-stop">■ Stop song</button><button class="btn" id="s-close">Close</button></div>
 </div></div>`;
@@ -173,8 +176,8 @@ const viz = new Viz($<HTMLCanvasElement>('viz'));
 // ------------------------------------------------------------------ network
 net.onOpen(() => { net.send({ t: 'hello', kind: 'stage' }); clock.start(true); });
 net.on('pong', (m) => clock.onPong(m));
-net.on('welcome', (m) => { ts = m.state; wasFree = m.state.freestyle; engine.setTransport(m.state); syncControls(); onGameChange(); });
-net.on('state', (m) => { ts = m.state; engine.setTransport(m.state); syncControls(); onFreestyleChange(); onGameChange(); checkSampleState(); });
+net.on('welcome', (m) => { ts = m.state; wasFree = m.state.freestyle; engine.setTransport(m.state); syncControls(); onGameChange(); syncJam(); });
+net.on('state', (m) => { ts = m.state; engine.setTransport(m.state); syncControls(); onFreestyleChange(); onGameChange(); syncJam(); checkSampleState(); });
 net.on('raw', (r) => onRaw(r));
 net.on('roster', (m) => { roster = m.players; engine.prune(new Set(roster.map((p) => p.id))); renderRoster(); });
 net.on('ctl', (m) => engine.ctl(m.pid, m.y, m.tilt));
@@ -186,7 +189,7 @@ net.on('note', (ev) => {
     viz.push({ ...ev, role: 'melody', midi: [52 + Math.round((Math.max(0, i) / (SLICES - 1)) * 30)], d: 0, dur: 2 }, stepTime(ts, ev.step));
     return;
   }
-  if (!ts || ts.game || songs.song) return;
+  if (!ts || !liveNotesAllowed(ts)) return;
   const p = roster.find((x) => x.id === ev.pid);
   engine.play(ev, !p?.speaker); // a phone playing its own part is not doubled on the Stage
   viz.push(ev, stepTime(ts, ev.step));
@@ -216,13 +219,13 @@ const songs = new SongPlayer(clock, () => ts, (ev: NoteEvent) => {
   engine.play(ev);
   viz.push(ev, stepTime(ts, ev.step));
 });
-const gameConductor = new GameConductor(clock, () => ts, (role) => humans().find((p) => p.role === role)?.id, (ev: NoteEvent) => {
+const gameConductor = new GameConductor(clock, () => ts, (role) => humans().filter((p) => p.role === role).map((p) => p.id), (ev: NoteEvent) => {
   if (!ts) return;
   engine.play(ev);
   const owners = humans().filter((p) => p.role === ev.role);
   for (const pid of owners.length ? owners.map((p) => p.id) : [`auto:${ev.role}`]) viz.push({ ...ev, pid }, stepTime(ts, ev.step));
 });
-net.on('ghit', (m) => gameConductor.hit(m.startStep, m.step, m.role));
+net.on('ghit', (m) => gameConductor.hit(m.startStep, m.step, m.role, m.pid, m.noteId));
 net.on('error', (m) => { $('gp-status').textContent = m.message; $('gamepick').hidden = false; });
 new AutoBand(clock, () => ts, () => (ts?.game ? [] : autoRoles()), (ev: NoteEvent) => {
   if (!ts) return;
@@ -232,8 +235,8 @@ new AutoBand(clock, () => ts, () => (ts?.game ? [] : autoRoles()), (ev: NoteEven
 
 // -------------------------------------------------------------------- lanes
 // AUTO lanes get a stable muted per-role colour so they never flicker as players come and go.
-const AUTO_COLORS: Record<Role, string> = { drums: '#7b86a8', bass: '#6f8fb0', melody: '#8f86b8', pads: '#6fa3a0' };
-const STANDBY_ROLES: Role[] = ['drums', 'bass', 'melody', 'pads'];
+const AUTO_COLORS: Record<Role, string> = { drums: '#7b86a8', bass: '#6f8fb0', melody: '#8f86b8', pads: '#6fa3a0', guitar: '#ff9248' };
+const STANDBY_ROLES = ROLES;
 function laneList(): Lane[] {
   const h = humans();
   const l: Lane[] = [...h, ...roster.filter((p) => !p.connected)].map((p) => ({
@@ -304,6 +307,7 @@ $('s-stop').onclick = () => { stopSong(); $('songs').hidden = true; };
 $('s-file').onclick = () => $<HTMLInputElement>('midifile').click();
 $('m-tap').onclick = () => setSongMode('tap');
 $('m-band').onclick = () => setSongMode('band');
+$('m-jam').onclick = () => setSongMode('jam');
 $<HTMLInputElement>('midifile').onchange = async (e) => {
   const f = (e.target as HTMLInputElement).files?.[0];
   if (!f) return;
@@ -518,6 +522,8 @@ function syncControls() {
   $('auto').classList.toggle('on', ts.autoBand);
   $('free').classList.toggle('on', ts.freestyle);
   $('free').textContent = ts.freestyle ? '■ STOP · MAKE SONG' : 'FREESTYLE';
+  const jam = ts.nowPlaying?.mode === 'jam';
+  for (const id of ['bpmr', 'key', 'scale', 'drop', 'auto', 'free', 'sample']) ($<HTMLButtonElement>(id)).disabled = jam || !!ts.game;
   $('spk').classList.toggle('on', ts.speakerMode);
   $('sessrec').classList.toggle('on', !!ts.recording);
   $('sessrec').textContent = ts.recording ? `■ STOP (${ts.recording.events})` : 'RECORD';
@@ -554,18 +560,24 @@ function onFreestyleChange() {
     freeLog = []; lastFree.clear();
     songs.stop(); hideCard(); cmd('nowplaying', '');
     flashBig('FREESTYLE: PLAY ANYTHING', 1600);
-  } else {
+  } else if (!ts.game && ts.nowPlaying?.mode !== 'jam') {
     composeFromJam();
   }
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-async function playSong(song: Song, mode: 'tap' | 'band' = 'band') {
+async function playSong(song: Song, mode: 'tap' | 'band' | 'jam' = 'band') {
+  if (mode === 'jam') return startJam(toGameSong(song, importId()));
   if (mode === 'tap') { const imported = toGameSong(song, importId()); return startGame(imported, 'easy'); }
   const version = ++songLoadVersion;
   await enableAudio();
   if (version !== songLoadVersion) return;
   if (ts?.game) throw new Error('Finish the current game first');
+  if (ts?.nowPlaying?.mode === 'jam') {
+    net.send({ t: 'jam', action: 'stop' });
+    for (let i = 0; i < 30 && ts?.nowPlaying?.mode === 'jam'; i++) await sleep(100);
+    if (ts?.nowPlaying?.mode === 'jam') throw new Error('Could not stop the jam. Check the connection.');
+  }
   songs.stop(); engine.silence();
   // 1. put the shared transport in the song's tempo/key, wait until the server confirms it
   cmd('bpm', song.bpm); cmd('key', song.root); cmd('scale', song.scale);
@@ -586,11 +598,13 @@ function startSong(song: Song, startStep: number, _mode: 'tap' | 'band' = 'band'
 }
 function stopSong() {
   songLoadVersion++;
-  songs.stop(); engine.silence(); hideCard(); cmd('auto', false); cmd('nowplaying', '');
+  songs.stop(); engine.silence(); hideCard();
+  if (ts?.nowPlaying?.mode === 'jam') net.send({ t: 'jam', action: 'stop' });
+  else { cmd('auto', false); cmd('nowplaying', ''); }
 }
 let lastSongReq = 0;
-let songMode: 'tap' | 'band' = 'tap';
-function setSongMode(m: 'tap' | 'band') { songMode = m; $('m-tap').classList.toggle('on', m === 'tap'); $('m-band').classList.toggle('on', m === 'band'); }
+let songMode: 'tap' | 'band' | 'jam' = 'tap';
+function setSongMode(m: 'tap' | 'band' | 'jam') { songMode = m; for (const mode of ['tap', 'band', 'jam']) $(`m-${mode}`).classList.toggle('on', m === mode); }
 interface Custom { name: string; file: string }
 let custom: Custom[] = [];
 async function refreshCustom() {
@@ -608,7 +622,7 @@ async function openSongs() {
   $('songs').hidden = false;
 }
 /** Resolve a song id (built-in or a file listed in public/songs/index.json; never an arbitrary path) and play it. */
-async function loadSongById(id: string, mode: 'tap' | 'band') {
+async function loadSongById(id: string, mode: 'tap' | 'band' | 'jam') {
   try {
     const def = LIBRARY.find((d) => d.id === id);
     if (def) return void (await playSong(buildSong(def), mode));
@@ -661,13 +675,46 @@ function showCard(song: Song) {
 }
 const hideCard = () => { $('card').hidden = true; };
 
+// ------------------------------------------------------------ melody + live band
+let jamKey = '';
+async function startJam(song: GameSong) {
+  if (!song.tracks.melody.length) throw new Error('This arrangement has no melody. Select a melody part from a MIDI file first.');
+  const version = ++songLoadVersion;
+  await enableAudio();
+  for (let i = 0; i < 40 && (!net.connected || !clock.isLocked); i++) await sleep(100);
+  if (version !== songLoadVersion) return;
+  if (!net.connected || !clock.isLocked) throw new Error('Waiting for connection. Try Jam again.');
+  endPreview(); songs.stop(); engine.silence();
+  net.send({ t: 'jam', action: 'start', song: { ...song, id: song.id.startsWith('import:') ? song.id : `import:jam:${song.id}` } });
+  $('gamepick').hidden = true; $('songs').hidden = true; $('results').hidden = true;
+}
+
+function syncJam() {
+  const jam = ts?.nowPlaying?.mode === 'jam' ? ts.nowPlaying : null;
+  const key = jam ? `${jam.song.id}:${jam.startStep}` : '';
+  if (key === jamKey) return;
+  const wasJam = !!jamKey;
+  jamKey = key;
+  if (!jam) { if (wasJam) { songs.stop(); engine.silence(); hideCard(); } return; }
+  sampler.stop(engine); $('sampleui').hidden = true; document.body.classList.remove('insample');
+  songs.stop(); engine.silence();
+  songs.level = 0.75;
+  songs.start(toLoopSong(melodyBacking(jam.song)), jam.startStep);
+  const card = $('card'); card.hidden = false;
+  card.innerHTML = `<div class="txt"><h3>${esc(jam.title)} · Melody jam</h3><p>The lead loops. Choose drums, bass, piano or guitar on your phone and make your own part.</p>
+    <label class="jam-mix">Melody volume <input id="jam-volume" aria-label="Melody volume" type="range" min="0" max="100" value="75" /><output id="jam-level">75%</output></label></div>
+    <div class="row"><button class="btn" id="jam-restart">Restart melody</button><button class="btn" id="jam-stop">Stop jam</button></div>`;
+  $<HTMLInputElement>('jam-volume').oninput = (e) => { const value = Number((e.target as HTMLInputElement).value); songs.level = value / 100; $('jam-level').textContent = `${value}%`; };
+  $('jam-stop').onclick = () => stopSong();
+  $('jam-restart').onclick = () => { void startJam(jam.song).catch((e) => { $('gp-status').textContent = String(e); openGamePicker(); }); };
+}
+
 // ------------------------------------------------------------ rhythm game
 let pickSong = SONGS[0].id;
 let pickDiff: Difficulty = 'easy';
 let gameKey = '';
 let resultsShown = false;
 let lastCount = -9;
-let gameLateBaseline = 0;
 
 const importedSongs: GameSong[] = [];
 try {
@@ -690,6 +737,7 @@ function openGamePicker() {
   $('gp-songs').innerHTML = allGameSongs().map((s) => `<button class="song ${s.id === pickSong ? 'sel' : ''}" data-id="${esc(s.id)}"><b>${esc(s.title)}</b><small>${esc(s.artist)}</small>
     <small>${s.bpm} BPM · ${Math.round(songSeconds(s))} s · ${Object.entries(s.tracks).filter(([, notes]) => notes.length).map(([r]) => INSTRUMENT[r as Role].name).join(', ')}</small></button>`).join('');
   $('gp-songs').querySelectorAll<HTMLElement>('.song').forEach((b) => (b.onclick = () => { endPreview(); pickSong = b.dataset.id!; openGamePicker(); }));
+  $<HTMLButtonElement>('gp-jam').disabled = !allGameSongs().find((s) => s.id === pickSong)?.tracks.melody.length;
   const desc: Record<Difficulty, string> = { easy: '2 lanes · forgiving', medium: '3 lanes · more notes', hard: '4 lanes · strict' };
   $('gp-diffs').innerHTML = DIFFICULTIES.map((d) => `<button class="btn ${d === pickDiff ? 'on' : ''}" data-d="${d}"><b>${d.toUpperCase()}</b><small>${desc[d]} (±${DIFF[d].perfect} ms perfect)</small></button>`).join('');
   $('gp-diffs').querySelectorAll<HTMLElement>('button').forEach((b) => (b.onclick = () => { pickDiff = b.dataset.d as Difficulty; openGamePicker(); }));
@@ -709,6 +757,11 @@ $('gp-start').onclick = async () => {
   const song = allGameSongs().find((s) => s.id === pickSong);
   if (!song) return;
   try { await startGame(song, pickDiff); } catch (e) { $('gp-status').textContent = String(e); }
+};
+$('gp-jam').onclick = async () => {
+  const song = allGameSongs().find((s) => s.id === pickSong);
+  if (!song) return;
+  try { await startJam(song); } catch (e) { $('gp-status').textContent = e instanceof Error ? e.message : String(e); }
 };
 $('gp-import').onclick = () => $<HTMLInputElement>('gp-file').click();
 let pendingMidi: { buffer: ArrayBuffer; title: string; id: string } | null = null;
@@ -766,7 +819,6 @@ function onGameChange() {
   const key = g ? `${g.songId}:${g.startStep}` : '';
   if (key === gameKey) return;
   engine.silence();
-  gameLateBaseline = engine.lateCount;
   gameKey = key; resultsShown = false; lastCount = -9;
   document.body.classList.toggle('ingame', !!g);
   requestAnimationFrame(() => viz.resize());
@@ -814,7 +866,7 @@ function showResults() {
   $('results').innerHTML = `<div class="box"><h3>${esc(song.title)} · ${g.difficulty.toUpperCase()}</h3>
     <div class="big-team"><div class="grade g${grade(t.acc)}">${t.rows.length ? grade(t.acc) : '–'}</div><div><b>${t.score.toLocaleString()}</b><small>${solo ? 'SOLO SCORE' : 'TEAM SCORE'} · ${t.acc.toFixed(0)}% accuracy · best combo ${t.maxCombo}</small></div></div>
     <div class="rows">${rows.map((p) => `<div class="pl" style="--c:${p.color}"><div class="n">${ROLE_INFO[p.role].icon} ${esc(p.name)}<small>${INSTRUMENT[p.role].name} · ${p.game!.perfect} perfect · ${p.game!.good} good · ${p.game!.miss} missed</small></div><div class="e">${p.game!.score.toLocaleString()} <small>${accuracy(done(p.game!)).toFixed(0)}%</small></div></div>`).join('') || '<div class="empty">No scores were recorded.</div>'}</div>
-    ${solo && t.rows.length ? '<p class="hintp">Assisted performance: the arrangement stayed in time while your hits shaped the dynamics.</p>' : ''}
+    ${solo && t.rows.length ? '<p class="hintp">Your timing shaped the sound: misses weakened your part, and hits restored it.</p>' : ''}
     <div class="row"><button class="btn drop" id="r-again">↻ PLAY AGAIN</button><button class="btn" id="r-pick">PICK ANOTHER</button><button class="btn" id="r-free">■ FREE PLAY</button></div></div>`;
   $('results').hidden = false;
   $('r-again').onclick = () => { $('results').hidden = true; void startGame(song, g.difficulty).catch((e) => { $('gp-status').textContent = String(e); openGamePicker(); }); };
@@ -826,7 +878,7 @@ setInterval(() => {
   const t = teamStats();
   $('gh-team').textContent = t.score.toLocaleString();
   $('gh-acc').textContent = `${t.rows.length > 1 ? 'TEAM' : humans().length === 1 ? 'SOLO' : 'AUTO DEMO'} · ${t.acc.toFixed(0)}%`;
-  $('gh-note').textContent = `Hits lift upcoming notes · audio on Stage · ${engine.lateCount - gameLateBaseline} late audio events`;
+  $('gh-note').textContent = 'Keep the rhythm: misses weaken and detune your part · hits restore it';
 }, 250);
 
 // ------------------------------------------------------------ sampler (your own audio)
@@ -988,7 +1040,7 @@ function frame(t: number) {
       m.textContent = `REPLAYING SESSION${recTag}`;
       m.className = 'mode auto';
     } else if (songs.song) {
-      m.textContent = `TRACK: ${songs.song.title.toUpperCase()}${recTag}`;
+      m.textContent = `${ts.nowPlaying?.mode === 'jam' ? 'MELODY JAM' : 'TRACK'}: ${songs.song.title.toUpperCase()}${recTag}`;
       m.className = 'mode auto';
     } else if (ts.game) {
       m.textContent = `GAME: ${$('gh-title').textContent || 'RHYTHM'}${recTag}`;

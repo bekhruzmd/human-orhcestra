@@ -386,6 +386,9 @@ button {
   letter-spacing: .04em;
 }
 
+.gs { min-width: 0; }
+.gscore small { white-space: nowrap; }
+
 .gs b {
   font-size: 17px;
 }
@@ -431,7 +434,7 @@ button {
   padding: 6px 0 2px;
 }
 
-.glabels span {
+.glabels button {
   flex: 1;
   text-align: center;
   font-size: 12px;
@@ -439,7 +442,23 @@ button {
   letter-spacing: .1em;
   color: var(--c);
   text-transform: uppercase;
+  min-height: 48px;
+  border: 1px solid currentColor;
+  background: var(--panel);
+  touch-action: manipulation;
 }
+.glabels button:hover { background: var(--bg); }
+.glabels button:active { background: var(--c); color: var(--bg); }
+.glabels button small { display: block; font-size: 12px; }
+.grhythm {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 14px 8px;
+  font-size: 12px;
+}
+.grhythm meter { width: 76px; flex-shrink: 0; accent-color: var(--c); }
 
 .gresults {
   position: absolute;
@@ -581,3 +600,6 @@ select:focus-visible {
 .sheet:not([hidden]) { animation: sheet-in 160ms ease-out; }
 .sheet:not([hidden]) > * { animation: rise-in 240ms var(--ease-out); }
 #dbgbtn { width: auto; padding: 0 10px; }
+
+.song-modes { display: flex; flex-wrap: wrap; gap: 8px; }
+.song-modes button { flex: 1; min-height: 44px; }

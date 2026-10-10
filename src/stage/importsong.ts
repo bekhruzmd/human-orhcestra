@@ -4,7 +4,7 @@ import type { Song } from './composer';
 
 /** Preserve supplied pitches and arrangement; no inferred chord loop is added. */
 export function toGameSong(song: Song, id: string, melodyOnly = false): GameSong {
-  const tracks: GameSong['tracks'] = { drums: [], bass: [], pads: [], melody: [] };
+  const tracks: GameSong['tracks'] = { drums: [], bass: [], pads: [], melody: [], guitar: [] };
   for (const e of song.events) {
     if (melodyOnly && e.role !== 'melody') continue;
     tracks[e.role].push({ step: e.rel, dur: e.dur, v: e.v, ...(e.role === 'drums' ? { d: e.d } : { midi: melodyOnly ? [Math.max(...e.midi!)] : e.midi }) });

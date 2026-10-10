@@ -57,6 +57,9 @@ export class AutoBand {
         if (p && !(bar % 2 && s === 3)) this.ev('bass', step, p[0], 0.75, p[1]);
         break;
       }
+      case 'guitar':
+        if (s === 2 || s === 10) this.ev('guitar', step, bar % 3, 0.4, 3);
+        break;
       case 'pads':
         if (s === 0) this.ev('pads', step, [0, 1, 2, 1][bar % 4], 0.55, STEPS_PER_BAR);
         break;

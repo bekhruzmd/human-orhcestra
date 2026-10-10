@@ -12,7 +12,7 @@ import { BeatTracker, flashEnv } from '../common/beat';
 import { Engine } from '../common/engine';
 import { stableId, fmt, clamp } from '../common/util';
 import {
-  ROLES, ROLE_INFO, nextStepAfter, stepPos, stepTime,
+  ROLES, ROLE_INFO, liveNotesAllowed, nextStepAfter, stepPos, stepTime,
   type NoteEvent, type PlayerInfo, type RawKind, type Role, type TransportState,
 } from '../../shared/protocol';
 import { LIBRARY } from '../songs/library';
@@ -168,7 +168,7 @@ function refreshPadLabels() {
   const yl = padEl.querySelector<HTMLElement>('.ylabel');
   if (yl) yl.style.display = sampleMode() ? 'none' : '';
   if (sampleMode()) { el.innerHTML = '<span>EACH PAD = A SLICE OF THE TRACK</span>'; return; }
-  if (ts.nowPlaying) { el.innerHTML = '<span>♫ SONG PREVIEW · LISTEN ON STAGE</span>'; return; }
+  if (ts.nowPlaying && ts.nowPlaying.mode !== 'jam') { el.innerHTML = '<span>♫ SONG PREVIEW · LISTEN ON STAGE</span>'; return; }
   if (ts.freestyle && me.role !== 'drums') { el.innerHTML = '<span>LOW ◂</span><span>FREESTYLE</span><span>▸ HIGH</span>'; return; }
   el.innerHTML = padLabels(me.role, ts).map((l) => `<span>${l}</span>`).join('');
 }
@@ -182,7 +182,7 @@ function setSpeaker(on: boolean) {
 function openRoleSheet() {
   const sheet = document.createElement('div');
   sheet.className = 'sheet';
-  sheet.innerHTML = `<div class="card"><h3>Choose your instrument</h3>${ROLES.map((r) =>
+  sheet.innerHTML = `<div class="card"><h3>Choose your instrument</h3>${ROLES.filter((r) => !(ts?.nowPlaying?.mode === 'jam' && r === 'melody')).map((r) =>
     `<button class="rolebtn ${r === me?.role ? 'cur' : ''}" data-r="${r}">${ROLE_INFO[r].icon} ${ROLE_INFO[r].label}</button>`).join('')}</div>`;
   sheet.onclick = (e) => {
     const r = (e.target as HTMLElement).closest<HTMLElement>('[data-r]')?.dataset.r as Role | undefined;
@@ -192,7 +192,7 @@ function openRoleSheet() {
   app.appendChild(sheet);
 }
 
-let reqMode: 'tap' | 'band' = 'tap';
+let reqMode: 'tap' | 'band' | 'jam' = 'tap';
 async function openSongs() {
   let custom: { name: string; file: string }[] = [];
   try { custom = await (await fetch('/songs/index.json', { cache: 'no-store' })).json(); } catch { /* none */ }
@@ -203,7 +203,7 @@ async function openSongs() {
     ...custom.map((c) => ({ id: `file:${c.file}`, title: c.name, sub: 'your file' })),
   ];
   sheet.innerHTML = `<div class="card"><h3>Pick a song</h3>
-    <div style="display:flex;gap:8px"><button class="tog ${reqMode === 'tap' ? 'on' : ''}" data-m="tap">Play along</button><button class="tog ${reqMode === 'band' ? 'on' : ''}" data-m="band">♫ Listen</button></div>
+    <div class="song-modes"><button class="tog ${reqMode === 'tap' ? 'on' : ''}" data-m="tap">Play along</button><button class="tog ${reqMode === 'band' ? 'on' : ''}" data-m="band">♫ Listen</button><button class="tog ${reqMode === 'jam' ? 'on' : ''}" data-m="jam">Jam over melody</button></div>
     ${items.map((i) => `<button class="rolebtn" data-id="${esc(i.id)}" style="font-size:18px">${esc(i.title)}<small style="margin-left:auto;color:var(--dim);font-size:12px">${i.sub}</small></button>`).join('')}
     <button class="rolebtn" data-id="" style="font-size:18px">■ Stop song</button>
     <button class="rolebtn" data-x="1" style="font-size:18px">Close</button></div>`;
@@ -211,7 +211,7 @@ async function openSongs() {
     const t = (e.target as HTMLElement).closest<HTMLElement>('button');
     if (!t) return void (e.target === sheet && sheet.remove());
     if (t.dataset.m) {
-      reqMode = t.dataset.m as 'tap' | 'band';
+      reqMode = t.dataset.m as 'tap' | 'band' | 'jam';
       sheet.querySelectorAll<HTMLElement>('[data-m]').forEach((b) => b.classList.toggle('on', b.dataset.m === reqMode));
       return;
     }
@@ -270,7 +270,7 @@ const sampleMode = () => !!ts && ts.sample?.mode === 'chop' && !ts.game && !ts.f
 const sampleCell = (x: number, y: number) => Math.min(3, Math.floor((1 - y) * 4)) * 4 + Math.min(3, Math.floor(x * 4));
 
 function emit(col: number, vel: number, opts: { role?: Role; dur?: number } = {}) {
-  if (!ts || !me || !clock.isLocked || ts.game || ts.nowPlaying || ts.paused !== null) return;
+  if (!ts || !me || !clock.isLocked || !liveNotesAllowed(ts)) return;
   // Beat-quantisation: the earliest 16th boundary far enough in the future, and never the same step twice.
   let step = nextStepAfter(ts, clock.serverNow(), leadMs());
   if (step <= lastStep) step = lastStep + 1;
@@ -280,7 +280,7 @@ function emit(col: number, vel: number, opts: { role?: Role; dur?: number } = {}
   const v = clamp(vel, 0.1, 1);
   net.send({ t: 'note', step, d: col, v, dur, role: opts.role });
   if (role === me.role) fires.push({ at: stepTime(ts, step), col, v });
-  if (speakerOn && !ts.nowPlaying && !ts.sample) {
+  if (speakerOn && (!ts.nowPlaying || ts.nowPlaying.mode === 'jam') && !ts.sample) {
     const ev: NoteEvent = { pid: me.id, role, step, d: col, v, dur };
     engine.play(ev);
   }
@@ -433,6 +433,7 @@ function frame(t: number) {
     beatDots.forEach((d, i) => { d.classList.toggle('on', i === b.beatInBar); d.classList.toggle('d', i === b.beatInBar && b.downbeat); });
     if (chordEl && sampleMode()) chordEl.innerHTML = `<b>${ts.sample!.title.replace(/[<>&]/g, '')}</b> · tap pads: each plays a slice · hold to repeat`;
     else if (chordEl && ts.sample?.mode === 'backing') chordEl.innerHTML = `▶ <b>${ts.sample.title.replace(/[<>&]/g, '')}</b> · backing loop · play along`;
+    else if (chordEl && ts.nowPlaying?.mode === 'jam') chordEl.textContent = `JAM · ${ts.nowPlaying.title} · ${chordAt(ts, Math.floor(stepPos(ts, b.serverMs))).name} · add your ${ROLE_INFO[me!.role].label.toLowerCase()}`;
     else if (chordEl && ts.nowPlaying) chordEl.innerHTML = `♪ <b>${ts.nowPlaying.title.replace(/[<>&]/g, '')}</b> · listen on Stage`;
     else if (chordEl && ts.freestyle) chordEl.innerHTML = '<b>FREESTYLE</b> · play anything, it becomes a song';
     else if (chordEl) {

@@ -38,6 +38,7 @@ export const songSeconds = (s: GameSong) => (s.bars * 4 * 60) / s.bpm;
 export const INSTRUMENT: Record<Role, { name: string; icon: string }> = {
   drums: { name: 'Percussion', icon: 'DRM' },
   bass: { name: 'Double Bass', icon: 'BSS' },
+  guitar: { name: 'Guitar', icon: 'GTR' },
   pads: { name: 'Grand Piano', icon: 'PNO' },
   melody: { name: 'Solo Lead', icon: 'LEAD' },
 };
@@ -173,8 +174,8 @@ export function validateGameSong(value: unknown): GameSong | null {
       !['minorPent', 'majorPent', 'dorian', 'blues'].includes(s.scale) || !s.tracks) return null;
   const tracks = {} as GameSong['tracks'];
   let count = 0;
-  for (const role of ['drums', 'bass', 'melody', 'pads'] as Role[]) {
-    const notes = s.tracks[role];
+  for (const role of ['drums', 'bass', 'melody', 'pads', 'guitar'] as Role[]) {
+    const notes = s.tracks[role] ?? (role === 'guitar' ? [] : undefined);
     if (!Array.isArray(notes) || (count += notes.length) > 12000) return null;
     tracks[role] = [];
     for (const n of notes) {

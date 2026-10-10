@@ -17,14 +17,15 @@
 import type { GameState, GameStats, Difficulty, GameSong } from './game.js';
 export type { GameState, GameStats, Difficulty } from './game.js';
 
-export type Role = 'drums' | 'bass' | 'melody' | 'pads';
-/** Assignment order for newly joined players (spec: Drums, Bass, Melody, Pads). */
-export const ROLES: Role[] = ['drums', 'bass', 'melody', 'pads'];
+export type Role = 'drums' | 'bass' | 'melody' | 'pads' | 'guitar';
+/** Assignment order for newly joined players; a fifth seat adds guitar after the core rhythm section. */
+export const ROLES: Role[] = ['drums', 'bass', 'melody', 'pads', 'guitar'];
 
 export const ROLE_INFO: Record<Role, { label: string; icon: string }> = {
   drums: { label: 'Percussion', icon: 'DRM' },
   bass: { label: 'Double Bass', icon: 'BSS' },
   melody: { label: 'Solo Lead', icon: 'LEAD' },
+  guitar: { label: 'Guitar', icon: 'GTR' },
   pads: { label: 'Grand Piano', icon: 'PNO' },
 };
 
@@ -61,6 +62,15 @@ export interface RecordingState {
   events: number;
 }
 
+/** A MIDI melody loop with human accompaniment. Harmony is inferred once on the server. */
+export interface JamState {
+  mode: 'jam';
+  title: string;
+  song: GameSong;
+  startStep: number;
+  chords: { root: number; minor: boolean }[];
+}
+
 /** Everything that defines "where we are" in the music. Broadcast on every change. */
 export interface TransportState {
   bpm: number;
@@ -77,7 +87,7 @@ export interface TransportState {
   /** Freestyle jam: no quantising, no scale lock. Phones stream raw gestures; the Stage records them. */
   freestyle: boolean;
   /** Song preview currently looping on the Stage. 'tap' is retained for older clients. */
-  nowPlaying: { title: string; mode: 'band' | 'tap' } | null;
+  nowPlaying: { title: string; mode: 'band' | 'tap' } | JamState | null;
   /** Rhythm game in progress (tempo, key and roles are locked while this is set). */
   game: GameState | null;
   /** An uploaded audio file is loaded on the Stage. 'chop': phones play its slices; 'backing': it loops under the band. */
@@ -90,6 +100,10 @@ export interface TransportState {
 
 export const stepMs = (bpm: number) => 60000 / bpm / STEPS_PER_BEAT;
 export const beatMs = (bpm: number) => 60000 / bpm;
+
+/** Listen previews and rhythm games own the audio; melody jams accept live accompaniment too. */
+export const liveNotesAllowed = (ts: TransportState) =>
+  ts.paused === null && !ts.game && (!ts.nowPlaying || ts.nowPlaying.mode === 'jam');
 
 /** Fractional step position at a given server time. */
 export const stepPos = (ts: TransportState, serverMs: number) => (Math.min(serverMs, ts.paused ?? Infinity) - ts.epoch) / stepMs(ts.bpm);
@@ -170,12 +184,13 @@ export type ClientMsg =
   | { t: 'role'; role: Role }
   | { t: 'speaker'; on: boolean }
   | { t: 'note'; step: number; d: number; v: number; dur: number; role?: Role; midi?: number[] }
+  | { t: 'jam'; action: 'start' | 'stop'; song?: GameSong }
   | { t: 'game'; action: 'start' | 'stop'; songId?: string; song?: GameSong; difficulty?: Difficulty }
   | { t: 'ghit'; startStep: number; step: number; noteId: number }
   | { t: 'gstats'; startStep: number; s: GameStats }
   | { t: 'ctl'; y: number; tilt: number }
   | { t: 'raw'; k: RawKind; at: number; x: number; y: number; v?: number }
-  | { t: 'songreq'; id: string; mode: 'band' | 'tap' }
+  | { t: 'songreq'; id: string; mode: 'band' | 'tap' | 'jam' }
   | { t: 'cmd'; cmd: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'freestyle' | 'nowplaying' | 'sample' | 'pause' | 'recordingStart' | 'recordingStop'; value?: number | string | boolean };
 
 export type ServerMsg =
@@ -184,11 +199,11 @@ export type ServerMsg =
   | { t: 'state'; state: TransportState }
   | { t: 'roster'; players: PlayerInfo[] }
   | ({ t: 'note' } & NoteEvent)
-  | { t: 'ghit'; startStep: number; step: number; pid: string; role: Role }
+  | { t: 'ghit'; startStep: number; step: number; pid: string; role: Role; noteId: number }
   | { t: 'error'; message: string }
   | { t: 'ctl'; pid: string; y: number; tilt: number }
   | { t: 'raw'; pid: string; role: Role; k: RawKind; at: number; x: number; y: number; v?: number }
-  | { t: 'songreq'; pid: string; name: string; id: string; mode: 'band' | 'tap' }
+  | { t: 'songreq'; pid: string; name: string; id: string; mode: 'band' | 'tap' | 'jam' }
   | { t: 'you'; you: PlayerInfo };
 
 export const BPM_MIN = 60;

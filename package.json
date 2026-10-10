@@ -16,7 +16,7 @@
     "test:network": "node scripts/networktest.mjs",
     "typecheck": "tsc --noEmit",
     "simtest": "node --import tsx scripts/simtest.ts",
-    "test": "node --import tsx scripts/musictest.ts && node --import tsx scripts/composertest.ts && node --import tsx scripts/librarytest.ts && node --import tsx scripts/gametest.ts && node --import tsx scripts/audiotest.ts && node --import tsx scripts/playbacktest.ts && SECS=8 node --import tsx scripts/simtest.ts"
+    "test": "node --import tsx scripts/musictest.ts && node --import tsx scripts/composertest.ts && node --import tsx scripts/librarytest.ts && node --import tsx scripts/gametest.ts && node --import tsx scripts/audiotest.ts && node --import tsx scripts/jamtest.ts && node --import tsx scripts/playbacktest.ts && SECS=8 node --import tsx scripts/simtest.ts"
   },
   "dependencies": {
     "@types/pg": "^8.23.1",

@@ -18,7 +18,7 @@ for (const s of SONGS) {
       const perSec = c.length / songSeconds(s);
       check(perSec < 9, `${s.id}/${role}/${d}: density ${perSec.toFixed(1)}/s`);
     });
-    check(new Set(counts[2].map((n) => n.lane)).size >= (role === 'pads' ? 2 : 3), `${s.id}/${role}: hard uses several lanes`);
+    check(new Set(counts[2].map((n) => n.lane)).size >= (role === 'pads' || role === 'guitar' ? 2 : 3), `${s.id}/${role}: hard uses several lanes`);
   }
 }
 // scoring is deterministic

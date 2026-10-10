@@ -74,7 +74,7 @@ function chordOf(sym: string) {
 function buildSong(def: SongDef): GameSong {
   const chords = def.chords.trim().split(/\s+/);
   const bars = chords.length;
-  const tracks: GameSong['tracks'] = { melody: [], bass: [], pads: [], drums: [] };
+  const tracks: GameSong['tracks'] = { melody: [], bass: [], pads: [], drums: [], guitar: [] };
 
   let beat = 0;
   for (const tok of def.melody.replace(/\|/g, ' ').trim().split(/\s+/)) {
@@ -91,6 +91,7 @@ function buildSong(def: SongDef): GameSong {
     const keyRoot = 55 + ((((root - 55) % 12) + 12) % 12);
     const triad = [keyRoot, keyRoot + third, keyRoot + 7];
     const base = b * 16;
+    for (const s of [0, 6, 8, 14]) tracks.guitar.push({ step: base + s, dur: 3, v: 0.48, midi: triad.map((n) => n - 12) });
     for (const [s, off, dur] of def.bass) tracks.bass.push({ step: base + s, dur, v: 0.75, midi: [bassRoot + off] });
     for (const [s, dur, tone] of def.keys) tracks.pads.push({ step: base + s, dur, v: 0.6, midi: tone < 0 ? triad : [triad[tone] + 12] });
     const drum = (steps: number[], d: number, v: number) => steps.forEach((s) => tracks.drums.push({ step: base + s, dur: 1, v, d }));

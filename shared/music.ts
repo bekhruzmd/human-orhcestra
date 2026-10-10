@@ -8,7 +8,7 @@
  *   - changing the key/scale on the Stage re-pitches every player instantly,
  *   - melody notes that would grind against the underlying chord are nudged to a neighbouring scale tone.
  */
-import { STEPS_PER_BAR, PROGRESSION_BARS, type Role, type ScaleName, type NoteEvent } from './protocol.js';
+import { STEPS_PER_BAR, PROGRESSION_BARS, type Role, type ScaleName, type NoteEvent, type TransportState } from './protocol.js';
 
 export const SCALE_INTERVALS: Record<ScaleName, number[]> = {
   minorPent: [0, 3, 5, 7, 10],
@@ -44,14 +44,17 @@ export interface Chord {
   index: number;
 }
 
-export interface Key { root: number; scale: ScaleName }
+export interface Key { root: number; scale: ScaleName; nowPlaying?: TransportState['nowPlaying'] }
 
 export function chordAt(key: Key, step: number): Chord {
   const bar = Math.floor(step / STEPS_PER_BAR);
   const index = ((bar % PROGRESSION_BARS) + PROGRESSION_BARS) % PROGRESSION_BARS;
   const { off, q } = PROGRESSIONS[key.scale][index];
-  const rootPc = (key.root + off) % 12;
-  const minor = q === 'm';
+  const jam = key.nowPlaying?.mode === 'jam' ? key.nowPlaying : null;
+  const jamBar = jam ? Math.max(0, Math.floor((step - jam.startStep) / STEPS_PER_BAR)) : 0;
+  const guide = jam?.chords[((jamBar % jam.chords.length) + jam.chords.length) % jam.chords.length];
+  const rootPc = guide?.root ?? (key.root + off) % 12;
+  const minor = guide?.minor ?? q === 'm';
   const third = minor ? 3 : 4;
   return {
     rootPc, minor, index,
@@ -92,10 +95,10 @@ export function snapToChord(midi: number, chord: Chord, key: Key): number {
 
 // ------------------------------------------------------------------ bass
 export const BASS_COLS = 4;
-const BASS_OFFSETS = [0, 7, 10, 12]; // root, fifth, flat-7, octave: all safe over any triad here
 export function bassNote(d: number, chord: Chord): number {
   const root = 28 + ((((chord.rootPc - 28) % 12) + 12) % 12); // E1..D#2
-  return root + BASS_OFFSETS[Math.max(0, Math.min(BASS_COLS - 1, d))];
+  const offsets = [0, 7, (chord.seventh - chord.rootPc + 12) % 12, 12];
+  return root + offsets[Math.max(0, Math.min(BASS_COLS - 1, d))];
 }
 
 // ------------------------------------------------------------------ pads
@@ -125,11 +128,11 @@ export function grooveVoice(step: number, full = true): number {
   return s % 4 === 2 ? 3 : 2; // off-beat 8ths clap, the rest hats
 }
 
-export const COLS: Record<Role, number> = { melody: MELODY_COLS, bass: BASS_COLS, pads: PAD_COLS, drums: 4 };
+export const COLS: Record<Role, number> = { melody: MELODY_COLS, bass: BASS_COLS, pads: PAD_COLS, guitar: 4, drums: 4 };
 
 // -------------------------------------------------------------- freestyle
 /** Freestyle pitch range per role: the whole pad is a continuous, UN-locked keyboard. */
-export const FREE_RANGE: Record<Role, [number, number]> = { melody: [60, 84], bass: [36, 55], pads: [48, 72], drums: [0, 3] };
+export const FREE_RANGE: Record<Role, [number, number]> = { melody: [60, 84], bass: [36, 55], pads: [48, 72], guitar: [45, 76], drums: [0, 3] };
 export const freeMidi = (role: Role, x: number) => {
   const [lo, hi] = FREE_RANGE[role];
   return lo + Math.round(Math.max(0, Math.min(1, x)) * (hi - lo));
@@ -148,6 +151,7 @@ export function resolveEvent(ev: Pick<NoteEvent, 'role' | 'step' | 'd'> & { midi
     case 'drums': return { kind: 'drum', voice: Math.max(0, Math.min(3, ev.d)) };
     case 'bass': return { kind: 'notes', midi: [bassNote(ev.d, chord)] };
     case 'pads': return { kind: 'notes', midi: padVoicing(ev.d, chord) };
+    case 'guitar': return { kind: 'notes', midi: padVoicing(ev.d, chord).slice(0, 3).map((n) => n - 12) };
     case 'melody': {
       const m = melodyLadder(key)[Math.max(0, Math.min(MELODY_COLS - 1, ev.d))];
       return { kind: 'notes', midi: [snapToChord(m, chord, key)] };
@@ -159,12 +163,13 @@ export function resolveEvent(ev: Pick<NoteEvent, 'role' | 'step' | 'd'> & { midi
 export function padLabels(role: Role, key: Key): string[] {
   switch (role) {
     case 'melody': return melodyLadder(key).map(noteName);
-    case 'bass': return ['ROOT', '5TH', '♭7', 'OCT'];
+    case 'guitar': return ['STRUM', 'LIFT', 'HIGH', 'LOW'];
+    case 'bass': return ['ROOT', '5TH', '7TH', 'OCT'];
     case 'pads': return ['OPEN', 'LIFT', 'SOAR', 'WIDE'];
     case 'drums': return ['KICK', 'SNARE', 'HAT', 'CLAP'];
   }
 }
 
 /** Ticks between repeats while a finger is held (steps). 0 = no repeat. */
-export const HOLD_REPEAT: Record<Role, number> = { melody: 2, bass: 4, pads: STEPS_PER_BAR, drums: 0 };
-export const NOTE_DUR: Record<Role, number> = { melody: 2, bass: 3, pads: STEPS_PER_BAR, drums: 1 };
+export const HOLD_REPEAT: Record<Role, number> = { melody: 2, bass: 4, pads: STEPS_PER_BAR, guitar: 4, drums: 0 };
+export const NOTE_DUR: Record<Role, number> = { melody: 2, bass: 3, pads: STEPS_PER_BAR, guitar: 3, drums: 1 };

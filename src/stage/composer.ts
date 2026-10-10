@@ -204,6 +204,13 @@ export function arrange(d: Draft, startStep: number): Song {
     }
   }
 
+  const guitarNotes = d.notes.filter((n) => n.role === 'guitar' && !leadNotes.includes(n));
+  if (guitarNotes.length) {
+    tile(quantise(guitarNotes, 40, 76, 8)).forEach(({ item, rel: r }) =>
+      events.push({ role: 'guitar', rel: r, d: 0, v: item.v, dur: item.dur, midi: [item.midi] }));
+    note('guitar', guitarNotes[0].pid);
+  }
+
   // --- PADS: human chords by bar, else a chord every bar
   if (padNotes.length) {
     const bars = new Map<number, number>();
@@ -251,7 +258,7 @@ export function arrange(d: Draft, startStep: number): Song {
 // ------------------------------------------------------------ MIDI export
 const vlq = (n: number) => { const b = [n & 0x7f]; while ((n >>= 7)) b.unshift((n & 0x7f) | 0x80); return b; };
 const DRUM_NOTE = [36, 38, 42, 39];
-const PROGRAM: Record<Role, number> = { melody: 81, bass: 38, pads: 89, drums: 0 };
+const PROGRAM: Record<Role, number> = { melody: 81, bass: 38, pads: 89, guitar: 24, drums: 0 };
 
 /** Standard MIDI File (format 1, one track per role, GM drums on channel 10) for opening in a DAW. */
 export function toMidi(song: Song): Uint8Array {
@@ -271,7 +278,7 @@ export function toMidi(song: Song): Uint8Array {
   };
   const usPerQ = Math.round(60e6 / song.bpm);
   const tracks: number[][] = [trackBytes([{ tick: 0, b: [0xff, 0x51, 3, (usPerQ >> 16) & 255, (usPerQ >> 8) & 255, usPerQ & 255] }])];
-  (['melody', 'bass', 'pads', 'drums'] as Role[]).forEach((role, i) => {
+  (['melody', 'bass', 'pads', 'guitar', 'drums'] as Role[]).forEach((role, i) => {
     const ch = role === 'drums' ? 9 : i;
     const evs: { tick: number; b: number[] }[] = [{ tick: 0, b: [0xc0 | ch, PROGRAM[role]] }];
     for (const e of song.events.filter((x) => x.role === role)) {

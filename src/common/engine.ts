@@ -169,7 +169,7 @@ export class Engine {
       if (this.lastLateMs > 250) return false; // too stale to be musical
       t = now + 0.005;
     }
-    const key: Key = { root: ts.root, scale: ts.scale };
+    const key: Key = ts;
     const r = resolveEvent(ev, key);
     const stepSec = 60 / ts.bpm / 4;
     const entry = this.getVoice(ev.pid, ev.role);
@@ -213,7 +213,7 @@ export class Engine {
     const k = `${pid}|${role}`;
     let e = this.voices.get(k);
     if (!e) {
-      const voice = makeVoice(role, pid.startsWith('auto:'), this.gameMode);
+      const voice = makeVoice(role, pid.startsWith('auto:'), this.gameMode && !(this.ts?.nowPlaying?.mode === 'jam' && !pid.startsWith('song:')));
       voice.out.connect(this.master);
       // effect sends: pads/melody get a lot of space, bass/drums stay dry
       const rev = new Tone.Gain(this.gameMode ? (role === 'pads' ? 0.12 : role === 'melody' ? 0.08 : 0) : (role === 'pads' ? 0.55 : role === 'melody' ? 0.3 : role === 'drums' ? 0.12 : 0)).connect(this.revBus);
@@ -278,8 +278,36 @@ function makeVoice(role: Role, auto: boolean, punchy = false): Voice {
     case 'melody': return punchy ? padVoice(level, true) : melodyVoice(level);
     case 'bass': return punchy ? padVoice(level * 0.8, true, true) : bassVoice(level);
     case 'pads': return padVoice(level, punchy);
+    case 'guitar': return guitarVoice(level);
     case 'drums': return drumVoice(level);
   }
+}
+
+/** Bright picked attack, decaying string body, and a short stagger across chord tones. */
+function guitarVoice(level: number): Voice {
+  const synth = new Tone.PolySynth(Tone.FMSynth, {
+    harmonicity: 1,
+    modulationIndex: 2.5,
+    oscillator: { type: 'triangle' },
+    envelope: { attack: 0.002, decay: 0.65, sustain: 0.04, release: 0.2 },
+    modulation: { type: 'sine' },
+    modulationEnvelope: { attack: 0.001, decay: 0.12, sustain: 0, release: 0.08 },
+  });
+  synth.maxPolyphony = 16;
+  synth.volume.value = -14;
+  const filter = new Tone.Filter(3400, 'lowpass', -12);
+  const out = new Tone.Gain(level);
+  synth.chain(filter, out);
+  return {
+    out,
+    trigger(r, time, dur, vel) {
+      if (r.kind !== 'notes') return;
+      [...r.midi].sort((a, b) => a - b).forEach((note, i) =>
+        synth.triggerAttackRelease(mtof(note), dur, time + i * 0.012, vel * (1 - i * 0.035)));
+    },
+    ctl(y, tilt) { filter.frequency.rampTo(Math.min(9000, 900 * 2 ** (y * 2.5 + tilt * 0.4)), 0.06); },
+    dispose() { synth.dispose(); filter.dispose(); out.dispose(); },
+  };
 }
 
 function melodyVoice(level: number): Voice {

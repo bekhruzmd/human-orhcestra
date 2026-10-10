@@ -9,7 +9,7 @@
  * so every phone judges against the same timeline the Stage uses to schedule its audio.
  *
  * Hits report participation. The Stage schedules the arrangement ahead independently of packet arrival;
- * successful taps lift upcoming notes without replaying notes that are already in the past.
+ * successful taps restore upcoming notes without replaying notes that are already in the past.
  */
 import type { ClockSync } from '../common/clock';
 import type { Net } from '../common/net';
@@ -18,6 +18,7 @@ import {
   DIFF, INSTRUMENT, accuracy, applyHit, applyMiss, buildChart, emptyStats, grade, judge,
   type ChartNote, type GameStats, type Judgement,
 } from '../../shared/game';
+import { Participation } from '../../shared/participation';
 import { getSong } from '../../shared/songs';
 
 const LOOKAHEAD_MS = 1900;
@@ -45,6 +46,9 @@ export class GameUI {
   private finished = false;
   private timingMs = readTiming();
   private lanes = 2;
+  private participation: Participation | null = null;
+  private rhythm!: HTMLMeterElement;
+  private soundStatus!: HTMLElement;
   private feedback: { text: string; color: string; t: number } | null = null;
   private laneFlash: number[] = [];
   private bursts: { x: number; y: number; t: number; color: string }[] = [];
@@ -71,6 +75,7 @@ export class GameUI {
     if (!song) return;
     this.key = key;
     this.chart = buildChart(song, me.role, g.difficulty);
+    this.participation = new Participation(song, me.role, g.difficulty, ts, transportNow(ts, this.d.clock.serverNow()) - this.timingMs);
     this.lanes = DIFF[g.difficulty].lanes;
     this.status = this.chart.map(() => 0 as Status);
     this.laneFlash = new Array(this.lanes).fill(0);
@@ -93,13 +98,17 @@ export class GameUI {
         <div class="gscore"><b id="g-score">0</b><small id="g-acc">accuracy –</small></div>
         <div class="gcombo"><b id="g-combo">0</b><small>COMBO</small></div>
       </div>
-      <div class="ghelp">Follow the tune · hits lift your instrument · sound on Stage</div><canvas id="g-canvas"></canvas>
+      <div class="ghelp">Tap each color at the line. Misses weaken your part; hits restore it.</div>
+      <div class="grhythm"><span id="g-sound">Ready to play</span><meter id="g-rhythm" min="0" max="1" value="1" aria-label="Your rhythm strength"></meter></div>
+      <canvas id="g-canvas" aria-label="Rhythm lanes. Tap a lane when its notes reach the line, or use the lane buttons below."></canvas>
       <div class="glabels">${this.laneLabels(me)}</div>
       <div class="gtiming"><button id="g-earlier" aria-label="Move hit timing 10 milliseconds earlier">−</button><span id="g-timing"></span><button id="g-later" aria-label="Move hit timing 10 milliseconds later">+</button></div>`;
     this.app.appendChild(el);
     this.el = el;
     this.canvas = el.querySelector('canvas')!;
     this.ctx = this.canvas.getContext('2d')!;
+    this.rhythm = el.querySelector('#g-rhythm')!;
+    this.soundStatus = el.querySelector('#g-sound')!;
     this.hud = { score: el.querySelector('#g-score')!, combo: el.querySelector('#g-combo')!, acc: el.querySelector('#g-acc')! };
     const timing = () => { el.querySelector('#g-timing')!.textContent = `Timing ${this.timingMs > 0 ? '+' : ''}${this.timingMs} ms · + if sound feels late`; };
     const adjust = (delta: number) => { this.timingMs = Math.max(-200, Math.min(200, this.timingMs + delta)); try { localStorage.setItem('ho.game.timing', String(this.timingMs)); } catch { } timing(); };
@@ -109,14 +118,26 @@ export class GameUI {
     this.resize();
     addEventListener('resize', this.onResize);
     this.canvas.onpointerdown = (e) => { e.preventDefault(); this.tap(e); };
+    el.querySelectorAll<HTMLButtonElement>('[data-lane]').forEach((button) => {
+      button.onpointerdown = (e) => { e.preventDefault(); this.tapLane(Number(button.dataset.lane), e.timeStamp); };
+      button.onclick = (e) => { if (e.detail === 0) this.tapLane(Number(button.dataset.lane), performance.now()); };
+    });
+    addEventListener('keydown', this.onKey);
     this.timer = setInterval(() => this.report(false), 400);
   }
 
   private laneLabels(me: PlayerInfo) {
     const cols = LANE_COLORS[this.lanes];
     const names = me.role === 'drums' ? DRUM_NAMES[this.lanes] : cols.map((_, i) => (this.lanes === 2 ? ['LOW', 'HIGH'][i] : this.lanes === 3 ? ['LOW', 'MID', 'HIGH'][i] : ['LOW', 'LOW-MID', 'HI-MID', 'HIGH'][i]));
-    return names.map((n, i) => `<span style="--c:${cols[i]}">${n}</span>`).join('');
+    return names.map((n, i) => `<button type="button" data-lane="${i}" style="--c:${cols[i]}" aria-label="${n} lane, ${this.keys()[i].toUpperCase()} key">${n}<small>${this.keys()[i].toUpperCase()}</small></button>`).join('');
   }
+
+  private keys() { return this.lanes === 2 ? ['d', 'k'] : this.lanes === 3 ? ['d', 'f', 'k'] : ['d', 'f', 'j', 'k']; }
+  private onKey = (e: KeyboardEvent) => {
+    if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || (e.target instanceof Element && e.target.matches('input, textarea, select, [contenteditable]'))) return;
+    const lane = this.keys().indexOf(e.key.toLowerCase());
+    if (lane >= 0) { e.preventDefault(); this.tapLane(lane, e.timeStamp); }
+  };
 
   private onResize = () => this.resize();
   private resize() {
@@ -131,6 +152,7 @@ export class GameUI {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     removeEventListener('resize', this.onResize);
+    removeEventListener('keydown', this.onKey);
     this.el?.remove();
     this.el = null;
     this.key = '';
@@ -138,12 +160,17 @@ export class GameUI {
 
   // ---------------------------------------------------------------- input
   private tap(e: PointerEvent) {
+    const rect = this.canvas.getBoundingClientRect();
+    const lane = Math.max(0, Math.min(this.lanes - 1, Math.floor(((e.clientX - rect.left) / rect.width) * this.lanes)));
+    this.tapLane(lane, e.timeStamp);
+  }
+
+  private tapLane(lane: number, timeStamp: number) {
     const ts = this.d.getTs(), me = this.d.getMe();
     if (!ts?.game || ts.paused !== null || !me || this.finished || !this.d.clock.isLocked || !this.d.net.connected) return;
-    const g = ts.game, rect = this.canvas.getBoundingClientRect();
-    const lane = Math.max(0, Math.min(this.lanes - 1, Math.floor(((e.clientX - rect.left) / rect.width) * this.lanes)));
+    const g = ts.game;
     this.laneFlash[lane] = 1;
-    const local = e.timeStamp > 1e12 ? e.timeStamp - performance.timeOrigin : e.timeStamp || performance.now();
+    const local = timeStamp > 1e12 ? timeStamp - performance.timeOrigin : timeStamp || performance.now();
     const tTap = this.d.clock.toServer(local) - this.timingMs;
     const spec = DIFF[g.difficulty];
 
@@ -156,10 +183,11 @@ export class GameUI {
       const err = tTap - t;
       if (Math.abs(err) <= spec.good && Math.abs(err) < Math.abs(bestErr)) { best = i; bestErr = err; }
     }
-    if (best < 0) return; // a tap with no note nearby: no sound, no penalty (beginner-friendly)
+    if (best < 0) { this.say('FOLLOW THE LINE', '#ffd23f'); return; } // a tap with no note nearby: no sound, no penalty (beginner-friendly)
     const j = judge(g.difficulty, bestErr) as Judgement;
     const n = this.chart[best];
     this.status[best] = 1;
+    this.participation?.hit(n.id, g.startStep + n.step, ts);
     this.stats = applyHit(this.stats, j);
     this.say(j === 'perfect' ? 'PERFECT' : 'GOOD', j === 'perfect' ? '#7cff6b' : '#ffd23f');
     this.bursts.push({ x: (lane + 0.5) / this.lanes, y: HIT_Y, t: performance.now(), color: LANE_COLORS[this.lanes][lane] });
@@ -210,6 +238,10 @@ export class GameUI {
       this.report(true);
       this.showResults();
     }
+    const strength = this.participation?.strength(ts, now) ?? 1;
+    this.rhythm.value = strength;
+    const soundStatus = !this.d.net.connected ? 'Reconnecting…' : ts.paused !== null ? 'Paused' : now < stepTime(ts, g.startStep) ? 'Ready · sound on Stage' : strength >= 0.75 ? 'In rhythm' : strength >= 0.5 ? 'Part weakening · keep tapping' : (this.d.getMe()?.role === 'drums' ? 'Losing the groove · hit notes to recover' : 'Part out of tune · hit notes to recover');
+    if (this.soundStatus.textContent !== soundStatus) this.soundStatus.textContent = soundStatus;
     this.draw(ts, now, spec.good);
   }
 

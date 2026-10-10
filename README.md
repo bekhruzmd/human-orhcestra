@@ -101,7 +101,7 @@ Honest limits: the residual can't detect a *constant* asymmetry (e.g. uplink 2 m
 4. **Preview selected** before starting. Imports are saved in this browser (up to 20, subject to browser storage capacity).
 5. Choose a difficulty and **START**. Phones receive the same arrangement and show playable charts. Audio is enabled from the Start/Preview click.
 
-**Assisted performance:** the Stage schedules the complete arrangement 600 ms ahead. Successful taps score points and lift upcoming notes for that instrument. Without recent hits that part softens; the tune continues. Phone messages never retrigger past notes, add random pitches, or compete to advance a shared melody cursor. This deliberately replaces the old “only successful taps make sound” rule.
+**Participation shapes the sound:** the Stage schedules the complete arrangement 600 ms ahead. Missing chart notes weakens and shortens your instrument, with slight detuning on pitched parts and uneven accents on percussion. Four recent hits restore the clean sound. Each player contributes equally within their instrument section. Phone messages never retrigger past notes or move the shared beat.
 
 All song audio comes from the Stage, regardless of phone-speaker settings. Several people can play the same part without doubling its audio. Difficulty simplifies the phone chart while the complete arrangement remains audible. The Stage shows a late-audio-event counter separately from clock estimates.
 
@@ -129,7 +129,7 @@ Press **🎚️ SAMPLE** on the Stage and choose or drop an audio file (MP3, WAV
 - **🎵 Songs** (Stage button, and the 🎵 button on every phone): anyone can pick a song.
   - **Built in:** public-domain tunes (Ode to Joy, Twinkle Twinkle, Jingle Bells, Mary Had a Little Lamb, Frère Jacques) and chord-loop backing tracks (four-chord pop loop, Canon progression, sad minor loop, Andalusian, 12-bar blues). Definitions live in `src/songs/library.ts`.
   - **Your own songs:** drop `.mid` files into `public/songs/` (git-ignored) and run `npm run build` / `npm run dev` (they run `scripts/songs.mjs`, which lists the folder). They appear in the picker on the Stage and phones, tagged "yours". Or use **Load .mid file…** in the Stage picker to load one from disk on the spot, which works on the Vercel copy too. MIDI mapping: channel 10 → drums, highest-pitched channel → melody, lowest → bass, the rest → pads; the key is detected so the phones' pads fit. No copyrighted song data ships with the app.
-  - **Two modes:** **🎮 Play along**: starts the assisted rhythm game from the selected arrangement; **♫ Listen**: previews the complete arrangement on the Stage. Pad notes are ignored during playback so they cannot clash with it.
+  - **Three modes:** **🎸 Jam over melody** loops only the imported lead. Players add drums, bass, guitar and piano live on the shared beat; pitched instruments follow chords inferred from the MIDI, and the Stage has a melody-volume control. **🎮 Play along**: starts the rhythm game from the selected arrangement; missed pills weaken, shorten, and slightly detune your instrument, while four recent hits restore its clean sound; **♫ Listen**: previews the complete arrangement on the Stage. In Listen mode, accompaniment pads are ignored during playback; Jam mode accepts live, quantized accompaniment while the lead loops.
 - `npm test` includes a composer test: sloppy synthetic playing at 120 BPM (±60 ms timing error) is recovered to 120 BPM and the right pitch set, and the MIDI export re-imports.
 
 ## Vercel deployment
@@ -189,3 +189,9 @@ scripts/             tunnel.mjs, smoke.ts (protocol), simtest.ts (sync), musicte
 ## Second-pass engineering review
 
 See [SECOND_PASS_REVIEW.md](SECOND_PASS_REVIEW.md) for the prioritized audit, implemented fixes, executed checks, remaining limitations and 60–90 second demo flow. This application has one shared room per server process. Reload Stage and phones together after this update to use the revised hit/stat messages.
+
+### Rhythm-game participation
+
+The Stage schedules the whole arrangement ahead to keep the beat steady. Each connected player controls an equal share of their instrument's sound using their last four chart notes. Misses reduce volume and sustain and add up to 32 cents of alternating detune; percussion loses strength and accent consistency. Unassigned instruments provide clean backing. Musical rests do not count as misses, late joiners start clean, and the phone's timing window plus 350 ms of network slack is allowed before a miss affects upcoming notes. Delayed valid hits can still restore the recent phrase, without replaying past notes.
+
+Tap the colored lanes or the buttons below them when pills reach the line. Keyboard: D/K on easy, D/F/K on medium, D/F/J/K on hard. The rhythm meter shows your own recent participation; shared instruments blend everyone's contribution. Listen mode remains a clean preview.

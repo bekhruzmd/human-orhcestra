@@ -1515,3 +1515,7 @@ select:focus-visible {
 .conductor .cond-cluster { align-items: flex-end; }
 .conductor .modes-cluster, .conductor .record-cluster { align-items: center; }
 .conductor .ctl input[type=range] { height: var(--btn-h); margin: 0; }
+
+.jam-mix { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
+.jam-mix input { flex: 1; min-width: 100px; min-height: 44px; accent-color: var(--accent, #35d0ff); }
+.jam-mix output { min-width: 4ch; font-variant-numeric: tabular-nums; }

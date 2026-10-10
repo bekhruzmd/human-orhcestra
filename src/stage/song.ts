@@ -5,11 +5,12 @@ import type { Song, SongEv } from './composer';
 
 export class SongPlayer {
   song: Song | null = null;
+  level = 1;
   private byRel = new Map<number, SongEv[]>();
   private next = 0;
 
-  constructor(private clock: ClockSync, private getTransport: () => TransportState | null, private emit: (ev: NoteEvent) => void) {
-    setInterval(() => this.tick(), 40);
+  constructor(private clock: Pick<ClockSync, 'serverNow' | 'isLocked'>, private getTransport: () => TransportState | null, private emit: (ev: NoteEvent) => void, autoTick = true) {
+    if (autoTick) setInterval(() => this.tick(), 40);
   }
 
   start(song: Song, startStep: number) {
@@ -19,18 +20,19 @@ export class SongPlayer {
     this.song = song;
     this.next = startStep;
   }
-  stop() { this.song = null; }
+  stop() { this.song = null; this.level = 1; }
 
-  private tick() {
+  tick() {
     const ts = this.getTransport(), song = this.song;
-    if (!ts || !song || !this.clock.isLocked) return;
+    if (!ts || !song || !this.clock.isLocked || ts.paused !== null) return;
     const now = this.clock.serverNow();
     const horizon = Math.floor(stepPos(ts, now + 350));
     if (this.next < stepPos(ts, now) - 1) this.next = Math.ceil(stepPos(ts, now + 120));
     while (this.next <= horizon) {
       const rel = (((this.next - song.startStep) % song.steps) + song.steps) % song.steps;
       for (const e of this.byRel.get(rel) ?? []) {
-        this.emit({ pid: `song:${e.role}`, role: e.role, step: this.next, d: e.d, v: e.v, dur: e.dur, midi: e.midi });
+        if (this.level <= 0) continue;
+        this.emit({ pid: `song:${e.role}`, role: e.role, step: this.next, d: e.d, v: e.v * this.level, dur: e.dur, midi: e.midi });
       }
       this.next++;
     }
