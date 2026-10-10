@@ -1,0 +1,6 @@
+:root { --bg:#07070d; --fg:#f4f4fb; --dim:#8b8ba3; --panel:#12121c; }
+* { box-sizing: border-box; }
+html, body { margin:0; height:100%; background:var(--bg); color:var(--fg); font-family: ui-rounded,"SF Pro Rounded",system-ui,-apple-system,sans-serif; overflow:hidden; }
+#app { position:fixed; inset:0; }
+#flash { position:fixed; inset:0; pointer-events:none; background:#fff; opacity:0; z-index:5; mix-blend-mode:screen; }
+.dbg { font: 14px/1.6 ui-monospace, Menlo, monospace; padding: 20px; white-space: pre; }

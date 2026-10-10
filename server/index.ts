@@ -1,0 +1,298 @@
+/**
+ * Human Orchestra server.
+ *
+ *  - serves the built Vite clients (dist/) over plain HTTP (cloudflared adds TLS)
+ *  - owns the ONE global transport (BPM / epoch / key / scale / drop)
+ *  - answers clock-sync pings with a server timestamp
+ *  - relays note events between players and the Stage, applying guardrails
+ */
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { fileURLToPath } from 'node:url';
+import { WebSocketServer, WebSocket } from 'ws';
+import {
+  BPM_MAX, BPM_MIN, COLORS, DROP_BUILD_STEPS, ROLES, STEPS_PER_BAR,
+  type ClientMsg, type PlayerInfo, type Role, type ScaleName, type ServerMsg, type TransportState,
+  stepPos, stepMs,
+} from '../shared/protocol';
+
+const PORT = Number(process.env.PORT ?? 3000);
+const DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist');
+const GRACE_MS = 90_000; // keep a dropped player's seat this long so they can rejoin cleanly
+const SILENCE_MS = 9_000; // no message for this long => treat the socket as dead (phone left Wi-Fi)
+
+// ------------------------------------------------------------------ clock
+// Server time = ms on a monotonic clock, starting at 0 when the process starts.
+// (Not Date.now(): that can jump if NTP adjusts the laptop's clock mid-demo.)
+const T0 = process.hrtime.bigint();
+const serverNow = () => Number(process.hrtime.bigint() - T0) / 1e6;
+
+// -------------------------------------------------------------- transport
+const SCALES: ScaleName[] = ['minorPent', 'majorPent', 'dorian', 'blues'];
+const transport: TransportState = {
+  bpm: 100,
+  epoch: serverNow() + 500, // first downbeat half a second from boot
+  root: 0, // C
+  scale: 'minorPent', // default: C minor pentatonic
+  drop: null,
+  autoBand: true,
+  speakerMode: false,
+};
+let dropTimer: NodeJS.Timeout | null = null;
+
+function setBpm(bpm: number) {
+  bpm = Math.min(BPM_MAX, Math.max(BPM_MIN, Math.round(bpm)));
+  const now = serverNow();
+  // Re-anchor the epoch so the *current step position stays identical* under the new tempo.
+  // Without this, every client's notion of "which step is it" would jump on a BPM change.
+  const pos = stepPos(transport, now);
+  transport.bpm = bpm;
+  transport.epoch = now - pos * stepMs(bpm);
+}
+
+function startDrop() {
+  if (transport.drop) return;
+  const now = serverNow();
+  // Build-up starts on the next bar line at least 400 ms away (so every client hears the start).
+  const bar = Math.ceil((stepPos(transport, now + 400)) / STEPS_PER_BAR);
+  const startStep = bar * STEPS_PER_BAR;
+  transport.drop = { startStep, dropStep: startStep + DROP_BUILD_STEPS };
+  const endMs = transport.epoch + (transport.drop.dropStep + STEPS_PER_BAR) * stepMs(transport.bpm);
+  if (dropTimer) clearTimeout(dropTimer);
+  dropTimer = setTimeout(() => {
+    transport.drop = null;
+    broadcastState();
+  }, Math.max(0, endMs - now) + 200);
+}
+
+// ------------------------------------------------------------------ state
+interface Conn {
+  ws: WebSocket;
+  kind: 'stage' | 'player';
+  playerId: string | null;
+  lastSeen: number;
+  noteTimes: number[]; // rate limiter
+}
+interface Player extends PlayerInfo {
+  /** Pressed "Join". Until then the seat is only a preview and is invisible on the Stage. */
+  joined: boolean;
+  conn: Conn | null;
+  droppedAt: number | null;
+  y: number;
+  tilt: number;
+}
+const players = new Map<string, Player>();
+const conns = new Set<Conn>();
+let publicUrl: string | null = null;
+
+const info = (p: Player): PlayerInfo => ({
+  id: p.id, name: p.name, color: p.color, role: p.role, connected: p.connected, speaker: p.speaker, sync: p.sync,
+});
+
+function send(ws: WebSocket, msg: ServerMsg) {
+  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+}
+function broadcast(msg: ServerMsg, filter?: (c: Conn) => boolean) {
+  const s = JSON.stringify(msg);
+  for (const c of conns) if (c.ws.readyState === WebSocket.OPEN && (!filter || filter(c))) c.ws.send(s);
+}
+const broadcastState = () => broadcast({ t: 'state', state: transport });
+const broadcastRoster = () => broadcast({ t: 'roster', players: joinedPlayers().map(info) });
+
+/** First unused role in Drums>Bass>Melody>Pads order; when all four are taken, the least-used one. */
+function pickRole(others: Player[]): Role {
+  return ROLES.find((r) => !others.some((p) => p.role === r))
+    ?? [...ROLES].sort((a, b) => others.filter((p) => p.role === a).length - others.filter((p) => p.role === b).length)[0];
+}
+const pickColor = (others: Player[]) =>
+  COLORS.find((c) => !others.some((p) => p.color === c)) ?? COLORS[others.length % COLORS.length];
+const joinedPlayers = () => [...players.values()].filter((p) => p.joined);
+
+/** Create a preview seat (role + colour are shown on the join screen; committed on "Join"). */
+function seat(id: string): Player {
+  const others = joinedPlayers();
+  const p: Player = {
+    id, name: `Player ${others.length + 1}`, color: pickColor(others), role: pickRole(others), connected: true,
+    speaker: false, sync: null, joined: false, conn: null, droppedAt: null, y: 0.5, tilt: 0,
+  };
+  players.set(id, p);
+  return p;
+}
+
+// ------------------------------------------------------------------- HTTP
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml',
+  '.json': 'application/json', '.png': 'image/png', '.woff2': 'font/woff2', '.map': 'application/json',
+};
+const lanUrls = () =>
+  Object.values(os.networkInterfaces()).flat()
+    .filter((i): i is os.NetworkInterfaceInfo => !!i && i.family === 'IPv4' && !i.internal)
+    .map((i) => `http://${i.address}:${PORT}`);
+
+const server = http.createServer((req, res) => {
+  const url = new URL(req.url ?? '/', 'http://x');
+  if (url.pathname === '/api/info') {
+    res.setHeader('content-type', 'application/json');
+    res.setHeader('cache-control', 'no-store');
+    return void res.end(JSON.stringify({ publicUrl, lanUrls: lanUrls(), port: PORT }));
+  }
+  if (url.pathname === '/api/public-url' && req.method === 'POST') {
+    // Only the tunnel helper on this machine may set it.
+    if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress ?? '')) return void res.writeHead(403).end();
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      try { publicUrl = JSON.parse(body).url ?? null; } catch { /* ignore */ }
+      res.writeHead(204).end();
+    });
+    return;
+  }
+  // Static files: / -> player (index.html), /stage -> stage.html
+  let rel = url.pathname === '/stage' ? '/stage.html' : url.pathname === '/' ? '/index.html' : url.pathname;
+  const file = path.join(DIST, path.normalize(rel).replace(/^(\.\.[/\\])+/, ''));
+  if (!file.startsWith(DIST)) return void res.writeHead(403).end();
+  fs.readFile(file, (err, data) => {
+    if (err) {
+      res.writeHead(404, { 'content-type': 'text/plain' });
+      return void res.end(fs.existsSync(DIST) ? 'Not found' : 'dist/ missing: run `npm run build` (or use `npm run dev`).');
+    }
+    res.writeHead(200, {
+      'content-type': MIME[path.extname(file)] ?? 'application/octet-stream',
+      'cache-control': file.includes('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache',
+    });
+    res.end(data);
+  });
+});
+
+// -------------------------------------------------------------- WebSocket
+const wss = new WebSocketServer({ server, path: '/ws', perMessageDeflate: false });
+
+wss.on('connection', (ws, req) => {
+  // Disable Nagle: tiny JSON frames must leave immediately or ping RTTs get sticky/asymmetric.
+  (req.socket as import('node:net').Socket).setNoDelay(true);
+  const conn: Conn = { ws, kind: 'player', playerId: null, lastSeen: serverNow(), noteTimes: [] };
+  conns.add(conn);
+
+  ws.on('message', (raw) => {
+    // Timestamp BEFORE parsing/dispatch: this is the t1 of the NTP exchange.
+    const rx = serverNow();
+    conn.lastSeen = rx;
+    let m: ClientMsg;
+    try { m = JSON.parse(raw.toString()); } catch { return; }
+    if (m.t === 'ping') return void send(ws, { t: 'pong', id: m.id, c0: m.c0, s: rx });
+    handle(conn, m, rx);
+  });
+  ws.on('close', () => {
+    conns.delete(conn);
+    const p = conn.playerId ? players.get(conn.playerId) : null;
+    if (p && p.conn === conn) {
+      p.conn = null; p.connected = false; p.droppedAt = serverNow();
+      if (p.joined) broadcastRoster();
+    }
+  });
+  ws.on('error', () => ws.terminate());
+});
+
+function handle(conn: Conn, m: ClientMsg, now: number) {
+  if (m.t === 'hello') {
+    conn.kind = m.kind;
+    if (m.kind === 'player') {
+      // Reconnect: same id => same seat, name, colour, role.
+      let p = m.id ? players.get(m.id) : undefined;
+      if (p) {
+        if (p.conn && p.conn !== conn) p.conn.ws.terminate(); // stale half-open socket
+      } else if (m.id) {
+        p = seat(m.id);
+      }
+      if (p) {
+        p.conn = conn; p.connected = true; p.droppedAt = null; conn.playerId = p.id;
+        if (p.joined) broadcastRoster();
+      }
+      send(conn.ws, { t: 'welcome', you: p ? info(p) : null, state: transport, serverNow: now });
+    } else {
+      send(conn.ws, { t: 'welcome', you: null, state: transport, serverNow: now });
+      send(conn.ws, { t: 'roster', players: joinedPlayers().map(info) });
+    }
+    return;
+  }
+
+  if (m.t === 'cmd') {
+    if (conn.kind !== 'stage') return; // only the conductor may change the music
+    switch (m.cmd) {
+      case 'bpm': setBpm(Number(m.value)); break;
+      case 'key': transport.root = ((Math.round(Number(m.value)) % 12) + 12) % 12; break;
+      case 'scale': if (SCALES.includes(m.value as ScaleName)) transport.scale = m.value as ScaleName; break;
+      case 'drop': startDrop(); break;
+      case 'auto': transport.autoBand = !!m.value; break;
+      case 'speakers': transport.speakerMode = !!m.value; break;
+    }
+    broadcastState();
+    return;
+  }
+
+  const p = conn.playerId ? players.get(conn.playerId) : undefined;
+  if (!p || (!p.joined && m.t !== 'join')) return;
+
+  switch (m.t) {
+    case 'join':
+      if (!p.joined) {
+        const others = joinedPlayers();
+        p.joined = true; p.role = pickRole(others); p.color = pickColor(others);
+      }
+      p.name = String(m.name ?? '').trim().slice(0, 14) || p.name;
+      broadcastRoster();
+      send(conn.ws, { t: 'you', you: info(p) });
+      break;
+    case 'role':
+      if (ROLES.includes(m.role)) { p.role = m.role; broadcastRoster(); send(conn.ws, { t: 'you', you: info(p) }); }
+      break;
+    case 'speaker':
+      p.speaker = !!m.on; broadcastRoster();
+      break;
+    case 'stats':
+      p.sync = m.stats; // roster is re-broadcast on a timer, not per report
+      break;
+    case 'ctl':
+      p.y = clamp01(m.y); p.tilt = Math.max(-1, Math.min(1, m.tilt));
+      broadcast({ t: 'ctl', pid: p.id, y: p.y, tilt: p.tilt }, (c) => c !== conn);
+      break;
+    case 'note': {
+      // Guardrail 1: rate limit (a spammy phone can't swamp the stage).
+      conn.noteTimes = conn.noteTimes.filter((t) => now - t < 1000);
+      if (conn.noteTimes.length >= 24) return;
+      conn.noteTimes.push(now);
+      // Guardrail 2: only integer steps in a sane window: the grid is the only place a note can live.
+      const cur = stepPos(transport, now);
+      let step = Math.round(m.step);
+      if (!Number.isFinite(step) || step > cur + 48) return;
+      if (step < cur - 1) step = Math.ceil(cur) + 1; // hopelessly late: land on the next grid line
+      // Pitch/voice quantisation to the key+scale happens in shared/music.ts at playback, from the
+      // *current* transport, so key changes are instant and nobody can send an out-of-key pitch.
+      const role: Role = m.role === 'drums' ? 'drums' : p.role; // non-drummers may shake in a hit
+      broadcast(
+        { t: 'note', pid: p.id, role, step, d: Math.max(0, Math.min(15, Math.round(m.d))), v: clamp01(m.v), dur: Math.max(1, Math.min(STEPS_PER_BAR, Math.round(m.dur || 2))) },
+        (c) => c !== conn,
+      );
+      break;
+    }
+  }
+}
+
+const clamp01 = (n: number) => (Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0);
+
+// ----------------------------------------------------------------- timers
+setInterval(() => {
+  const now = serverNow();
+  for (const c of conns) if (now - c.lastSeen > SILENCE_MS) c.ws.terminate(); // half-open sockets
+  for (const [id, p] of players) if (p.droppedAt && now - p.droppedAt > (p.joined ? GRACE_MS : 5000)) { players.delete(id); broadcastRoster(); }
+}, 2000);
+// Sync stats change constantly; push them to everyone at 1 Hz instead of per report.
+setInterval(broadcastRoster, 1000);
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n🎼  Human Orchestra server on :${PORT}`);
+  console.log(`    Stage:  http://localhost:${PORT}/stage`);
+  for (const u of lanUrls()) console.log(`    LAN:    ${u}   (http: motion sensors need HTTPS, use \`npm run demo\`)`);
+});

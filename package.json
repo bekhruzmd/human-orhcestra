@@ -1,0 +1,31 @@
+{
+  "name": "human-orchestra",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Phones become instruments. A shared server clock keeps them in time.",
+  "scripts": {
+    "dev": "concurrently -k -n server,vite -c blue,magenta \"tsx watch server/index.ts\" \"vite\"",
+    "build": "vite build",
+    "start": "npm run build && tsx server/index.ts",
+    "serve": "tsx server/index.ts",
+    "tunnel": "node scripts/tunnel.mjs",
+    "demo": "npm run build && concurrently -k -n server,tunnel -c blue,green \"tsx server/index.ts\" \"node scripts/tunnel.mjs\"",
+    "typecheck": "tsc --noEmit",
+    "simtest": "tsx scripts/simtest.ts"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4",
+    "tone": "^15.1.22",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/qrcode": "^1.5.6",
+    "@types/ws": "^8.18.2",
+    "concurrently": "^10.0.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^6.4.4"
+  }
+}
