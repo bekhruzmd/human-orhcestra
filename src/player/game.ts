@@ -245,7 +245,8 @@ export class GameUI {
     }
     const strength = this.participation?.strength(ts, now) ?? 1;
     this.rhythm.value = strength;
-    const soundStatus = !this.d.net.connected ? 'Reconnecting…' : ts.paused != null ? 'Paused' : now < stepTime(ts, g.startStep) ? 'Ready · sound on Stage' : strength >= 0.75 ? 'In rhythm' : strength >= 0.5 ? 'Part weakening · keep tapping' : (this.d.getMe()?.role === 'drums' ? 'Losing the groove · hit notes to recover' : 'Part out of tune · hit notes to recover');
+    const quiet = this.participation?.quiet(ts, now) ?? 1;
+    const soundStatus = !this.d.net.connected ? 'Reconnecting…' : ts.paused != null ? 'Paused' : now < stepTime(ts, g.startStep) ? 'Ready · sound on Stage' : quiet < 0.05 ? 'Your part went silent · hit a note to bring it back' : quiet < 0.8 ? 'Part fading out · keep tapping' : strength >= 0.75 ? 'In rhythm' : strength >= 0.5 ? 'Part weakening · keep tapping' : (this.d.getMe()?.role === 'drums' ? 'Losing the groove · hit notes to recover' : 'Part out of tune · hit notes to recover');
     if (this.soundStatus.textContent !== soundStatus) this.soundStatus.textContent = soundStatus;
     this.draw(ts, now);
   }

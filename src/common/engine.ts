@@ -174,6 +174,7 @@ export class Engine {
    */
   play(ev: NoteEvent, audible = true): boolean {
     if (!this.ready || !this.ts || !audible) return false;
+    if (ev.v < 0.02) return false; // a part that has gone silent: the note still exists on the timeline, it just makes no sound
     const ts = this.ts;
     // Breakdown: drums + bass drop out while the build-up runs; the beat "returns" at dropStep.
     if (dropPhase(ts, ev.step) === 'build' && (ev.role === 'drums' || ev.role === 'bass')) return false;

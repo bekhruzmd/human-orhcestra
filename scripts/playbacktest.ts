@@ -148,3 +148,35 @@ import { souring } from '../shared/participation';
   assert.ok(steps.every((s) => souring('drums', 0, s, 1).drum === 1));
 }
 console.log('✓ Miss feedback: bend, wrong notes and thinning scale with misses; drums swap pieces; clean play is untouched');
+
+// A part nobody answers goes silent: Easy/Medium fade between one and two bars, Hard cuts at two bars; a hit restores it.
+{
+  const notes = Array.from({ length: 24 }, (_, i) => ({ step: i * 4, dur: 2, v: 0.8, midi: [60 + (i % 5)] }));
+  const song = validateGameSong({ id: 'import:quiet', title: 'quiet', artist: 't', bpm: 120, root: 0, scale: 'majorPent', bars: 8, rating: 1,
+    tracks: { melody: notes, bass: [], pads: [], drums: [], guitar: [] } })!;
+  const run = (difficulty: 'easy' | 'medium' | 'hard') => {
+    const ts: TransportState = { bpm: 120, epoch: 0, root: 0, scale: 'majorPent', drop: null, autoBand: false, speakerMode: false, syncTest: false, freestyle: false, nowPlaying: null, sample: null, paused: null, recording: null,
+      game: { song, difficulty, songId: song.id, startStep: 32, endStep: 32 + 8 * 16 } };
+    const p = new Participation(song, 'melody', difficulty, ts, 0);
+    const at = (chartStep: number) => stepTime(ts, 32 + chartStep) + 800; // that note has passed unanswered
+    return { ts, p, at };
+  };
+  for (const d of ['easy', 'medium'] as const) {
+    const { ts, p, at } = run(d);
+    assert.equal(p.quiet(ts, at(8)), 1, `${d}: a short gap stays at full volume`);
+    const mid = p.quiet(ts, at(24));
+    assert.ok(mid > 0 && mid < 1, `${d}: between one and two bars the part fades (${mid.toFixed(2)})`);
+    assert.equal(p.quiet(ts, at(40)), 0, `${d}: two bars unanswered is silence`);
+    p.hit(10, 32 + chartAt(10), ts);
+    assert.equal(p.quiet(ts, at(44)), 1, `${d}: one hit brings the part back`);
+  }
+  const hard = run('hard');
+  assert.equal(hard.p.quiet(hard.ts, hard.at(28)), 1, 'hard: full volume until the cut');
+  assert.equal(hard.p.quiet(hard.ts, hard.at(36)), 0, 'hard: cuts straight to silence after two bars');
+  function chartAt(i: number) { return i * 4; }
+  // silence is audible-free but never removes notes from the timeline
+  const q = run('easy');
+  q.p.quiet(q.ts, q.at(60));
+  assert.equal(q.p.chart.length, 24);
+}
+console.log('✓ Unanswered parts fade (Easy/Medium) or cut (Hard) to silence and a hit restores them');

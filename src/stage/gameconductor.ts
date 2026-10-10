@@ -53,6 +53,14 @@ export class GameConductor {
     return section.length ? section.reduce((sum, p) => sum + p.performance.strength(ts, ts.paused ?? this.clock.serverNow()), 0) / section.length : 1;
   }
 
+  /** How much of a section is still playing (see Participation.quiet); averaged over its players. */
+  quiet(role: Role) {
+    const ts = this.getTransport();
+    if (!ts?.game) return 1;
+    const section = [...this.players.values()].filter((p) => p.role === role);
+    return section.length ? section.reduce((sum, p) => sum + p.performance.quiet(ts, ts.paused ?? this.clock.serverNow()), 0) / section.length : 1;
+  }
+
   private ensureSong(ts: TransportState) {
     const g = ts.game!;
     const key = `${g.songId}:${g.startStep}:${g.difficulty}`;
@@ -76,6 +84,7 @@ export class GameConductor {
     const now = this.clock.serverNow();
     this.syncPlayers(ts, now);
     const strengths = new Map(Object.keys(this.song.tracks).map((role) => [role, this.strength(role as Role)]));
+    const quiets = new Map(Object.keys(this.song.tracks).map((role) => [role, this.quiet(role as Role)]));
     // Full local arrangement gives a generous scheduling buffer, independent of phone RTT.
     const horizon = Math.floor(stepPos(ts, now + 600));
     if (this.next < stepPos(ts, now + 80)) this.next = Math.ceil(stepPos(ts, now + 120));
@@ -85,7 +94,7 @@ export class GameConductor {
       for (const { role, n } of this.byStep.get(this.next - ts.game.startStep) ?? []) {
         if (free.includes(role)) continue; // muted on purpose: people play this part live
         const sour = souring(role, 1 - strengths.get(role)!, this.next, n.d ?? 0);
-        this.emit({ pid: `game:${role}`, role, step: this.next, d: sour.drum, v: n.v * sour.gain, dur: Math.max(0.5, n.dur * sour.dur),
+        this.emit({ pid: `game:${role}`, role, step: this.next, d: sour.drum, v: n.v * sour.gain * quiets.get(role)!, dur: Math.max(0.5, n.dur * sour.dur),
           midi: n.midi?.map((pitch) => Math.max(0, Math.min(127, pitch + sour.pitch))) });
       }
       this.next++;

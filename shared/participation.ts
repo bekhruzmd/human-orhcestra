@@ -22,12 +22,18 @@ export function souring(role: Role, loss: number, step: number, drum: number) {
   return { pitch: weird * 0.85 * alternate + shift, drum, gain: 1 - weird * 0.5, dur: 1 - weird * 0.4 };
 }
 
+/** Steps of unanswered notes before a part fades (one bar) and is silent (two bars). */
+const FADE_FROM = 16, SILENT_AFTER = 32;
+
 /** Judge expected chart notes, not elapsed silence: musical rests never count as misses. */
 export class Participation {
   readonly chart: ChartNote[];
   private hits = new Set<number>();
   private first: number;
   private cursor: number;
+  /** chart step of the latest note the player hit, and of the latest note that has passed unanswered */
+  private lastHitStep: number;
+  private lastPassedStep: number;
 
   constructor(song: GameSong, role: Role, difficulty: Difficulty, ts: TransportState, now: number) {
     this.chart = buildChart(song, role, difficulty);
@@ -35,19 +41,36 @@ export class Participation {
     this.first = this.chart.findIndex((n) => n.step >= earliest);
     if (this.first < 0) this.first = this.chart.length;
     this.cursor = this.first;
+    this.lastHitStep = this.lastPassedStep = this.chart[this.first]?.step ?? 0;
   }
 
   hit(noteId: number, step: number, ts: TransportState) {
     const note = this.chart[noteId];
     if (!note || noteId < this.first || ts.game!.startStep + note.step !== step || this.hits.has(noteId)) return false;
     this.hits.add(noteId);
+    this.lastHitStep = Math.max(this.lastHitStep, note.step);
     return true;
+  }
+
+  /**
+   * 1 = the part plays, 0 = it is silent. A part nobody answers for long enough goes quiet: on Hard it cuts out
+   * after two bars of unanswered notes; on Easy and Medium it fades from one bar to two. One hit brings it back.
+   * Measured in chart time, so rests never count and pausing freezes it.
+   */
+  quiet(ts: TransportState, now: number) {
+    this.strength(ts, now); // advances the cursor and the latest unanswered note
+    const idle = Math.max(0, this.lastPassedStep - this.lastHitStep);
+    if (ts.game!.difficulty === 'hard') return idle >= SILENT_AFTER ? 0 : 1;
+    if (idle <= FADE_FROM) return 1;
+    const k = Math.max(0, 1 - (idle - FADE_FROM) / (SILENT_AFTER - FADE_FROM));
+    return k * k;
   }
 
   strength(ts: TransportState, now: number) {
     // Allow the phone's judgement window plus network slack before inferring a miss.
     const deadline = now - DIFF[ts.game!.difficulty].good - 350;
     while (this.cursor < this.chart.length && stepTime(ts, ts.game!.startStep + this.chart[this.cursor].step) <= deadline) this.cursor++;
+    if (this.cursor > this.first) this.lastPassedStep = Math.max(this.lastPassedStep, this.chart[this.cursor - 1].step);
     let missed = 0;
     for (let i = Math.max(this.first, this.cursor - 4); i < this.cursor; i++) {
       if (!this.hits.has(this.chart[i].id)) missed++;
