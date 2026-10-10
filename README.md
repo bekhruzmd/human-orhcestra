@@ -1,6 +1,6 @@
 # 🎼 Human Orchestra
 
-Scan a QR code and your phone becomes an instrument. Everyone plays together, **in key and on the beat**, on a big shared screen. It works with 1–3 players, and it's worth watching with the sound off.
+Scan a QR code and your phone becomes an instrument. Everyone plays together, **in key and on the beat**, on a big shared screen. It works with a roomful of players, and it's worth watching with the sound off.
 
 ```
 phones (Player)  ──ws──▶  Node server  ◀──ws──  Stage (laptop, plays the audio)
@@ -36,7 +36,7 @@ npm run demo                  # build + server + HTTPS tunnel
 | `npm run test:network` | isolated live WebSocket regression tests (temporary server on port 3199) |
 | `npm run typecheck` | `tsc --noEmit` |
 
-Stage keys: **H** hides the conductor bar, **F** toggles fullscreen.
+Stage keys: **N** advances the three-moment Judge demo, **W** opens “How it works,” **H** hides the conductor bar, and **F** toggles fullscreen. Less-used controls, sync test, and demo preflight are under **More**.
 
 ## How it works
 
@@ -135,34 +135,28 @@ Press **🎚️ SAMPLE** on the Stage and choose or drop an audio file (MP3, WAV
 ## Vercel deployment
 `https://horcha.vercel.app` runs the same server as a Vercel Function (`api/ws.ts`; `/ws` is rewritten to it) and serves the built pages. It works, with one caveat: **the beat clock lives in memory**, and Vercel doesn't guarantee that every WebSocket lands on the same instance. With a handful of connections they do in practice (all connections reported the same transport epoch in testing), and a sync check is visible on the Stage. If the Stage and phones ever show different tempos or an empty roster, reload everything, or use `npm run demo`, which has no such limit. Sockets also close at the function's max duration (5 min on Hobby); clients reconnect and relock on their own. Cloud RTT is higher, so notes get a longer scheduling lead and feel slightly slower than on the local tunnel.
 
-## Optional free-play demo (2 minutes, judges in groups of 2–3)
+## Judge demo (60–90 seconds)
 
-For the song experience, use the main-mode flow above. This older free-play demo needs AUTO enabled explicitly; the lobby now starts quietly.
+Start `npm run demo`, open the Stage at `http://localhost:3000/stage`, and enable audio. **More → Demo preflight** shows whether the HTTPS tunnel is reachable; wait for it before asking judges to scan. If the tunnel is unavailable, **Open player here** opens `/` on the same laptop as the Stage at `/stage`.
 
-| Time | Do | Say |
+| Moment | Do | Say |
 |---|---|---|
-| 0:00 | Stage already up, **muted**. AUTO band is drawing. Point at the QR. | "Scan this. Your phone becomes an instrument." |
-| 0:10 | Judge 1 scans and taps **JOIN**. They land on Drums with a prefilled name. | "It's already in time. Tap or shake." |
-| 0:20 | The Stage header turns to **SOLO · AUTO BAND BACKING**. | "One person, full band. The dashed lanes are generated." |
-| 0:30 | Judge 2 joins and gets Bass. Judge 3 joins as Melody, drags a finger across the pad. | "Everyone's locked to one key. You can't play a wrong note." |
-| 0:50 | **Unmute** the audio, or keep it off and point at the screen. | "With the sound off you can still see who plays what. The dots in the grid line up." |
-| 1:00 | Point at every phone flashing together, then the **SYNC ERROR** readout. | "Every phone flashes on the same beat from a shared clock. That number is measured live, per phone." |
-| 1:15 | Change **KEY** and **SCALE** on the Stage. | "Same fingers, new mood." |
-| 1:25 | Hit **DROP**. | "Build-up, then the beat comes back." |
-| 1:40 | Tap **PHONES AS SPEAKERS**. | "Now the phones are the speaker array." |
-| 1:50 | Hit **SAVE LAST 30 s**. | "And you take the jam home." |
+| **1 · Scan + play** | Press **NEXT** (or **N**). AUTO fills unclaimed parts. A judge scans the QR, joins, and touches a pad. | “Your phone joins the shared key and becomes an instrument. AUTO fills the band around you.” |
+| **2 · One shared beat** | Press **NEXT**. Point to the phones flashing together and the enlarged **SYNC ERROR** readout. | “Each screen follows the same server clock locally; the live p90 shows how well its offset predicts new pings.” |
+| **3 · The drop** | Press **NEXT**. The server schedules a two-bar build, then the band returns together on the bar line. | “The drop is one shared transport event, not a cue sent separately to each phone.” |
 
-Backup plan: if Wi-Fi is bad, open the Stage and one phone on the same laptop (`/` and `/stage`), where the sync is near-perfect.
+Use the remaining time to open **W · How it works** and explain the ping/pong midpoint estimate and lowest-RTT 30% filter. For 240 fps evidence, open **More → Sync test**; it flashes the Stage and phones white with a shared beat number and logs per-phone p90 sync errors to the console.
 
 ## Acceptance status
 
-| Criterion | Status |
 |---|---|
-| Sync error < ~30 ms with 3 phones | **Not yet measured on real phones/Wi-Fi.** Headless Chromium on localhost shows 2–9 ms (almost all frame quantisation). The simulation shows 0–6 ms across four network profiles, with a floor of half the path asymmetry. Verify at the venue: film all phones plus the Stage at 240 fps (iPhone slo-mo) and compare flash frames. The on-screen number is the estimate; the camera is the ground truth. |
-| Musical within 15 s | One tap to join with a prefilled name; one touch on the pad makes a note, and holding makes a pattern. Not timed with real first-time users. |
-| Sound muted, observer can tell who plays what and that all are in time | Lanes, colours, AUTO badges, step-grid dots, synchronized flashes. |
-| Solo mode sounds like a band | Verified in a browser run: 1 player → 3 dashed AUTO lanes for the missing roles. |
-| Clean reconnect | Verified by server restart in the browser test, and by dropped sockets in `scripts/smoke.ts`. |
+| Criterion | Current status |
+|---|---|
+| Sync error < ~30 ms with 3 phones | **Not measured on real phones or venue Wi-Fi yet.** Simulations and localhost tests are not camera measurements. Use Sync test to film the shared beat counter at 240 fps and compare frame offsets; the Stage console reports each phone’s p90 estimate. |
+| Musical within 15 s | **Not user-timed yet.** The intended path is open Stage → scan → join → touch pad; AUTO supplies unclaimed parts. Time this with a first-time participant at the event. |
+| Sound-muted clarity | **Implemented, not observer-tested.** Role lanes, AUTO labels, beat grid, synchronized phone flashes, and the Stage sync readout remain visible with audio off. |
+| Solo mode sounds like a band | **Automated behavior verified.** With one player, AUTO generates the missing instrument roles; confirm the mix over the actual table speakers. |
+| Clean reconnect | **Automated behavior verified.** `scripts/smoke.ts` covers socket drop/rejoin and seat restoration; venue Wi-Fi still needs a live check. |
 
 ## Deviations from the brief
 - **Recorder uses a PCM ring buffer, not MediaRecorder.** MediaRecorder can't produce a valid file from a *rolling* window, because only the first chunk carries the container header. Tapping the final output with an AudioWorklet and writing a WAV on demand gives a file that always plays. The cost is ~11 MB of memory for 30 s and a WAV instead of webm.
@@ -186,9 +180,9 @@ src/stage/           big-screen UI (stage.html), visuals.ts, auto.ts
 scripts/             tunnel.mjs, smoke.ts (protocol), simtest.ts (sync), musictest.ts
 ```
 
-## Second-pass engineering review
+## Engineering notes
 
-See [SECOND_PASS_REVIEW.md](SECOND_PASS_REVIEW.md) for the prioritized audit, implemented fixes, executed checks, remaining limitations and 60–90 second demo flow. This application has one shared room per server process. Reload Stage and phones together after this update to use the revised hit/stat messages.
+This application has one shared room per server process. Reload Stage and phones together after an update so they use the same transport and message version.
 
 ### Rhythm-game participation
 
