@@ -70,6 +70,7 @@ const transport: TransportState = {
   nowPlaying: null,
   game: null,
   sample: null,
+  paused: null,
   recording: null,
 };
 let dropTimer: NodeJS.Timeout | null = null;
@@ -378,7 +379,7 @@ function recordEvent(
 
 function setBpm(bpm: number) {
   bpm = Math.min(BPM_MAX, Math.max(BPM_MIN, Math.round(bpm)));
-  const now = serverNow();
+  const now = transport.paused ?? serverNow();
   // Re-anchor the epoch so the *current step position stays identical* under the new tempo.
   // Without this, every client's notion of "which step is it" would jump on a BPM change.
   const pos = stepPos(transport, now);
@@ -393,12 +394,44 @@ function startDrop() {
   const bar = Math.ceil((stepPos(transport, now + 400)) / STEPS_PER_BAR);
   const startStep = bar * STEPS_PER_BAR;
   transport.drop = { startStep, dropStep: startStep + DROP_BUILD_STEPS };
-  const endMs = transport.epoch + (transport.drop.dropStep + STEPS_PER_BAR) * stepMs(transport.bpm);
+  armDropTimer();
+}
+
+function armDropTimer() {
   if (dropTimer) clearTimeout(dropTimer);
+  if (!transport.drop) return;
+  const endMs = transport.epoch + (transport.drop.dropStep + STEPS_PER_BAR) * stepMs(transport.bpm);
   dropTimer = setTimeout(() => {
     transport.drop = null;
     broadcastState();
-  }, Math.max(0, endMs - now) + 200);
+  }, Math.max(0, endMs - serverNow()) + 200);
+}
+
+/** A finished game must not linger: clear it after the results grace period (also covers a Stage that closed). */
+function armGameTimer() {
+  if (gameTimer) clearTimeout(gameTimer);
+  if (!transport.game) return;
+  const endMs = transport.epoch + transport.game.endStep * stepMs(transport.bpm);
+  gameTimer = setTimeout(() => {
+    transport.game = null;
+    for (const pl of players.values()) pl.game = null;
+    broadcastState(); broadcastRoster();
+  }, Math.max(0, endMs - serverNow()) + RESULTS_GRACE_MS);
+}
+
+/** Pause freezes the shared transport clock; resume shifts the epoch by the pause length so every step lands where it left off. */
+function setPaused(on: boolean) {
+  if (on === (transport.paused !== null)) return;
+  const now = serverNow();
+  if (on) {
+    transport.paused = now;
+    if (dropTimer) clearTimeout(dropTimer);
+    if (gameTimer) clearTimeout(gameTimer);
+  } else {
+    transport.epoch += now - transport.paused!;
+    transport.paused = null;
+    armDropTimer(); armGameTimer();
+  }
 }
 
 // ------------------------------------------------------------------ state
@@ -587,6 +620,7 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
     // One authoritative start: lock the tempo (position stays continuous), then begin on a bar line far enough
     // away for a 4-beat count-in plus network slack. Every phone derives every note time from these numbers.
     transport.drop = null; transport.freestyle = false; transport.nowPlaying = null; transport.sample = null;
+    setPaused(false);
     transport.root = song.root; transport.scale = song.scale;
     setBpm(song.bpm);
     const lead = Math.max(4000, 4 * (60000 / song.bpm) + 1500);
@@ -607,14 +641,7 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
         if (pl.conn) send(pl.conn.ws, { t: 'you', you: info(pl) });
       }
     }
-    // A finished game must not linger: clear it after the results grace period (also covers a Stage that closed).
-    if (gameTimer) clearTimeout(gameTimer);
-    const endMs = transport.epoch + transport.game.endStep * stepMs(transport.bpm);
-    gameTimer = setTimeout(() => {
-      transport.game = null;
-      for (const pl of players.values()) pl.game = null;
-      broadcastState(); broadcastRoster();
-    }, Math.max(0, endMs - serverNow()) + RESULTS_GRACE_MS);
+    armGameTimer();
     broadcastState(); broadcastRoster();
     return;
   }
@@ -631,6 +658,13 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       broadcastState();
       return;
     }
+    if (m.cmd === 'pause') {
+      setPaused(!!m.value);
+      recordEvent(now, 'cmd', 'stage', null, { cmd: m.cmd, value: !!m.value });
+      broadcastState();
+      return;
+    }
+    if (transport.paused !== null && m.cmd === 'drop') return;
     // While a rhythm game runs, tempo/key/mode are locked: every chart is addressed in steps of THIS tempo.
     if (transport.game && ['bpm', 'key', 'scale', 'drop', 'freestyle', 'nowplaying', 'sample'].includes(m.cmd)) return;
     switch (m.cmd) {
@@ -720,7 +754,7 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
     }
     case 'ghit': {
       const g = transport.game;
-      if (!g || m.startStep !== g.startStep || !Number.isInteger(m.step) || m.step < g.startStep || m.step >= g.endStep) return;
+      if (!g || transport.paused !== null || m.startStep !== g.startStep || !Number.isInteger(m.step) || m.step < g.startStep || m.step >= g.endStep) return;
       const age = now - (transport.epoch + m.step * stepMs(transport.bpm));
       if (age < -200 || age > 2000) return;
       conn.noteTimes = conn.noteTimes.filter((t) => now - t < 1000);

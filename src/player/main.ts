@@ -45,7 +45,7 @@ const FLASH_LABEL: Record<FlashMode, string> = { soft: 'Flash: soft', full: 'Fla
 let motion: 'unknown' | 'granted' | 'denied' | 'none' = 'unknown';
 
 const app = document.getElementById('app')!;
-app.innerHTML = `<div id="flash"></div><div id="root"></div><div class="banner" id="banner" role="status" aria-live="polite" hidden>Reconnecting…</div>`;
+app.innerHTML = `<div id="flash"></div><div id="root"></div><div class="banner" id="banner" role="status" aria-live="polite" hidden>Reconnecting…</div><div class="pausedbar" id="pausedbar" role="status" aria-live="polite" hidden>PAUSED</div>`;
 const root = document.getElementById('root')!;
 const flashEl = document.getElementById('flash')!;
 const banner = document.getElementById('banner')!;
@@ -70,6 +70,7 @@ net.on('state', (m) => {
   const was = ts?.speakerMode;
   ts = m.state; engine.setTransport(m.state);
   if (joined && m.state.speakerMode !== was && was !== undefined) setSpeaker(m.state.speakerMode && engine.ready);
+  document.getElementById('pausedbar')!.hidden = m.state.paused === null;
   syncGame();
   refreshPadLabels();
 });
@@ -202,7 +203,7 @@ async function openSongs() {
     ...custom.map((c) => ({ id: `file:${c.file}`, title: c.name, sub: 'your file' })),
   ];
   sheet.innerHTML = `<div class="card"><h3>Pick a song</h3>
-    <div style="display:flex;gap:8px"><button class="tog ${reqMode === 'tap' ? 'on' : ''}" data-m="tap">Play along</button><button class="tog ${reqMode === 'band' ? 'on' : ''}" data-m="band">Listen</button></div>
+data-m="band">Listen</button></div>
     ${items.map((i) => `<button class="rolebtn" data-id="${esc(i.id)}" style="font-size:18px">${esc(i.title)}<small style="margin-left:auto;color:var(--dim);font-size:12px">${i.sub}</small></button>`).join('')}
     <button class="rolebtn" data-id="" style="font-size:18px">■ Stop song</button>
     <button class="rolebtn" data-x="1" style="font-size:18px">Close</button></div>`;
@@ -269,7 +270,7 @@ const sampleMode = () => !!ts && ts.sample?.mode === 'chop' && !ts.game && !ts.f
 const sampleCell = (x: number, y: number) => Math.min(3, Math.floor((1 - y) * 4)) * 4 + Math.min(3, Math.floor(x * 4));
 
 function emit(col: number, vel: number, opts: { role?: Role; dur?: number } = {}) {
-  if (!ts || !me || !clock.isLocked || ts.game || ts.nowPlaying) return;
+  if (!ts || !me || !clock.isLocked || ts.game || ts.nowPlaying || ts.paused !== null) return;
   // Beat-quantisation: the earliest 16th boundary far enough in the future, and never the same step twice.
   let step = nextStepAfter(ts, clock.serverNow(), leadMs());
   if (step <= lastStep) step = lastStep + 1;

@@ -77,16 +77,17 @@ app.innerHTML = `
     <button class="btn sample" id="sample">SAMPLE</button>
     <input id="midifile" type="file" accept=".mid,.midi" aria-label="Load MIDI file" hidden />
     <button class="btn" id="auto">AUTO</button>
+    <button class="btn" id="pause" disabled>PAUSE</button>
     <button class="btn" id="spk">SPEAKERS</button>
   </div>
   <div class="cond-cluster record-cluster">
-    <button class="btn rec-btn rec" id="sessrec">● START RECORDING</button>
-    <button class="btn rec-btn rec" id="rec">● SAVE 30s</button>
+    <button class="btn rec-btn rec" id="sessrec">RECORD</button>
+    <button class="btn rec-btn rec" id="rec">SAVE 30s</button>
     <button class="btn rec-btn" id="viewrecs">SESSIONS</button>
   </div>
 </footer>
 <div id="replaybar" class="replay-bar" hidden>
-  <span class="replay-dot">●</span>
+  <span class="replay-dot"></span>
   <span class="replay-label" id="replay-title">REPLAYING SESSION</span>
   <span class="replay-time" id="replay-time">00:00 / 00:00</span>
   <button class="btn btn-close" id="replay-stop" title="Stop replay">■</button>
@@ -96,7 +97,7 @@ app.innerHTML = `
     <h1 class="landing-title">HUMAN ORCHESTRA</h1>
     <p class="landing-sub">Phones become instruments. A shared server clock keeps everyone in time.</p>
     <ul class="landing-pills">
-      <li class="l-pill l-pill-mint">ZERO INSTALL · SCAN TO JOIN</li>
+      <li class="l-pill l-pill-mint">ZERO INSTALL</li>
       <li class="l-pill l-pill-sky">SUB-MS CLOCK SYNC</li>
       <li class="l-pill l-pill-peach">16-BIT SOUND ENGINE</li>
     </ul>
@@ -123,7 +124,7 @@ app.innerHTML = `
 <div id="sampleui" hidden><div class="box">
   <div class="box-head">
     <h3>Make music with your own audio</h3>
-    <button class="btn-close" id="sp-close-x" aria-label="Close sample modal">✕</button>
+    <button class="btn-close" id="sp-close-x" aria-label="Close sample modal"></button>
   </div>
   <p class="hintp">Choose an MP3 / WAV from this computer. It stays in this browser; nothing is uploaded. Phones then play slices of it on the beat.</p>
   <label class="dropzone" id="sp-drop"><span id="sp-droptext">Drop an audio file here, or <u>choose a file</u></span><input type="file" id="sp-file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.aac,.flac" aria-label="Load sample audio file" hidden></label>
@@ -143,7 +144,7 @@ app.innerHTML = `
 <div id="recordingsui" hidden><div class="box">
   <div class="box-head">
     <h3>Recorded Sessions</h3>
-    <button class="btn-close" id="rec-close-x" aria-label="Close recordings modal">✕</button>
+    <button class="btn-close" id="rec-close-x" aria-label="Close recordings modal"></button>
   </div>
   <p class="hintp">Review live sessions captured by the conductor. Replay them through the synth engine or export their event logs.</p>
   <div class="rec-summary-bar">
@@ -177,6 +178,7 @@ net.on('raw', (r) => onRaw(r));
 net.on('roster', (m) => { roster = m.players; engine.prune(new Set(roster.map((p) => p.id))); renderRoster(); });
 net.on('ctl', (m) => engine.ctl(m.pid, m.y, m.tilt));
 net.on('note', (ev) => {
+  if (ts?.paused != null) return;
   if (ts && !ts.game && ts.sample?.mode === 'chop' && sampler.buffer) {
     // Sample mode: the pad index is a SLICE number; the note's step is the quantised moment to play it.
     const i = sampler.trigger(engine, Math.max(0, Math.min(SLICES - 1, ev.d)), stepTime(ts, ev.step), ts.bpm, ev.v);
@@ -282,7 +284,7 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 
 // -------------------------------------------------------------- conductor UI
 const done = (g: { perfect: number; good: number; miss: number }) => ({ perfect: g.perfect, good: g.good, total: g.perfect + g.good + g.miss });
-const cmd = (c: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'freestyle' | 'nowplaying' | 'sample' | 'recordingStart' | 'recordingStop', value?: number | string | boolean) => net.send({ t: 'cmd', cmd: c, value });
+const cmd = (c: 'bpm' | 'pause' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'freestyle' | 'nowplaying' | 'sample' | 'recordingStart' | 'recordingStop', value?: number | string | boolean) => net.send({ t: 'cmd', cmd: c, value });
 let bpmTimer = 0;
 $<HTMLInputElement>('bpmr').oninput = (e) => {
   const v = Number((e.target as HTMLInputElement).value);
@@ -292,6 +294,7 @@ $<HTMLInputElement>('bpmr').oninput = (e) => {
 $<HTMLSelectElement>('key').onchange = (e) => cmd('key', Number((e.target as HTMLSelectElement).value));
 $<HTMLSelectElement>('scale').onchange = (e) => cmd('scale', (e.target as HTMLSelectElement).value);
 $('drop').onclick = () => cmd('drop');
+$('pause').onclick = () => cmd('pause', ts?.paused == null);
 $('free').onclick = () => cmd('freestyle', !ts?.freestyle);
 $('play').onclick = () => openGamePicker();
 $('midi').onclick = openSongs;
@@ -483,6 +486,7 @@ addEventListener('keydown', (e) => {
     if (!$('results').hidden) { $('results').hidden = true; return; }
     if (sessionPlayer.isPlaying) { stopSessionReplay(); return; }
   }
+  if (e.key === ' ' && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLButtonElement)) { e.preventDefault(); if (!$<HTMLButtonElement>('pause').disabled) $('pause').click(); }
   if (e.key === 'h') $('cond').classList.toggle('hidden');
   if (e.key === 'f') document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
 });
@@ -501,6 +505,12 @@ $<HTMLCanvasElement>('viz').onclick = () => {
 };
 function syncControls() {
   if (!ts) return;
+  const live = !!(ts.game || ts.nowPlaying || ts.sample || ts.autoBand || ts.freestyle || ts.drop);
+  if (ts.paused !== null && !live) cmd('pause', false); // nothing left to pause: don't leave the clock frozen
+  $<HTMLButtonElement>('pause').disabled = !live && ts.paused === null;
+  $('pause').textContent = ts.paused !== null ? 'RESUME' : 'PAUSE';
+  $('pause').classList.toggle('on', ts.paused !== null);
+  document.body.classList.toggle('paused', ts.paused !== null);
   if (document.activeElement !== $('bpmr')) { $<HTMLInputElement>('bpmr').value = String(ts.bpm); $('bpmv').textContent = String(ts.bpm); }
   $<HTMLSelectElement>('key').value = String(ts.root);
   $<HTMLSelectElement>('scale').value = ts.scale;
@@ -509,8 +519,8 @@ function syncControls() {
   $('free').textContent = ts.freestyle ? '■ STOP · MAKE SONG' : 'FREESTYLE';
   $('spk').classList.toggle('on', ts.speakerMode);
   $('sessrec').classList.toggle('on', !!ts.recording);
-  $('sessrec').textContent = ts.recording ? `■ STOP RECORDING (${ts.recording.events})` : '● START RECORDING';
-  $('keyline').textContent = `${NOTE_NAMES[ts.root]} ${SCALE_LABEL[ts.scale]}${audioOn ? ' · AUDIO ON' : ''}`;
+  $('sessrec').textContent = ts.recording ? `■ STOP (${ts.recording.events})` : 'RECORD';
+  $('keyline').textContent = `${NOTE_NAMES[ts.root]} ${SCALE_LABEL[ts.scale]}${audioOn ? ' · SOUND ON' : ''}`;
   $('bpm').textContent = String(ts.bpm);
 }
 
@@ -640,7 +650,7 @@ function showCard(song: Song) {
   c.hidden = false;
   c.innerHTML = `<div class="txt"><h3>${esc(song.title)}</h3>${song.info.map((l) => `<p>${esc(l)}</p>`).join('')}</div>
     <div class="row"><button class="btn" id="c-restart">↻ Restart</button><button class="btn" id="c-stop">■ Stop</button>
-    <button class="btn" id="c-mid">⤓ MIDI</button>${lastDraftLog && song.title === 'Your jam' ? '<button class="btn" id="c-json">⤓ JSON</button>' : ''}</div>`;
+    <button class="btn" id="c-mid">SAVE MIDI</button>${lastDraftLog && song.title === 'Your jam' ? '<button class="btn" id="c-json">SAVE JSON</button>' : ''}</div>`;
   $('c-stop').onclick = () => stopSong();
   $('c-restart').onclick = () => { if (ts) { const st = Math.ceil(nextStepAfter(ts, clock.serverNow(), 800) / 16) * 16; engine.silence(); songs.start(song, st); } };
   $('c-mid').onclick = () => download(`${song.title.replace(/\W+/g, '-')}.mid`, toMidi(song).slice().buffer as ArrayBuffer, 'audio/midi');
@@ -989,11 +999,11 @@ function frame(t: number) {
       m.textContent = `SOLO · AUTO BAND BACKING${recTag}`;
       m.className = 'mode auto';
     } else {
-      m.textContent = `${n} PLAYERS${autoRoles().length ? ' + AUTO' : ''}${recTag}`;
+      m.textContent = `${n} ${n === 1 ? 'PLAYER' : 'PLAYERS'}${autoRoles().length ? ' + AUTO' : ''}${recTag}`;
       m.className = 'mode';
     }
     m.textContent += recTag;
-    if (rec.seconds > 0) $('rec').textContent = `● SAVE LAST ${Math.floor(rec.seconds)} s`;
+    if (rec.seconds > 0) $('rec').textContent = `SAVE LAST ${Math.floor(rec.seconds)} s`;
   }
 }
 requestAnimationFrame(frame);

@@ -143,7 +143,7 @@ export class Viz {
       const isStandby = lane.id.startsWith('standby:');
       const isReplay = lane.id.startsWith('replay:');
       let nameText = isStandby ? 'STANDBY · READY' : isReplay ? 'REPLAY' : lane.auto ? 'AUTO BAND' : lane.name;
-      if (lane.speaker) nameText += ' · SPK';
+      if (lane.speaker) nameText += ' (SPK)';
       if (!lane.connected && !lane.auto && !isStandby && !isReplay) nameText += ' · offline';
       const maxW = labelW - 32;
       while (nameText.length > 4 && ctx.measureText(nameText).width > maxW) {
