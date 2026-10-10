@@ -43,7 +43,9 @@ export class Recorder {
     this.sr = ctx.sampleRate;
     this.maxBlocks = Math.ceil((SECONDS * this.sr) / BLOCK);
     const url = URL.createObjectURL(new Blob([WORKLET], { type: 'text/javascript' }));
-    await ctx.addAudioWorkletModule(url);
+    try { await ctx.addAudioWorkletModule(url); }
+    catch (error) { this.started = false; throw error; }
+    finally { URL.revokeObjectURL(url); }
     const node = ctx.createAudioWorkletNode('ho-tap', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2] });
     node.port.onmessage = (e) => {
       this.chunks.push(e.data as Float32Array[]);

@@ -35,7 +35,9 @@ export class Net {
     const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${this.path}`;
     const ws = new WebSocket(url);
     this.ws = ws;
+    const connectTimeout = setTimeout(() => { if (ws.readyState === WebSocket.CONNECTING) ws.close(); }, 6000);
     ws.onopen = () => {
+      clearTimeout(connectTimeout);
       this.retry = 0; this.connected = true; this.lastRx = performance.now();
       this.openHandlers.forEach((h) => h());
     };
@@ -46,6 +48,7 @@ export class Net {
       this.handlers.get(m.t)?.forEach((h) => h(m));
     };
     ws.onclose = () => {
+      clearTimeout(connectTimeout);
       if (this.ws !== ws) return;
       const was = this.connected;
       this.connected = false;

@@ -39,8 +39,15 @@ export class Engine {
   constructor(private clock: ClockSync, private isStage: boolean) {}
 
   /** Must be called from a user gesture (tap) - browsers keep audio suspended until then. */
+  private starting: Promise<void> | null = null;
   async start() {
-    if (this.ready) return;
+    if (this.ready) { await Tone.start(); return; }
+    if (this.starting) return this.starting;
+    this.starting = this.initialize();
+    try { await this.starting; } finally { this.starting = null; }
+  }
+
+  private async initialize() {
     await Tone.start();
     const ctx = Tone.getContext();
     ctx.lookAhead = 0; // we schedule absolute times ourselves
@@ -259,7 +266,7 @@ function makeVoice(role: Role, auto: boolean, punchy = false): Voice {
   const level = auto ? 0.55 : 1; // AUTO parts sit under the humans
   switch (role) {
     case 'melody': return punchy ? padVoice(level, true) : melodyVoice(level);
-    case 'bass': return punchy ? padVoice(level * 0.7, true) : bassVoice(level);
+    case 'bass': return punchy ? padVoice(level * 0.8, true, true) : bassVoice(level);
     case 'pads': return padVoice(level, punchy);
     case 'drums': return drumVoice(level);
   }
@@ -320,22 +327,22 @@ function bassVoice(level: number): Voice {
   };
 }
 
-function padVoice(level: number, punchy = false): Voice {
+function padVoice(level: number, punchy = false, bass = false): Voice {
   const synth = new Tone.PolySynth(Tone.Synth, {
-    oscillator: punchy ? { type: 'triangle' } : { type: 'fatsawtooth', count: 3, spread: 28 },
-    envelope: punchy ? { attack: 0.005, decay: 0.35, sustain: 0.25, release: 0.5 } : { attack: 0.22, decay: 0.4, sustain: 0.7, release: 1.3 },
+    oscillator: punchy ? { type: bass ? 'sine' : 'triangle' } : { type: 'fatsawtooth', count: 3, spread: 28 },
+    envelope: punchy ? { attack: 0.005, decay: 0.35, sustain: bass ? 0.5 : 0.25, release: bass ? 0.16 : 0.5 } : { attack: 0.22, decay: 0.4, sustain: 0.7, release: 1.3 },
   });
   synth.maxPolyphony = 10;
   synth.volume.value = punchy ? -11 : -19;
-  const filter = new Tone.Filter(1400, 'lowpass', -12);
+  const filter = new Tone.Filter(bass ? 900 : 1400, 'lowpass', -12);
   const chorus = new Tone.Chorus(3.5, 2.5, 0.5).start();
   const out = new Tone.Gain(level);
-  synth.chain(filter, chorus, out);
+  if (bass) synth.chain(filter, out); else synth.chain(filter, chorus, out);
   return {
     out,
     trigger(r, time, dur, vel) {
       if (r.kind !== 'notes') return;
-      synth.triggerAttackRelease(r.midi.map(mtof), dur, time, 0.35 + vel * 0.5);
+      synth.triggerAttackRelease(r.midi.map(mtof), dur, time, vel * 0.85);
     },
     ctl(y, tilt) { filter.frequency.rampTo(Math.min(9000, 350 * 2 ** (y * 4.2) * 2 ** (tilt * 0.8)), 0.1); },
     dispose() { synth.dispose(); filter.dispose(); chorus.dispose(); out.dispose(); },

@@ -36,10 +36,10 @@ export const songSeconds = (s: GameSong) => (s.bars * 4 * 60) / s.bpm;
 
 /** Player-facing instrument names (the Role ids are the existing ones). */
 export const INSTRUMENT: Record<Role, { name: string; icon: string }> = {
-  drums: { name: 'Drums', icon: '🥁' },
-  bass: { name: 'Bass', icon: '🎸' },
-  pads: { name: 'Piano', icon: '🎹' },
-  melody: { name: 'Synth', icon: '🎛️' },
+  drums: { name: 'Percussion', icon: 'DRM' },
+  bass: { name: 'Double Bass', icon: 'BSS' },
+  pads: { name: 'Grand Piano', icon: 'PNO' },
+  melody: { name: 'Solo Lead', icon: 'LEAD' },
 };
 
 // ---------------------------------------------------------------- difficulty
@@ -104,12 +104,14 @@ export function buildChart(song: GameSong, role: Role, diff: Difficulty): ChartN
   } else {
     // pitch percentile -> lane
     const tops = notes.map((n) => Math.max(...(n.midi ?? [60]))).sort((a, b) => a - b);
-    const pct = (m: number) => {
-      if (tops.length < 2) return 0;
-      const first = tops.indexOf(m), last = tops.lastIndexOf(m);
-      return (first + last) / 2 / (tops.length - 1);
-    };
-    laneOf = (n) => Math.min(lanes - 1, Math.floor(pct(Math.max(...(n.midi ?? [60]))) * lanes * 0.9999));
+    const ranks = new Map<number, number>();
+    for (let i = 0; i < tops.length;) {
+      let end = i + 1;
+      while (end < tops.length && tops[end] === tops[i]) end++;
+      ranks.set(tops[i], tops.length < 2 ? 0 : (i + end - 1) / 2 / (tops.length - 1));
+      i = end;
+    }
+    laneOf = (n) => Math.min(lanes - 1, Math.floor((ranks.get(Math.max(...(n.midi ?? [60]))) ?? 0) * lanes * 0.9999));
   }
   const seen = new Set<string>();
   return notes.filter((n) => { const key = `${n.step}:${laneOf(n)}`; if (seen.has(key)) return false; seen.add(key); return true; })

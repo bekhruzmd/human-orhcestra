@@ -33,6 +33,7 @@ npm run demo                  # build + server + HTTPS tunnel
 | `vercel deploy --prod` | cloud copy at **https://horcha.vercel.app** (see "Vercel deployment") |
 | `npm run tunnel` | tunnel only, if you run the server separately |
 | `npm test` | offline checks: scale-lock + clock-sync accuracy simulation |
+| `npm run test:network` | isolated live WebSocket regression tests (temporary server on port 3199) |
 | `npm run typecheck` | `tsc --noEmit` |
 
 Stage keys: **H** hides the conductor bar, **F** toggles fullscreen.
@@ -100,7 +101,7 @@ Honest limits: the residual can't detect a *constant* asymmetry (e.g. uplink 2 m
 4. **Preview selected** before starting. Imports are saved in this browser (up to 20, subject to browser storage capacity).
 5. Choose a difficulty and **START**. Phones receive the same arrangement and show playable charts. Audio is enabled from the Start/Preview click.
 
-**Assisted performance:** the Stage schedules the complete arrangement 600 ms ahead. Successful taps score points and gently lift upcoming notes for that instrument. Misses affect scores, but the tune continues. Phone messages never retrigger past notes, add random pitches, or compete to advance a shared melody cursor. This deliberately replaces the old “only successful taps make sound” rule.
+**Assisted performance:** the Stage schedules the complete arrangement 600 ms ahead. Successful taps score points and lift upcoming notes for that instrument. Without recent hits that part softens; the tune continues. Phone messages never retrigger past notes, add random pitches, or compete to advance a shared melody cursor. This deliberately replaces the old “only successful taps make sound” rule.
 
 All song audio comes from the Stage, regardless of phone-speaker settings. Several people can play the same part without doubling its audio. Difficulty simplifies the phone chart while the complete arrangement remains audible. The Stage shows a late-audio-event counter separately from clock estimates.
 
@@ -184,3 +185,7 @@ src/player/          phone UI (index.html)
 src/stage/           big-screen UI (stage.html), visuals.ts, auto.ts
 scripts/             tunnel.mjs, smoke.ts (protocol), simtest.ts (sync), musictest.ts
 ```
+
+## Second-pass engineering review
+
+See [SECOND_PASS_REVIEW.md](SECOND_PASS_REVIEW.md) for the prioritized audit, implemented fixes, executed checks, remaining limitations and 60–90 second demo flow. This application has one shared room per server process. Reload Stage and phones together after this update to use the revised hit/stat messages.

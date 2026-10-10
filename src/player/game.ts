@@ -165,7 +165,7 @@ export class GameUI {
     this.bursts.push({ x: (lane + 0.5) / this.lanes, y: HIT_Y, t: performance.now(), color: LANE_COLORS[this.lanes][lane] });
     navigator.vibrate?.(8);
     // Report participation; the Stage never retriggers a past note.
-    this.d.net.send({ t: 'ghit', startStep: g.startStep, step: g.startStep + n.step });
+    this.d.net.send({ t: 'ghit', startStep: g.startStep, step: g.startStep + n.step, noteId: n.id });
     this.updateHud();
   }
 
@@ -178,10 +178,12 @@ export class GameUI {
   }
 
   private report(force: boolean) {
+    const g = this.d.getTs()?.game;
+    if (!g) return;
     const s = JSON.stringify(this.stats);
     if (!force && s === this.lastSent) return;
     this.lastSent = s;
-    this.d.net.send({ t: 'gstats', s: this.stats });
+    this.d.net.send({ t: 'gstats', startStep: g.startStep, s: this.stats });
   }
 
   // ----------------------------------------------------------------- frame

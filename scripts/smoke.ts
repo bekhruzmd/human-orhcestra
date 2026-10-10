@@ -1,5 +1,7 @@
 /** Protocol smoke test against a running server (npm run serve): sync, seating, relay, reconnect. */
 import WebSocket from 'ws';
+import { emptyStats } from '../shared/game';
+import { stepTime } from '../shared/protocol';
 import { ClockSync } from '../src/common/clock';
 import { stepPos, type ServerMsg, type TransportState } from '../shared/protocol';
 
@@ -47,6 +49,12 @@ const notes = stage.log.filter((m) => m.t === 'note');
 check(notes.length === 1 && (notes[0] as any).role === 'melody', 'stage got exactly 1 note (far-future one rejected)');
 check(!phones[2].log.some((m) => m.t === 'note'), 'sender does not get its own note echoed');
 
+// Malformed clients must not crash the room or poison the transport.
+for (const value of [null, [], 5, { t: 'gstats' }, { t: 'stats', stats: {} }, { t: 'note', step: 1, d: null }]) phones[0].ws.send(JSON.stringify(value));
+stage.ws.send(JSON.stringify({ t: 'cmd', cmd: 'bpm', value: 'invalid' }));
+await sleep(100);
+check(Number.isFinite(stage.ts?.bpm), 'malformed messages leave the room and transport healthy');
+
 // conductor: bpm change keeps the step position continuous
 const before = stepPos(stage.ts!, stage.clock.serverNow());
 stage.ws.send(JSON.stringify({ t: 'cmd', cmd: 'bpm', value: 140 }));
@@ -84,6 +92,22 @@ check(stage.log.filter((m) => m.t === 'note').length === noteCount, 'legacy game
 stage.ws.send(JSON.stringify({ t: 'game', action: 'start', song: { ...imported, bpm: 0 }, difficulty: 'easy' }));
 await sleep(100);
 check(stage.log.some((m) => m.t === 'error') && stage.ts?.game?.song?.bpm === 120, 'invalid import produces an error without replacing the active song');
+const firstStart = stage.ts!.game!.startStep;
+const stats = { ...emptyStats(2), score: 100, perfect: 1, combo: 1, maxCombo: 1 };
+phones[0].ws.send(JSON.stringify({ t: 'gstats', startStep: firstStart, s: stats }));
+await sleep(1100);
+check(stage.log.filter((m) => m.t === 'roster').at(-1)!.players.find((p) => p.id === 'p-a')?.game?.score === 100, 'current performance stats reach the Stage');
+const waitForNote = stepTime(stage.ts!, firstStart) - stage.clock.serverNow();
+if (waitForNote > 0) await sleep(waitForNote);
+for (let i = 0; i < 2; i++) phones[0].ws.send(JSON.stringify({ t: 'ghit', startStep: firstStart, step: firstStart, noteId: 0 }));
+await sleep(100);
+check(stage.log.filter((m) => m.t === 'ghit').length === 1, 'duplicate note hits relay only once');
+stage.ws.send(JSON.stringify({ t: 'game', action: 'start', song: imported, difficulty: 'easy' }));
+await sleep(100);
+check(stage.ts!.game!.startStep !== firstStart, 'restart gets a distinct performance identity');
+phones[0].ws.send(JSON.stringify({ t: 'gstats', startStep: firstStart, s: stats }));
+await sleep(1100);
+check(stage.log.filter((m) => m.t === 'roster').at(-1)!.players.find((p) => p.id === 'p-a')?.game === null, 'old performance reports cannot contaminate a restart');
 stage.ws.send(JSON.stringify({ t: 'game', action: 'stop' }));
 await sleep(100);
 check(stage.ts?.game === null, 'stop clears imported game');
