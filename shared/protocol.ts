@@ -14,6 +14,9 @@
  *     to the scheduling lead) - never *when* the note sounds.
  */
 
+import type { GameState, GameStats, Difficulty } from './game.js';
+export type { GameState, GameStats, Difficulty } from './game.js';
+
 export type Role = 'drums' | 'bass' | 'melody' | 'pads';
 /** Assignment order for newly joined players (spec: Drums, Bass, Melody, Pads). */
 export const ROLES: Role[] = ['drums', 'bass', 'melody', 'pads'];
@@ -21,8 +24,8 @@ export const ROLES: Role[] = ['drums', 'bass', 'melody', 'pads'];
 export const ROLE_INFO: Record<Role, { label: string; icon: string }> = {
   drums: { label: 'Drums', icon: '🥁' },
   bass: { label: 'Bass', icon: '🎸' },
-  melody: { label: 'Melody', icon: '🎹' },
-  pads: { label: 'Pads', icon: '🌌' },
+  melody: { label: 'Synth', icon: '🎛️' },
+  pads: { label: 'Piano', icon: '🎹' },
 };
 
 /** Auto-assigned player colours (distinct on a projector and under a colour-blind filter). */
@@ -63,6 +66,8 @@ export interface TransportState {
   freestyle: boolean;
   /** Song currently looping on the Stage. 'tap' = every phone tap plays the song's next melody note. */
   nowPlaying: { title: string; mode: 'band' | 'tap' } | null;
+  /** Rhythm game in progress (tempo, key and roles are locked while this is set). */
+  game: GameState | null;
 }
 
 export const stepMs = (bpm: number) => 60000 / bpm / STEPS_PER_BEAT;
@@ -98,6 +103,8 @@ export interface PlayerInfo {
   speaker: boolean;
   /** Latest sync statistics reported by that phone. */
   sync: SyncStats | null;
+  /** Rhythm-game stats for the current performance (null outside a game). */
+  game: GameStats | null;
 }
 
 export interface SyncStats {
@@ -142,7 +149,9 @@ export type ClientMsg =
   | { t: 'stats'; stats: SyncStats }
   | { t: 'role'; role: Role }
   | { t: 'speaker'; on: boolean }
-  | { t: 'note'; step: number; d: number; v: number; dur: number; role?: Role }
+  | { t: 'note'; step: number; d: number; v: number; dur: number; role?: Role; midi?: number[] }
+  | { t: 'game'; action: 'start' | 'stop'; songId?: string; difficulty?: Difficulty }
+  | { t: 'gstats'; s: GameStats }
   | { t: 'ctl'; y: number; tilt: number }
   | { t: 'raw'; k: RawKind; at: number; x: number; y: number; v?: number }
   | { t: 'songreq'; id: string; mode: 'band' | 'tap' }

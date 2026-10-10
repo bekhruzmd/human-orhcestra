@@ -62,8 +62,17 @@ export class Engine {
   get tap(): Tone.ToneAudioNode { return this.limiter; }
   get context() { return Tone.getContext().rawContext as AudioContext; }
 
+  private gameMode = false;
+  /** Rhythm-game mode: the pads/keys voice gets a fast attack so a tap speaks immediately (piano-like). */
+  setGame(on: boolean) {
+    if (on === this.gameMode) return;
+    this.gameMode = on;
+    for (const [k, e] of this.voices) if (e.role === 'pads') { e.voice.dispose(); this.voices.delete(k); }
+  }
+
   setTransport(ts: TransportState) {
     this.ts = ts;
+    this.setGame(!!ts.game);
     if (!this.ready) return;
     // dotted-eighth echo, locked to tempo
     this.delBus.delayTime.rampTo((60 / ts.bpm) * 0.75, 0.05);
@@ -152,7 +161,7 @@ export class Engine {
     const k = `${pid}|${role}`;
     let e = this.voices.get(k);
     if (!e) {
-      const voice = makeVoice(role, pid.startsWith('auto:'));
+      const voice = makeVoice(role, pid.startsWith('auto:'), this.gameMode);
       voice.out.connect(this.master);
       // effect sends: pads/melody get a lot of space, bass/drums stay dry
       const rev = new Tone.Gain(role === 'pads' ? 0.55 : role === 'melody' ? 0.3 : role === 'drums' ? 0.12 : 0).connect(this.revBus);
@@ -210,12 +219,12 @@ export class Engine {
 }
 
 // ======================================================================= voices
-function makeVoice(role: Role, auto: boolean): Voice {
+function makeVoice(role: Role, auto: boolean, punchy = false): Voice {
   const level = auto ? 0.55 : 1; // AUTO parts sit under the humans
   switch (role) {
     case 'melody': return melodyVoice(level);
     case 'bass': return bassVoice(level);
-    case 'pads': return padVoice(level);
+    case 'pads': return padVoice(level, punchy);
     case 'drums': return drumVoice(level);
   }
 }
@@ -275,13 +284,13 @@ function bassVoice(level: number): Voice {
   };
 }
 
-function padVoice(level: number): Voice {
+function padVoice(level: number, punchy = false): Voice {
   const synth = new Tone.PolySynth(Tone.Synth, {
-    oscillator: { type: 'fatsawtooth', count: 3, spread: 28 },
-    envelope: { attack: 0.22, decay: 0.4, sustain: 0.7, release: 1.3 },
+    oscillator: punchy ? { type: 'triangle' } : { type: 'fatsawtooth', count: 3, spread: 28 },
+    envelope: punchy ? { attack: 0.005, decay: 0.35, sustain: 0.25, release: 0.5 } : { attack: 0.22, decay: 0.4, sustain: 0.7, release: 1.3 },
   });
   synth.maxPolyphony = 10;
-  synth.volume.value = -19;
+  synth.volume.value = punchy ? -11 : -19;
   const filter = new Tone.Filter(1400, 'lowpass', -12);
   const chorus = new Tone.Chorus(3.5, 2.5, 0.5).start();
   const out = new Tone.Gain(level);

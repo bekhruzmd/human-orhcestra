@@ -19,6 +19,9 @@ import { NOTE_NAMES, SCALE_LABEL, chordAt, freeMidi, freeZone, shakeVoice, type 
 import { analyze, arrange, toMidi, type RawEv, type Song } from './composer';
 import { parseMidi } from './midi';
 import { SongPlayer } from './song';
+import { GameConductor } from './gameconductor';
+import { SONGS, getSong } from '../../shared/songs';
+import { DIFF, DIFFICULTIES, INSTRUMENT, accuracy, grade, songSeconds, type Difficulty } from '../../shared/game';
 import { LIBRARY, buildSong } from '../songs/library';
 import { Viz, type Lane } from './visuals';
 import { AutoBand } from './auto';
@@ -60,6 +63,7 @@ app.innerHTML = `
   <div class="ctl"><span class="lbl">SCALE</span><select id="scale">${(Object.keys(SCALE_LABEL) as ScaleName[]).map((s) => `<option value="${s}">${SCALE_LABEL[s]}</option>`).join('')}</select></div>
   <button class="btn drop" id="drop">DROP</button>
   <span class="spacer"></span>
+  <button class="btn play" id="play">🎮 PLAY A SONG</button>
   <button class="btn free" id="free">🎤 FREESTYLE</button>
   <button class="btn" id="midi">🎵 SONGS</button>
   <input id="midifile" type="file" accept=".mid,.midi" hidden />
@@ -68,6 +72,15 @@ app.innerHTML = `
   <button class="btn rec" id="rec">⏺ SAVE 30 s</button>
 </footer>
 <div id="card" hidden></div>
+<div id="gamehud" hidden><div class="gh-top"><span id="gh-title"></span><b id="gh-team">0</b><span id="gh-acc"></span></div><div class="gh-bar"><i id="gh-prog"></i></div><div id="gh-note"></div></div>
+<div id="gamepick" hidden><div class="box">
+  <h3>🎮 Pick a song</h3>
+  <p id="gp-info"></p>
+  <div id="gp-songs"></div>
+  <div class="diffs" id="gp-diffs"></div>
+  <div class="row"><button class="btn drop" id="gp-start">▶ START</button><button class="btn" id="gp-close">Close</button></div>
+</div></div>
+<div id="results" hidden></div>
 <div id="songs" hidden><div class="box">
   <h3>🎵 Pick a song</h3>
   <div class="modes"><button class="btn on" id="m-tap">👆 Judges tap it (every tap plays the next note)</button><button class="btn" id="m-band">🎸 Band plays it (jam over it)</button></div>
@@ -82,8 +95,8 @@ const viz = new Viz($<HTMLCanvasElement>('viz'));
 // ------------------------------------------------------------------ network
 net.onOpen(() => { net.send({ t: 'hello', kind: 'stage' }); clock.start(true); });
 net.on('pong', (m) => clock.onPong(m));
-net.on('welcome', (m) => { ts = m.state; wasFree = m.state.freestyle; engine.setTransport(m.state); syncControls(); });
-net.on('state', (m) => { ts = m.state; engine.setTransport(m.state); syncControls(); onFreestyleChange(); });
+net.on('welcome', (m) => { ts = m.state; wasFree = m.state.freestyle; engine.setTransport(m.state); syncControls(); onGameChange(); });
+net.on('state', (m) => { ts = m.state; engine.setTransport(m.state); syncControls(); onFreestyleChange(); onGameChange(); });
 net.on('raw', (r) => onRaw(r));
 net.on('roster', (m) => { roster = m.players; engine.prune(new Set(roster.map((p) => p.id))); renderRoster(); });
 net.on('ctl', (m) => engine.ctl(m.pid, m.y, m.tilt));
@@ -109,13 +122,18 @@ net.on('songreq', (r) => {
 
 // ------------------------------------------------------------------ AUTO band
 const humans = () => roster.filter((p) => p.connected);
-const autoRoles = (): Role[] => (ts?.autoBand && !songs.song ? ROLES.filter((r) => !humans().some((p) => p.role === r)) : []);
+const autoRoles = (): Role[] => ((ts?.autoBand || ts?.game) && !songs.song ? ROLES.filter((r) => !humans().some((p) => p.role === r)) : []);
 const songs = new SongPlayer(clock, () => ts, (ev: NoteEvent) => {
   if (!ts) return;
   engine.play(ev);
   viz.push(ev, stepTime(ts, ev.step));
 });
-new AutoBand(clock, () => ts, autoRoles, (ev: NoteEvent) => {
+new GameConductor(clock, () => ts, () => new Set(autoRoles()), (ev: NoteEvent) => {
+  if (!ts) return;
+  engine.play(ev);
+  viz.push(ev, stepTime(ts, ev.step));
+});
+new AutoBand(clock, () => ts, () => (ts?.game ? [] : autoRoles()), (ev: NoteEvent) => {
   if (!ts) return;
   engine.play(ev);
   viz.push(ev, stepTime(ts, ev.step));
@@ -146,6 +164,11 @@ function renderRoster() {
   if (!roster.length) { el.innerHTML = `<div class="empty">No players yet.<br>Scan the code with your phone.</div>`; return; }
   el.innerHTML = roster.map((p) => {
     const h = syncHeadline(p.sync);
+    if (ts?.game) {
+      const g = p.game;
+      return `<div class="pl ${p.connected ? '' : 'off'}" style="--c:${p.color}"><div class="n">${ROLE_INFO[p.role].icon} ${esc(p.name)}<small>${ROLE_INFO[p.role].label} · ${g ? accuracy(done(g)).toFixed(0) + '% · combo ' + g.combo : 'ready'}${p.connected ? '' : ' · reconnecting…'}</small></div>
+        <div class="e">${g ? g.score.toLocaleString() : '–'}</div></div>`;
+    }
     return `<div class="pl ${p.connected ? '' : 'off'}" style="--c:${p.color}"><div class="n">${ROLE_INFO[p.role].icon} ${esc(p.name)}<small>${ROLE_INFO[p.role].label}${p.speaker ? ' · 📢 phone speaker' : ''}${p.connected ? '' : ' · reconnecting…'}</small></div>
       <div class="e ${Number.isNaN(h.err) ? '' : errClass(h.err)}">${Number.isNaN(h.err) ? '–' : '±' + fmt(h.err, 0) + ' ms'}</div></div>`;
   }).join('');
@@ -162,6 +185,7 @@ function renderRoster() {
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
 // -------------------------------------------------------------- conductor UI
+const done = (g: { perfect: number; good: number; miss: number }) => ({ perfect: g.perfect, good: g.good, total: g.perfect + g.good + g.miss });
 const cmd = (c: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'freestyle' | 'nowplaying', value?: number | string | boolean) => net.send({ t: 'cmd', cmd: c, value });
 let bpmTimer = 0;
 $<HTMLInputElement>('bpmr').oninput = (e) => {
@@ -173,6 +197,7 @@ $<HTMLSelectElement>('key').onchange = (e) => cmd('key', Number((e.target as HTM
 $<HTMLSelectElement>('scale').onchange = (e) => cmd('scale', (e.target as HTMLSelectElement).value);
 $('drop').onclick = () => cmd('drop');
 $('free').onclick = () => cmd('freestyle', !ts?.freestyle);
+$('play').onclick = () => openGamePicker();
 $('midi').onclick = openSongs;
 $('s-close').onclick = () => { $('songs').hidden = true; };
 $('s-stop').onclick = () => { stopSong(); $('songs').hidden = true; };
@@ -354,6 +379,99 @@ function showCard(song: Song) {
 }
 const hideCard = () => { $('card').hidden = true; };
 
+// ------------------------------------------------------------ rhythm game
+let pickSong = SONGS[0].id;
+let pickDiff: Difficulty = 'easy';
+let gameKey = '';
+let resultsShown = false;
+let lastCount = -9;
+
+function openGamePicker() {
+  const n = humans().length;
+  $('gp-info').textContent = n === 0
+    ? 'No players yet: the band will play itself as a demo. Scan the QR to join.'
+    : n === 1 ? 'Solo mode: you play one instrument on your phone, the rest of the band plays itself. Tap the instrument chip on the phone to switch.'
+    : `${n} players: each plays their own instrument; instruments nobody holds are played by the band.`;
+  $('gp-songs').innerHTML = SONGS.map((s) => `<button class="song ${s.id === pickSong ? 'sel' : ''}" data-id="${s.id}"><b>${esc(s.title)}</b><small>${esc(s.artist)}</small>
+    <small>${s.bpm} BPM · ${Math.round(songSeconds(s))} s · ${'★'.repeat(s.rating)}${'☆'.repeat(3 - s.rating)} · drums, bass, piano, synth</small></button>`).join('');
+  $('gp-songs').querySelectorAll<HTMLElement>('.song').forEach((b) => (b.onclick = () => { pickSong = b.dataset.id!; openGamePicker(); }));
+  const desc: Record<Difficulty, string> = { easy: '2 lanes · few notes · forgiving', medium: '3 lanes · more notes', hard: '4 lanes · every note · strict' };
+  $('gp-diffs').innerHTML = DIFFICULTIES.map((d) => `<button class="btn ${d === pickDiff ? 'on' : ''}" data-d="${d}"><b>${d.toUpperCase()}</b><small>${desc[d]} (±${DIFF[d].perfect} ms perfect)</small></button>`).join('');
+  $('gp-diffs').querySelectorAll<HTMLElement>('button').forEach((b) => (b.onclick = () => { pickDiff = b.dataset.d as Difficulty; openGamePicker(); }));
+  $('gamepick').hidden = false;
+}
+$('gp-close').onclick = () => { $('gamepick').hidden = true; };
+$('gp-start').onclick = () => {
+  $('gamepick').hidden = true; $('results').hidden = true;
+  net.send({ t: 'game', action: 'start', songId: pickSong, difficulty: pickDiff });
+};
+
+/** A new game (or the end of one) arrived in the shared state. */
+function onGameChange() {
+  const g = ts?.game;
+  const key = g ? `${g.songId}:${g.startStep}` : '';
+  if (key === gameKey) return;
+  gameKey = key; resultsShown = false; lastCount = -9;
+  document.body.classList.toggle('ingame', !!g);
+  requestAnimationFrame(() => viz.resize());
+  if (g) {
+    songs.stop(); tap.active = false; hideCard(); $('songs').hidden = true; $('results').hidden = true;
+    const song = getSong(g.songId);
+    $('gh-title').textContent = song ? `${song.title} · ${g.difficulty.toUpperCase()}` : '';
+    $('gamehud').hidden = false;
+  } else {
+    $('gamehud').hidden = true;
+  }
+}
+
+function gameTick(serverMs: number) {
+  const g = ts?.game;
+  if (!g || !ts) return;
+  const song = getSong(g.songId);
+  if (!song) return;
+  const pos = stepPos(ts, serverMs);
+  // count-in on the big screen (one number per beat)
+  const toStart = (g.startStep - pos) * (60000 / ts.bpm / 4);
+  if (toStart > 0) {
+    const n = Math.ceil(toStart / (60000 / ts.bpm));
+    if (n <= 4 && n !== lastCount) { lastCount = n; flashBig(n <= 3 ? String(n) : 'READY', 600); }
+  } else if (lastCount !== 0 && toStart > -800) { lastCount = 0; flashBig('GO!', 600); }
+  $('gh-prog').style.width = `${Math.max(0, Math.min(100, ((pos - g.startStep) / (song.bars * 16)) * 100))}%`;
+  if (!resultsShown && pos >= g.endStep + 5) { resultsShown = true; showResults(); }
+}
+
+function teamStats() {
+  const rows = roster.filter((p) => p.game);
+  const sum = (f: (p: PlayerInfo) => number) => rows.reduce((a, p) => a + f(p), 0);
+  const total = sum((p) => p.game!.total);
+  const weighted = sum((p) => p.game!.perfect + 0.6 * p.game!.good);
+  return { rows, score: sum((p) => p.game!.score), acc: total ? (weighted / total) * 100 : 0, maxCombo: Math.max(0, ...rows.map((p) => p.game!.maxCombo)) };
+}
+
+function showResults() {
+  const g = ts?.game, song = g && getSong(g.songId);
+  if (!g || !song) return;
+  const t = teamStats();
+  const solo = t.rows.length <= 1;
+  const rows = [...t.rows].sort((a, b) => b.game!.score - a.game!.score);
+  $('results').innerHTML = `<div class="box"><h3>${esc(song.title)} · ${g.difficulty.toUpperCase()}</h3>
+    <div class="big-team"><div class="grade g${grade(t.acc)}">${t.rows.length ? grade(t.acc) : '–'}</div><div><b>${t.score.toLocaleString()}</b><small>${solo ? 'SOLO SCORE' : 'TEAM SCORE'} · ${t.acc.toFixed(0)}% accuracy · best combo ${t.maxCombo}</small></div></div>
+    <div class="rows">${rows.map((p) => `<div class="pl" style="--c:${p.color}"><div class="n">${ROLE_INFO[p.role].icon} ${esc(p.name)}<small>${INSTRUMENT[p.role].name} · ${p.game!.perfect} perfect · ${p.game!.good} good · ${p.game!.miss} missed</small></div><div class="e">${p.game!.score.toLocaleString()} <small>${accuracy(done(p.game!)).toFixed(0)}%</small></div></div>`).join('') || '<div class="empty">No scores were recorded.</div>'}</div>
+    ${solo && t.rows.length ? '<p class="hintp">Solo mode: the rest of the band played itself.</p>' : ''}
+    <div class="row"><button class="btn drop" id="r-again">↻ PLAY AGAIN</button><button class="btn" id="r-pick">🎮 PICK ANOTHER</button><button class="btn" id="r-free">■ FREE PLAY</button></div></div>`;
+  $('results').hidden = false;
+  $('r-again').onclick = () => { $('results').hidden = true; net.send({ t: 'game', action: 'start', songId: g.songId, difficulty: g.difficulty }); };
+  $('r-pick').onclick = () => { $('results').hidden = true; net.send({ t: 'game', action: 'stop' }); openGamePicker(); };
+  $('r-free').onclick = () => { $('results').hidden = true; net.send({ t: 'game', action: 'stop' }); };
+}
+setInterval(() => {
+  if (!ts?.game) return;
+  const t = teamStats();
+  $('gh-team').textContent = t.score.toLocaleString();
+  $('gh-acc').textContent = `${t.rows.length > 1 ? 'TEAM' : humans().length === 1 ? 'SOLO' : 'AUTO DEMO'} · ${t.acc.toFixed(0)}%`;
+  $('gh-note').textContent = humans().length === 1 ? 'Solo mode: the rest of the band plays itself' : '';
+}, 250);
+
 // --------------------------------------------------------------------- QR
 let joinUrl = '';
 async function refreshJoinUrl() {
@@ -390,6 +508,7 @@ function frame(t: number) {
   if (ts.drop && phase === 'build' && step === ts.drop.startStep && bigEl.textContent !== 'BUILD…') flashBig('BUILD…', 900);
   if (ts.drop && step >= ts.drop.dropStep && lastImpact !== ts.drop.dropStep) { lastImpact = ts.drop.dropStep; viz.impact(); flashBig('DROP', 700); }
 
+  gameTick(b.serverMs);
   viz.draw(b.serverMs, ts, laneList(), { beatPulse: flashEnv(b.since), downbeat: b.downbeat });
 
   if (b.newBeat) {

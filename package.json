@@ -15,7 +15,7 @@
     "demo": "npm run build && concurrently --kill-others-on-fail -n server,tunnel -c blue,green \"tsx server/index.ts\" \"node scripts/tunnel.mjs\"",
     "typecheck": "tsc --noEmit",
     "simtest": "tsx scripts/simtest.ts",
-    "test": "tsx scripts/musictest.ts && tsx scripts/composertest.ts && tsx scripts/librarytest.ts && SECS=8 tsx scripts/simtest.ts"
+    "test": "tsx scripts/musictest.ts && tsx scripts/composertest.ts && tsx scripts/librarytest.ts && tsx scripts/gametest.ts && SECS=8 tsx scripts/simtest.ts"
   },
   "dependencies": {
     "qrcode": "^1.5.4",

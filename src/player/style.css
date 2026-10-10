@@ -58,3 +58,19 @@ button { font: inherit; color: inherit; border: 0; background: none; }
 .dbg { font: 13px/1.6 ui-monospace, Menlo, monospace; color: #cfd0e6; white-space: pre; user-select: text; -webkit-user-select: text; }
 .dbg b { color: #fff; }
 .banner { position: absolute; top: calc(var(--safe-t) + 6px); left: 50%; transform: translateX(-50%); z-index: 70; background: #ff4d6d; color: #fff; font-weight: 800; padding: 8px 16px; border-radius: 999px; font-size: 14px; }
+
+/* ---- rhythm game overlay (phone) ---- */
+.game { position: absolute; inset: 0; z-index: 45; background: var(--bg); display: flex; flex-direction: column; padding: calc(var(--safe-t) + 8px) 0 calc(var(--safe-b) + 6px); touch-action: none; }
+.ghud { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; padding: 0 16px 8px; }
+.ghud small { display: block; color: var(--dim); font-weight: 700; font-size: 12px; letter-spacing: .04em; }
+.gs b { font-size: 17px; } .gs small { max-width: 38vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gscore { text-align: center; } .gscore b { font-size: 34px; font-variant-numeric: tabular-nums; line-height: 1; }
+.gcombo { text-align: right; } .gcombo b { font-size: 30px; line-height: 1; font-variant-numeric: tabular-nums; color: var(--c); }
+#g-canvas { flex: 1; width: 100%; min-height: 0; display: block; touch-action: none; }
+.glabels { display: flex; padding: 6px 0 2px; }
+.glabels span { flex: 1; text-align: center; font-size: 12px; font-weight: 900; letter-spacing: .1em; color: var(--c); }
+.gresults { position: absolute; inset: 0; background: rgba(8,8,14,.94); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px; text-align: center; }
+.gresults .grade { font-size: 120px; font-weight: 900; line-height: 1; color: var(--c); text-shadow: 0 0 60px var(--c); }
+.gresults .gbig { font-size: 40px; font-weight: 900; font-variant-numeric: tabular-nums; }
+.gresults .grid { display: grid; grid-template-columns: 1fr auto; gap: 6px 24px; font-size: 18px; min-width: 240px; text-align: left; }
+.gresults .grid span { color: var(--dim); font-weight: 700; } .gresults p { color: var(--dim); }

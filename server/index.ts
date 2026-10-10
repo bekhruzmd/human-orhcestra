@@ -12,6 +12,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
+import { getSong } from '../shared/songs.js';
+import { DIFFICULTIES, songSteps, type GameStats } from '../shared/game.js';
 import {
   BPM_MAX, BPM_MIN, COLORS, DROP_BUILD_STEPS, ROLES, STEPS_PER_BAR,
   type ClientMsg, type PlayerInfo, type Role, type ScaleName, type ServerMsg, type TransportState,
@@ -41,8 +43,11 @@ const transport: TransportState = {
   speakerMode: false,
   freestyle: false,
   nowPlaying: null,
+  game: null,
 };
 let dropTimer: NodeJS.Timeout | null = null;
+let gameTimer: NodeJS.Timeout | null = null;
+const RESULTS_GRACE_MS = 45_000; // how long a finished game stays up so the results screens can be read
 
 function setBpm(bpm: number) {
   bpm = Math.min(BPM_MAX, Math.max(BPM_MIN, Math.round(bpm)));
@@ -91,7 +96,7 @@ const conns = new Set<Conn>();
 let publicUrl: string | null = null;
 
 const info = (p: Player): PlayerInfo => ({
-  id: p.id, name: p.name, color: p.color, role: p.role, connected: p.connected, speaker: p.speaker, sync: p.sync,
+  id: p.id, name: p.name, color: p.color, role: p.role, connected: p.connected, speaker: p.speaker, sync: p.sync, game: p.game,
 });
 
 function send(ws: WebSocket, msg: ServerMsg) {
@@ -118,7 +123,7 @@ function seat(id: string): Player {
   const others = joinedPlayers();
   const p: Player = {
     id, name: `Player ${others.length + 1}`, color: pickColor(others), role: pickRole(others), connected: true,
-    speaker: false, sync: null, joined: false, conn: null, droppedAt: null, y: 0.5, tilt: 0,
+    speaker: false, sync: null, game: null, joined: false, conn: null, droppedAt: null, y: 0.5, tilt: 0,
   };
   players.set(id, p);
   return p;
@@ -223,8 +228,43 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
     return;
   }
 
+  if (m.t === 'game') {
+    if (conn.kind !== 'stage') return; // the host starts and stops performances
+    if (m.action === 'stop') {
+      if (gameTimer) clearTimeout(gameTimer);
+      transport.game = null;
+      for (const pl of players.values()) pl.game = null;
+      broadcastState(); broadcastRoster();
+      return;
+    }
+    const song = m.songId ? getSong(m.songId) : undefined;
+    const difficulty = DIFFICULTIES.find((d) => d === m.difficulty);
+    if (!song || !difficulty) return;
+    // One authoritative start: lock the tempo (position stays continuous), then begin on a bar line far enough
+    // away for a 4-beat count-in plus network slack. Every phone derives every note time from these numbers.
+    transport.drop = null; transport.freestyle = false; transport.nowPlaying = null;
+    transport.root = song.root; transport.scale = song.scale;
+    setBpm(song.bpm);
+    const lead = Math.max(4000, 4 * (60000 / song.bpm) + 1500);
+    const startStep = Math.ceil(stepPos(transport, serverNow() + lead) / STEPS_PER_BAR) * STEPS_PER_BAR;
+    transport.game = { songId: song.id, difficulty, startStep, endStep: startStep + songSteps(song) + STEPS_PER_BAR };
+    for (const pl of players.values()) pl.game = null;
+    // A finished game must not linger: clear it after the results grace period (also covers a Stage that closed).
+    if (gameTimer) clearTimeout(gameTimer);
+    const endMs = transport.epoch + transport.game.endStep * stepMs(transport.bpm);
+    gameTimer = setTimeout(() => {
+      transport.game = null;
+      for (const pl of players.values()) pl.game = null;
+      broadcastState(); broadcastRoster();
+    }, Math.max(0, endMs - serverNow()) + RESULTS_GRACE_MS);
+    broadcastState(); broadcastRoster();
+    return;
+  }
+
   if (m.t === 'cmd') {
     if (conn.kind !== 'stage') return; // only the conductor may change the music
+    // While a rhythm game runs, tempo/key/mode are locked: every chart is addressed in steps of THIS tempo.
+    if (transport.game && ['bpm', 'key', 'scale', 'drop', 'freestyle', 'nowplaying'].includes(m.cmd)) return;
     switch (m.cmd) {
       case 'bpm': setBpm(Number(m.value)); break;
       case 'key': transport.root = ((Math.round(Number(m.value)) % 12) + 12) % 12; break;
@@ -257,11 +297,19 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       send(conn.ws, { t: 'you', you: info(p) });
       break;
     case 'role':
-      if (ROLES.includes(m.role)) { p.role = m.role; broadcastRoster(); send(conn.ws, { t: 'you', you: info(p) }); }
+      if (!transport.game && ROLES.includes(m.role)) { p.role = m.role; broadcastRoster(); send(conn.ws, { t: 'you', you: info(p) }); }
       break;
     case 'speaker':
       p.speaker = !!m.on; broadcastRoster();
       break;
+    case 'gstats': {
+      // Each phone judges its own taps against the shared timeline and reports the totals; clamp to sane ranges.
+      if (!transport.game) return;
+      const n = (v: unknown, max: number) => Math.max(0, Math.min(max, Math.round(Number(v) || 0)));
+      const g: GameStats = { score: n(m.s.score, 1e7), combo: n(m.s.combo, 1e4), maxCombo: n(m.s.maxCombo, 1e4), perfect: n(m.s.perfect, 1e4), good: n(m.s.good, 1e4), miss: n(m.s.miss, 1e4), total: n(m.s.total, 1e4) };
+      p.game = g;
+      break;
+    }
     case 'stats':
       p.sync = m.stats; // roster is re-broadcast on a timer, not per report
       break;
@@ -297,8 +345,12 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       // Pitch/voice quantisation to the key+scale happens in shared/music.ts at playback, from the
       // *current* transport, so key changes are instant and nobody can send an out-of-key pitch.
       const role: Role = m.role === 'drums' ? 'drums' : p.role; // non-drummers may shake in a hit
+      // Explicit pitches are only honoured during a rhythm game (the chart carries the pitch).
+      const midi = transport.game && Array.isArray(m.midi)
+        ? m.midi.slice(0, 4).map((x) => Math.max(0, Math.min(127, Math.round(Number(x) || 0))))
+        : undefined;
       broadcast(
-        { t: 'note', pid: p.id, role, step, d: Math.max(0, Math.min(15, Math.round(m.d))), v: clamp01(m.v), dur: Math.max(1, Math.min(STEPS_PER_BAR, Math.round(m.dur || 2))) },
+        { t: 'note', pid: p.id, role, step, d: Math.max(0, Math.min(15, Math.round(m.d))), v: clamp01(m.v), dur: Math.max(1, Math.min(STEPS_PER_BAR, Math.round(m.dur || 2))), midi },
         (c) => c !== conn,
       );
       break;

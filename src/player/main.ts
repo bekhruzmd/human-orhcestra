@@ -16,6 +16,7 @@ import {
   type NoteEvent, type PlayerInfo, type RawKind, type Role, type TransportState,
 } from '../../shared/protocol';
 import { LIBRARY } from '../songs/library';
+import { GameUI } from './game';
 import { COLS, HOLD_REPEAT, NOTE_DUR, chordAt, grooveVoice, padLabels, SCALE_LABEL, NOTE_NAMES } from '../../shared/music';
 
 const net = new Net();
@@ -23,6 +24,10 @@ const id = stableId();
 const clock = new ClockSync((m) => net.send(m));
 const beats = new BeatTracker();
 const engine = new Engine(clock, false);
+// Rhythm game overlay (mounts itself when the server starts a game; free play is untouched otherwise)
+const game = new GameUI(document.getElementById('app')!, { clock, net, getTs: () => ts, getMe: () => me });
+(window as any).hoGame = game; // test/debug hook
+const syncGame = () => { if (joined) game.sync(ts, me); };
 
 let ts: TransportState | null = null;
 let me: PlayerInfo | null = null;
@@ -59,11 +64,13 @@ net.on('pong', (m) => clock.onPong(m));
 net.on('welcome', (m) => {
   ts = m.state; engine.setTransport(m.state);
   if (m.you) { me = m.you; if (!joined) render(); }
+  syncGame();
 });
 net.on('state', (m) => {
   const was = ts?.speakerMode;
   ts = m.state; engine.setTransport(m.state);
   if (joined && m.state.speakerMode !== was && was !== undefined) setSpeaker(m.state.speakerMode && engine.ready);
+  syncGame();
   refreshPadLabels();
 });
 net.on('you', (m) => {
@@ -72,6 +79,7 @@ net.on('you', (m) => {
   document.documentElement.style.setProperty('--c', me.color);
   if (joined) { if (roleChanged) buildJam(); }
   else render();
+  syncGame();
 });
 
 // ------------------------------------------------------------------- screens
@@ -99,6 +107,7 @@ async function onJoin() {
   net.send({ t: 'join', name });
   if (me) me.name = name.trim().slice(0, 14) || me.name;
   buildJam();
+  syncGame();
 }
 
 // ---------------------------------------------------------------------- jam UI
@@ -370,7 +379,7 @@ function listenMotion() {
 
 /** Shake = drum hit, picked by the groove so it always lands in the pattern. Non-drummers add hats/claps. */
 function shake(vel: number) {
-  if (!ts || !me) return;
+  if (!ts || !me || game.active) return;
   if (ts.freestyle) { rawSend('s', 0.5, 0.5, vel); navigator.vibrate?.(20); ripples.push({ x: Math.random(), y: 0.2 + Math.random() * 0.6, t: performance.now() }); return; }
   const step = Math.max(lastStep + 1, nextStepAfter(ts, clock.serverNow(), leadMs()));
   const isDrummer = me.role === 'drums';
@@ -386,10 +395,11 @@ function frame(t: number) {
   requestAnimationFrame(frame);
   if (!ts || !clock.isLocked) return;
   const b = beats.frame(clock, ts, t);
+  game.frame(t);
 
   // The synchronised flash. Pure function of the synced clock.
   const e = flashEnv(b.since);
-  if (flashMode === 'off') flashEl.style.opacity = '0';
+  if (flashMode === 'off' || game.active) flashEl.style.opacity = '0';
   else if (flashMode === 'soft') { // gentle colour pulse, never white
     flashEl.style.background = me?.color ?? '#fff';
     flashEl.style.opacity = String((b.downbeat ? 0.28 : 0.14) * e);
