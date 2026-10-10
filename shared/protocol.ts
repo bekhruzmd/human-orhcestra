@@ -82,6 +82,8 @@ export interface TransportState {
   game: GameState | null;
   /** An uploaded audio file is loaded on the Stage. 'chop': phones play its slices; 'backing': it loops under the band. */
   sample: { title: string; mode: 'chop' | 'backing' } | null;
+  /** Server time (ms) at which the Stage paused everything; null while running. Position is frozen at this instant. */
+  paused: number | null;
   /** Recording session in progress (null when not recording). */
   recording: RecordingState | null;
 }
@@ -90,7 +92,9 @@ export const stepMs = (bpm: number) => 60000 / bpm / STEPS_PER_BEAT;
 export const beatMs = (bpm: number) => 60000 / bpm;
 
 /** Fractional step position at a given server time. */
-export const stepPos = (ts: TransportState, serverMs: number) => (serverMs - ts.epoch) / stepMs(ts.bpm);
+export const stepPos = (ts: TransportState, serverMs: number) => (Math.min(serverMs, ts.paused ?? Infinity) - ts.epoch) / stepMs(ts.bpm);
+/** Server time as the transport sees it: frozen while paused. */
+export const transportNow = (ts: TransportState, serverMs: number) => Math.min(serverMs, ts.paused ?? Infinity);
 /** Server time at which an (integer) step begins. */
 export const stepTime = (ts: TransportState, step: number) => ts.epoch + step * stepMs(ts.bpm);
 /** Smallest step whose start is at least `leadMs` after `serverMs`. */
@@ -172,7 +176,7 @@ export type ClientMsg =
   | { t: 'ctl'; y: number; tilt: number }
   | { t: 'raw'; k: RawKind; at: number; x: number; y: number; v?: number }
   | { t: 'songreq'; id: string; mode: 'band' | 'tap' }
-  | { t: 'cmd'; cmd: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'freestyle' | 'nowplaying' | 'sample' | 'recordingStart' | 'recordingStop'; value?: number | string | boolean };
+  | { t: 'cmd'; cmd: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'freestyle' | 'nowplaying' | 'sample' | 'pause' | 'recordingStart' | 'recordingStop'; value?: number | string | boolean };
 
 export type ServerMsg =
   | { t: 'welcome'; you: PlayerInfo | null; state: TransportState; serverNow: number }

@@ -62,31 +62,32 @@ app.innerHTML = `
   <div class="scan">SCAN TO JOIN</div><div id="url"></div><div id="warn" aria-live="polite"></div>
   <div id="roster"></div>
 </aside>
-<button id="audio">🔇 SOUND OFF · click to enable audio</button>
+<button id="audio">SOUND OFF · click to enable audio</button>
 <footer class="conductor" id="cond">
   <div class="cond-cluster transport-cluster">
     <div class="ctl"><span class="lbl">TEMPO <b id="bpmv"></b></span><input id="bpmr" type="range" min="${BPM_MIN}" max="${BPM_MAX}" step="1" aria-label="Tempo" /></div>
     <div class="ctl"><span class="lbl">KEY</span><select id="key" aria-label="Key">${NOTE_NAMES.map((n, i) => `<option value="${i}">${n}</option>`).join('')}</select></div>
     <div class="ctl"><span class="lbl">SCALE</span><select id="scale" aria-label="Scale">${(Object.keys(SCALE_LABEL) as ScaleName[]).map((s) => `<option value="${s}">${SCALE_LABEL[s]}</option>`).join('')}</select></div>
-    <button class="btn drop" id="drop">⚡ DROP</button>
+    <button class="btn drop" id="drop">DROP</button>
   </div>
   <div class="cond-cluster modes-cluster">
-    <button class="btn play" id="play">🎮 PLAY A SONG</button>
-    <button class="btn free" id="free">🎤 FREESTYLE</button>
-    <button class="btn" id="midi">🎵 SONGS</button>
-    <button class="btn sample" id="sample">🎚️ SAMPLE</button>
+    <button class="btn play" id="play">PLAY A SONG</button>
+    <button class="btn free" id="free">FREESTYLE</button>
+    <button class="btn" id="midi">SONGS</button>
+    <button class="btn sample" id="sample">SAMPLE</button>
     <input id="midifile" type="file" accept=".mid,.midi" aria-label="Load MIDI file" hidden />
     <button class="btn" id="auto">AUTO</button>
-    <button class="btn" id="spk">📢 SPEAKERS</button>
+    <button class="btn" id="pause" disabled>PAUSE</button>
+    <button class="btn" id="spk">SPEAKERS</button>
   </div>
   <div class="cond-cluster record-cluster">
-    <button class="btn rec-btn rec" id="sessrec">⏺ START RECORDING</button>
-    <button class="btn rec-btn rec" id="rec">⏺ SAVE 30s</button>
-    <button class="btn rec-btn" id="viewrecs">📼 SESSIONS</button>
+    <button class="btn rec-btn rec" id="sessrec">START RECORDING</button>
+    <button class="btn rec-btn rec" id="rec">SAVE 30s</button>
+    <button class="btn rec-btn" id="viewrecs">SESSIONS</button>
   </div>
 </footer>
 <div id="replaybar" class="replay-bar" hidden>
-  <span class="replay-dot">⏺</span>
+  <span class="replay-dot"></span>
   <span class="replay-label" id="replay-title">REPLAYING SESSION</span>
   <span class="replay-time" id="replay-time">00:00 / 00:00</span>
   <button class="btn btn-close" id="replay-stop" title="Stop replay">■</button>
@@ -97,9 +98,9 @@ app.innerHTML = `
     <h1 class="landing-title">HUMAN ORCHESTRA</h1>
     <p class="landing-sub">Phones become instruments. A shared server clock keeps everyone in time.</p>
     <div class="landing-pills">
-      <span class="l-pill">⚡ ZERO INSTALL · SCAN TO JOIN</span>
+      <span class="l-pill">ZERO INSTALL · SCAN TO JOIN</span>
       <span class="l-pill">⏱️ SUB-MS CLOCK SYNC</span>
-      <span class="l-pill">👾 16-BIT SOUND ENGINE</span>
+      <span class="l-pill">16-BIT SOUND ENGINE</span>
     </div>
     <button class="btn-play-now" id="playnow">▶ PLAY NOW</button>
     <p class="landing-hint">CLICK TO UNLOCK AUDIO & ENTER STAGE</p>
@@ -108,7 +109,7 @@ app.innerHTML = `
 <div id="card" hidden></div>
 <div id="gamehud" hidden><div class="gh-top"><span id="gh-title"></span><b id="gh-team">0</b><span id="gh-acc"></span></div><div class="gh-bar"><i id="gh-prog"></i></div><div id="gh-note"></div></div>
 <div id="gamepick" hidden><div class="box">
-  <h3>🎮 Pick a song</h3>
+  <h3>Pick a song</h3>
   <p id="gp-info"></p>
   <p class="hintp">The arrangement stays in time. Hits lift your instrument; misses affect your score, not the tune.</p>
   <div class="row"><button class="btn" id="gp-import">＋ YOUR SONG (.mid)</button><button class="btn" id="gp-preview">♫ Preview selected</button></div>
@@ -123,8 +124,8 @@ app.innerHTML = `
 <div id="results" hidden></div>
 <div id="sampleui" hidden><div class="box">
   <div class="box-head">
-    <h3>🎚️ Make music with your own audio</h3>
-    <button class="btn-close" id="sp-close-x" aria-label="Close sample modal">✕</button>
+    <h3>Make music with your own audio</h3>
+    <button class="btn-close" id="sp-close-x" aria-label="Close sample modal"></button>
   </div>
   <p class="hintp">Choose an MP3 / WAV from this computer. It stays in this browser; nothing is uploaded. Phones then play slices of it on the beat.</p>
   <label class="dropzone" id="sp-drop"><span id="sp-droptext">Drop an audio file here, or <u>choose a file</u></span><input type="file" id="sp-file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.aac,.flac" aria-label="Load sample audio file" hidden></label>
@@ -137,14 +138,14 @@ app.innerHTML = `
       <span>GRID</span><button class="btn" data-sp="off-beat">◂ beat</button><button class="btn" data-sp="off+beat">beat ▸</button><button class="btn" data-sp="off-bar">◂ bar</button><button class="btn" data-sp="off+bar">bar ▸</button>
       <span>SLICE</span><button class="btn" data-sp="slice.5">½ beat</button><button class="btn" data-sp="slice1">1 beat</button><button class="btn" data-sp="slice2">2 beats</button>
     </div>
-    <div class="row"><button class="btn play" id="sp-chop">🎛️ PHONES PLAY SLICES</button><button class="btn" id="sp-back">▶ BACKING LOOP</button><button class="btn" id="sp-stop">■ STOP</button><button class="btn" id="sp-close">Close</button></div>
+    <div class="row"><button class="btn play" id="sp-chop">PHONES PLAY SLICES</button><button class="btn" id="sp-back">▶ BACKING LOOP</button><button class="btn" id="sp-stop">■ STOP</button><button class="btn" id="sp-close">Close</button></div>
     <p class="hintp" id="sp-msg"></p>
   </div>
 </div></div>
 <div id="recordingsui" hidden><div class="box">
   <div class="box-head">
-    <h3>📼 Recorded Sessions</h3>
-    <button class="btn-close" id="rec-close-x" aria-label="Close recordings modal">✕</button>
+    <h3>Recorded Sessions</h3>
+    <button class="btn-close" id="rec-close-x" aria-label="Close recordings modal"></button>
   </div>
   <p class="hintp">Review live sessions captured by the conductor. Replay them through the synth engine or export their event logs.</p>
   <div class="rec-summary-bar">
@@ -159,10 +160,10 @@ app.innerHTML = `
   </div>
 </div></div>
 <div id="songs" hidden><div class="box">
-  <h3>🎵 Pick a song</h3>
-  <div class="modes"><button class="btn on" id="m-tap">🎮 Play along (guided song)</button><button class="btn" id="m-band">♫ Listen to arrangement</button></div>
+  <h3>Pick a song</h3>
+  <div class="modes"><button class="btn on" id="m-tap">Play along (guided song)</button><button class="btn" id="m-band">♫ Listen to arrangement</button></div>
   <div id="songlist"></div>
-  <div class="row"><button class="btn" id="s-file">📂 Load .mid file…</button><button class="btn" id="s-stop">■ Stop song</button><button class="btn" id="s-close">Close</button></div>
+  <div class="row"><button class="btn" id="s-file">Load .mid file…</button><button class="btn" id="s-stop">■ Stop song</button><button class="btn" id="s-close">Close</button></div>
 </div></div>`;
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -178,6 +179,7 @@ net.on('raw', (r) => onRaw(r));
 net.on('roster', (m) => { roster = m.players; engine.prune(new Set(roster.map((p) => p.id))); renderRoster(); });
 net.on('ctl', (m) => engine.ctl(m.pid, m.y, m.tilt));
 net.on('note', (ev) => {
+  if (ts?.paused != null) return;
   if (ts && !ts.game && ts.sample?.mode === 'chop' && sampler.buffer) {
     // Sample mode: the pad index is a SLICE number; the note's step is the quantised moment to play it.
     const i = sampler.trigger(engine, Math.max(0, Math.min(SLICES - 1, ev.d)), stepTime(ts, ev.step), ts.bpm, ev.v);
@@ -266,7 +268,7 @@ function renderRoster() {
       return `<div class="pl ${p.connected ? '' : 'off'}" style="--c:${p.color}"><div class="n">${ROLE_INFO[p.role].icon} ${esc(p.name)}<small>${ROLE_INFO[p.role].label} · ${g ? accuracy(done(g)).toFixed(0) + '% · combo ' + g.combo : 'ready'}${p.connected ? '' : ' · reconnecting…'}</small></div>
         <div class="e">${g ? g.score.toLocaleString() : '–'}</div></div>`;
     }
-    return `<div class="pl ${p.connected ? '' : 'off'}" style="--c:${p.color}"><div class="n">${ROLE_INFO[p.role].icon} ${esc(p.name)}<small>${ROLE_INFO[p.role].label}${p.speaker ? ' · 📢 phone speaker' : ''}${p.connected ? '' : ' · reconnecting…'}</small></div>
+    return `<div class="pl ${p.connected ? '' : 'off'}" style="--c:${p.color}"><div class="n">${ROLE_INFO[p.role].icon} ${esc(p.name)}<small>${ROLE_INFO[p.role].label}${p.speaker ? ' · phone speaker' : ''}${p.connected ? '' : ' · reconnecting…'}</small></div>
       <div class="e ${Number.isNaN(h.err) ? '' : errClass(h.err)}">${Number.isNaN(h.err) ? '–' : '±' + fmt(h.err, 0) + ' ms'}</div></div>`;
   }).join('');
   // headline: the worst phone, because the room only sounds tight if every phone is
@@ -283,7 +285,7 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 
 // -------------------------------------------------------------- conductor UI
 const done = (g: { perfect: number; good: number; miss: number }) => ({ perfect: g.perfect, good: g.good, total: g.perfect + g.good + g.miss });
-const cmd = (c: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'freestyle' | 'nowplaying' | 'sample' | 'recordingStart' | 'recordingStop', value?: number | string | boolean) => net.send({ t: 'cmd', cmd: c, value });
+const cmd = (c: 'bpm' | 'pause' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'freestyle' | 'nowplaying' | 'sample' | 'recordingStart' | 'recordingStop', value?: number | string | boolean) => net.send({ t: 'cmd', cmd: c, value });
 let bpmTimer = 0;
 $<HTMLInputElement>('bpmr').oninput = (e) => {
   const v = Number((e.target as HTMLInputElement).value);
@@ -293,6 +295,7 @@ $<HTMLInputElement>('bpmr').oninput = (e) => {
 $<HTMLSelectElement>('key').onchange = (e) => cmd('key', Number((e.target as HTMLSelectElement).value));
 $<HTMLSelectElement>('scale').onchange = (e) => cmd('scale', (e.target as HTMLSelectElement).value);
 $('drop').onclick = () => cmd('drop');
+$('pause').onclick = () => cmd('pause', ts?.paused == null);
 $('free').onclick = () => cmd('freestyle', !ts?.freestyle);
 $('play').onclick = () => openGamePicker();
 $('midi').onclick = openSongs;
@@ -384,7 +387,7 @@ function fmtTime(ms: number) {
 function renderRecordingsList(list: RecordedSessionItem[]) {
   if (!list.length) {
     $('rec-count-lbl').textContent = '0 recorded sessions';
-    $('rec-list').innerHTML = `<div class="empty">No recorded sessions yet.<br>Click "⏺ START RECORDING" in the toolbar during performance, then click again to stop and save.</div>`;
+    $('rec-list').innerHTML = `<div class="empty">No recorded sessions yet.<br>Click "START RECORDING" in the toolbar during performance, then click again to stop and save.</div>`;
     return;
   }
   $('rec-count-lbl').textContent = `${list.length} recorded session${list.length === 1 ? '' : 's'}`;
@@ -402,8 +405,8 @@ function renderRecordingsList(list: RecordedSessionItem[]) {
           </div>
           <div class="rec-info-row">
             <span>⏱️ ${durStr}</span>
-            <span>👥 ${r.players} player${r.players === 1 ? '' : 's'}</span>
-            <span>🎵 ${notesCount} note${notesCount === 1 ? '' : 's'}</span>
+            <span>${r.players} player${r.players === 1 ? '' : 's'}</span>
+            <span>${notesCount} note${notesCount === 1 ? '' : 's'}</span>
           </div>
         </div>
         <div class="rec-actions">
@@ -484,6 +487,7 @@ addEventListener('keydown', (e) => {
     if (!$('results').hidden) { $('results').hidden = true; return; }
     if (sessionPlayer.isPlaying) { stopSessionReplay(); return; }
   }
+  if (e.key === ' ' && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLButtonElement)) { e.preventDefault(); if (!$<HTMLButtonElement>('pause').disabled) $('pause').click(); }
   if (e.key === 'h') $('cond').classList.toggle('hidden');
   if (e.key === 'f') document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
 });
@@ -502,16 +506,22 @@ $<HTMLCanvasElement>('viz').onclick = () => {
 };
 function syncControls() {
   if (!ts) return;
+  const live = !!(ts.game || ts.nowPlaying || ts.sample || ts.autoBand || ts.freestyle || ts.drop);
+  if (ts.paused !== null && !live) cmd('pause', false); // nothing left to pause: don't leave the clock frozen
+  $<HTMLButtonElement>('pause').disabled = !live && ts.paused === null;
+  $('pause').textContent = ts.paused !== null ? 'RESUME' : 'PAUSE';
+  $('pause').classList.toggle('on', ts.paused !== null);
+  document.body.classList.toggle('paused', ts.paused !== null);
   if (document.activeElement !== $('bpmr')) { $<HTMLInputElement>('bpmr').value = String(ts.bpm); $('bpmv').textContent = String(ts.bpm); }
   $<HTMLSelectElement>('key').value = String(ts.root);
   $<HTMLSelectElement>('scale').value = ts.scale;
   $('auto').classList.toggle('on', ts.autoBand);
   $('free').classList.toggle('on', ts.freestyle);
-  $('free').textContent = ts.freestyle ? '■ STOP · MAKE SONG' : '🎤 FREESTYLE';
+  $('free').textContent = ts.freestyle ? '■ STOP · MAKE SONG' : 'FREESTYLE';
   $('spk').classList.toggle('on', ts.speakerMode);
   $('sessrec').classList.toggle('on', !!ts.recording);
-  $('sessrec').textContent = ts.recording ? `■ STOP RECORDING (${ts.recording.events})` : '⏺ START RECORDING';
-  $('keyline').textContent = `${NOTE_NAMES[ts.root]} ${SCALE_LABEL[ts.scale]}${audioOn ? ' · 🔊' : ''}`;
+  $('sessrec').textContent = ts.recording ? `■ STOP RECORDING (${ts.recording.events})` : 'START RECORDING';
+  $('keyline').textContent = `${NOTE_NAMES[ts.root]} ${SCALE_LABEL[ts.scale]}${audioOn ? ' · SOUND ON' : ''}`;
   $('bpm').textContent = String(ts.bpm);
 }
 
@@ -805,7 +815,7 @@ function showResults() {
     <div class="big-team"><div class="grade g${grade(t.acc)}">${t.rows.length ? grade(t.acc) : '–'}</div><div><b>${t.score.toLocaleString()}</b><small>${solo ? 'SOLO SCORE' : 'TEAM SCORE'} · ${t.acc.toFixed(0)}% accuracy · best combo ${t.maxCombo}</small></div></div>
     <div class="rows">${rows.map((p) => `<div class="pl" style="--c:${p.color}"><div class="n">${ROLE_INFO[p.role].icon} ${esc(p.name)}<small>${INSTRUMENT[p.role].name} · ${p.game!.perfect} perfect · ${p.game!.good} good · ${p.game!.miss} missed</small></div><div class="e">${p.game!.score.toLocaleString()} <small>${accuracy(done(p.game!)).toFixed(0)}%</small></div></div>`).join('') || '<div class="empty">No scores were recorded.</div>'}</div>
     ${solo && t.rows.length ? '<p class="hintp">Assisted performance: the arrangement stayed in time while your hits shaped the dynamics.</p>' : ''}
-    <div class="row"><button class="btn drop" id="r-again">↻ PLAY AGAIN</button><button class="btn" id="r-pick">🎮 PICK ANOTHER</button><button class="btn" id="r-free">■ FREE PLAY</button></div></div>`;
+    <div class="row"><button class="btn drop" id="r-again">↻ PLAY AGAIN</button><button class="btn" id="r-pick">PICK ANOTHER</button><button class="btn" id="r-free">■ FREE PLAY</button></div></div>`;
   $('results').hidden = false;
   $('r-again').onclick = () => { $('results').hidden = true; void startGame(song, g.difficulty).catch((e) => { $('gp-status').textContent = String(e); openGamePicker(); }); };
   $('r-pick').onclick = () => { $('results').hidden = true; net.send({ t: 'game', action: 'stop' }); openGamePicker(); };
@@ -900,7 +910,7 @@ $('sp-chop').onclick = async () => {
   cmd('sample', `chop|${sampler.name}`);
   document.body.classList.add('insample');
   $('sampleui').hidden = true;
-  flashBig('🎚️ TAP THE PADS', 1500);
+  flashBig('TAP THE PADS', 1500);
 };
 $('sp-back').onclick = async () => {
   if (!sampler.buffer) return;
@@ -942,7 +952,7 @@ async function refreshJoinUrl() {
     joinUrl = url;
     await QRCode.toCanvas($<HTMLCanvasElement>('qr'), url, { width: 560, margin: 0, errorCorrectionLevel: 'M', color: { dark: '#07070d', light: '#ffffff' } });
     $('url').textContent = url.replace(/^https?:\/\//, '');
-    $('warn').textContent = url.startsWith('https') ? '' : '⚠ http only: phones can’t use shake/tilt. Run `npm run demo` for HTTPS.';
+    $('warn').textContent = url.startsWith('https') ? '' : 'http only: phones can’t use shake/tilt. Run `npm run demo` for HTTPS.';
   }
 }
 refreshJoinUrl(); setInterval(refreshJoinUrl, 4000);
@@ -994,7 +1004,7 @@ function frame(t: number) {
       m.className = 'mode';
     }
     m.textContent += recTag;
-    if (rec.seconds > 0) $('rec').textContent = `⏺ SAVE LAST ${Math.floor(rec.seconds)} s`;
+    if (rec.seconds > 0) $('rec').textContent = `SAVE LAST ${Math.floor(rec.seconds)} s`;
   }
 }
 requestAnimationFrame(frame);

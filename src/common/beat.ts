@@ -10,7 +10,7 @@
  * beat (round, not floor), which bounds the quantisation error to +-8.3 ms. The signed error of
  * every flash frame is measured here and reported as `flashLate`.
  */
-import { beatMs, type TransportState } from '../../shared/protocol';
+import { beatMs, transportNow, type TransportState } from '../../shared/protocol';
 import type { ClockSync } from './clock';
 
 const FRAME_MS = 16.7;
@@ -36,7 +36,7 @@ export class BeatTracker {
 
   frame(clock: ClockSync, ts: TransportState, rafTime: number): BeatFrame {
     const bm = beatMs(ts.bpm);
-    const serverMs = clock.toServer(rafTime + FRAME_MS);
+    const serverMs = transportNow(ts, clock.toServer(rafTime + FRAME_MS)); // frozen while paused
     const pos = (serverMs - ts.epoch) / bm;
     const beat = Math.floor(pos + 0.5 * (FRAME_MS / bm)); // round to the nearest frame
     const beatTime = ts.epoch + beat * bm;

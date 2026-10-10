@@ -13,7 +13,7 @@
  */
 import type { ClockSync } from '../common/clock';
 import type { Net } from '../common/net';
-import { stepTime, beatMs, type PlayerInfo, type TransportState } from '../../shared/protocol';
+import { stepTime, beatMs, transportNow, type PlayerInfo, type TransportState } from '../../shared/protocol';
 import {
   DIFF, INSTRUMENT, accuracy, applyHit, applyMiss, buildChart, emptyStats, grade, judge,
   type ChartNote, type GameStats, type Judgement,
@@ -79,7 +79,7 @@ export class GameUI {
     this.feedback = null;
     this.bursts = [];
     // late joiner: notes already gone are skipped (not counted as misses)
-    const now = this.d.clock.serverNow() - this.timingMs, good = DIFF[g.difficulty].good;
+    const now = transportNow(ts, this.d.clock.serverNow()) - this.timingMs, good = DIFF[g.difficulty].good;
     this.chart.forEach((n, i) => { if (stepTime(ts, g.startStep + n.step) < now - good) this.status[i] = 3; });
     this.stats = emptyStats(this.status.filter((s) => s === 0).length);
     this.lastSent = '';
@@ -139,7 +139,7 @@ export class GameUI {
   // ---------------------------------------------------------------- input
   private tap(e: PointerEvent) {
     const ts = this.d.getTs(), me = this.d.getMe();
-    if (!ts?.game || !me || this.finished || !this.d.clock.isLocked || !this.d.net.connected) return;
+    if (!ts?.game || ts.paused !== null || !me || this.finished || !this.d.clock.isLocked || !this.d.net.connected) return;
     const g = ts.game, rect = this.canvas.getBoundingClientRect();
     const lane = Math.max(0, Math.min(this.lanes - 1, Math.floor(((e.clientX - rect.left) / rect.width) * this.lanes)));
     this.laneFlash[lane] = 1;
@@ -191,7 +191,7 @@ export class GameUI {
     const ts = this.d.getTs();
     if (!this.el || !ts?.game || !this.d.clock.isLocked) return;
     const g = ts.game, spec = DIFF[g.difficulty];
-    const now = this.d.clock.toServer(rafTime) - this.timingMs;
+    const now = transportNow(ts, this.d.clock.toServer(rafTime)) - this.timingMs;
     const noteT = (n: ChartNote) => stepTime(ts, g.startStep + n.step);
 
     // notes that slipped past the GOOD window become misses
@@ -318,7 +318,7 @@ export class GameUI {
   upcoming() {
     const ts = this.d.getTs();
     if (!ts?.game) return null;
-    const now = this.d.clock.serverNow() - this.timingMs;
+    const now = transportNow(ts, this.d.clock.serverNow()) - this.timingMs;
     for (let i = this.cursor; i < this.chart.length; i++) if (this.status[i] === 0) {
       return { lane: this.chart[i].lane, inMs: stepTime(ts, ts.game.startStep + this.chart[i].step) - now, lanes: this.lanes, id: i };
     }

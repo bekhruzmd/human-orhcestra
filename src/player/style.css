@@ -547,3 +547,17 @@ select:focus-visible {
     transition: none !important;
   }
 }
+.pausedbar {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  pointer-events: all;
+}
+.pausedbar[hidden] { display: none; }

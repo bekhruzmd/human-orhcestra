@@ -41,11 +41,11 @@ try {
   const saved = q === '0' ? 'off' : localStorage.getItem('ho.flash');
   if (saved === 'soft' || saved === 'full' || saved === 'off') flashMode = saved;
 } catch { /* storage blocked: keep default */ }
-const FLASH_LABEL: Record<FlashMode, string> = { soft: '✨ Flash: soft', full: '⚡ Flash: full', off: '🌑 Flash: off' };
+const FLASH_LABEL: Record<FlashMode, string> = { soft: 'Flash: soft', full: 'Flash: full', off: 'Flash: off' };
 let motion: 'unknown' | 'granted' | 'denied' | 'none' = 'unknown';
 
 const app = document.getElementById('app')!;
-app.innerHTML = `<div id="flash"></div><div id="root"></div><div class="banner" id="banner" role="status" aria-live="polite" hidden>Reconnecting…</div>`;
+app.innerHTML = `<div id="flash"></div><div id="root"></div><div class="banner" id="banner" role="status" aria-live="polite" hidden>Reconnecting…</div><div class="pausedbar" id="pausedbar" role="status" aria-live="polite" hidden>PAUSED</div>`;
 const root = document.getElementById('root')!;
 const flashEl = document.getElementById('flash')!;
 const banner = document.getElementById('banner')!;
@@ -70,6 +70,7 @@ net.on('state', (m) => {
   const was = ts?.speakerMode;
   ts = m.state; engine.setTransport(m.state);
   if (joined && m.state.speakerMode !== was && was !== undefined) setSpeaker(m.state.speakerMode && engine.ready);
+  document.getElementById('pausedbar')!.hidden = m.state.paused === null;
   syncGame();
   refreshPadLabels();
 });
@@ -93,7 +94,7 @@ function render() {
     <input id="name" name="displayName" aria-label="Display name" maxlength="14" value="${esc(me.name)}" autocomplete="off" autocapitalize="words" spellcheck="false" />
     <button class="big" id="go">JOIN THE BAND</button>
     <div class="hint">Your phone controls the music. Listen to the Stage.</div>
-    <a href="/stage" class="stage-link">🖥️ STAGE SCREEN (HOST / LAPTOP)</a></div>`;
+    <a href="/stage" class="stage-link">STAGE SCREEN (HOST / LAPTOP)</a></div>`;
   document.getElementById('go')!.onclick = onJoin;
 }
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -125,14 +126,14 @@ function buildJam() {
       <button class="chip" id="rolebtn">${ROLE_INFO[role].icon} ${ROLE_INFO[role].label} ▾</button>
       <div class="name" id="nm"></div>
       <div class="beats"><i></i><i></i><i></i><i></i></div>
-      <button class="icon" id="songbtn" aria-label="Songs">🎵</button>
+      <button class="icon" id="songbtn" aria-label="Songs">♫</button>
       <button class="icon" id="dbgbtn" aria-label="Sync details">⏱</button>
     </div>
     <div class="chord" id="chord"></div>
     <div id="pad"><canvas></canvas><div class="ylabel">${role === 'drums' ? 'HARDER ↑' : 'BRIGHTER ↑'}</div><div class="padlabel"></div></div>
     <div class="bottom">
-      <button class="tog" id="shk">📳 <span>${motion === 'granted' || motion === 'none' ? 'Shake on' : 'Enable shake'}</span></button>
-      <button class="tog ${speakerOn ? 'on' : ''}" id="spk">📢 Speaker</button>
+      <button class="tog" id="shk"><span>${motion === 'granted' || motion === 'none' ? 'Shake on' : 'Enable shake'}</span></button>
+      <button class="tog ${speakerOn ? 'on' : ''}" id="spk">Speaker</button>
       <button class="tog" id="fls">${FLASH_LABEL[flashMode]}</button>
     </div></div>`;
   padEl = document.getElementById('pad')!;
@@ -166,7 +167,7 @@ function refreshPadLabels() {
   if (!el || !me || !ts) return;
   const yl = padEl.querySelector<HTMLElement>('.ylabel');
   if (yl) yl.style.display = sampleMode() ? 'none' : '';
-  if (sampleMode()) { el.innerHTML = '<span>🎚️ EACH PAD = A SLICE OF THE TRACK</span>'; return; }
+  if (sampleMode()) { el.innerHTML = '<span>EACH PAD = A SLICE OF THE TRACK</span>'; return; }
   if (ts.nowPlaying) { el.innerHTML = '<span>♫ SONG PREVIEW · LISTEN ON STAGE</span>'; return; }
   if (ts.freestyle && me.role !== 'drums') { el.innerHTML = '<span>LOW ◂</span><span>FREESTYLE</span><span>▸ HIGH</span>'; return; }
   el.innerHTML = padLabels(me.role, ts).map((l) => `<span>${l}</span>`).join('');
@@ -202,7 +203,7 @@ async function openSongs() {
     ...custom.map((c) => ({ id: `file:${c.file}`, title: c.name, sub: 'your file' })),
   ];
   sheet.innerHTML = `<div class="card"><h3>Pick a song</h3>
-    <div style="display:flex;gap:8px"><button class="tog ${reqMode === 'tap' ? 'on' : ''}" data-m="tap">🎮 Play along</button><button class="tog ${reqMode === 'band' ? 'on' : ''}" data-m="band">♫ Listen</button></div>
+    <div style="display:flex;gap:8px"><button class="tog ${reqMode === 'tap' ? 'on' : ''}" data-m="tap">Play along</button><button class="tog ${reqMode === 'band' ? 'on' : ''}" data-m="band">♫ Listen</button></div>
     ${items.map((i) => `<button class="rolebtn" data-id="${esc(i.id)}" style="font-size:18px">${esc(i.title)}<small style="margin-left:auto;color:var(--dim);font-size:12px">${i.sub}</small></button>`).join('')}
     <button class="rolebtn" data-id="" style="font-size:18px">■ Stop song</button>
     <button class="rolebtn" data-x="1" style="font-size:18px">Close</button></div>`;
@@ -269,7 +270,7 @@ const sampleMode = () => !!ts && ts.sample?.mode === 'chop' && !ts.game && !ts.f
 const sampleCell = (x: number, y: number) => Math.min(3, Math.floor((1 - y) * 4)) * 4 + Math.min(3, Math.floor(x * 4));
 
 function emit(col: number, vel: number, opts: { role?: Role; dur?: number } = {}) {
-  if (!ts || !me || !clock.isLocked || ts.game || ts.nowPlaying) return;
+  if (!ts || !me || !clock.isLocked || ts.game || ts.nowPlaying || ts.paused !== null) return;
   // Beat-quantisation: the earliest 16th boundary far enough in the future, and never the same step twice.
   let step = nextStepAfter(ts, clock.serverNow(), leadMs());
   if (step <= lastStep) step = lastStep + 1;
@@ -430,10 +431,10 @@ function frame(t: number) {
   if (b.newBeat) {
     navigator.vibrate?.(b.downbeat ? 28 : 10);
     beatDots.forEach((d, i) => { d.classList.toggle('on', i === b.beatInBar); d.classList.toggle('d', i === b.beatInBar && b.downbeat); });
-    if (chordEl && sampleMode()) chordEl.innerHTML = `🎚️ <b>${ts.sample!.title.replace(/[<>&]/g, '')}</b> · tap pads: each plays a slice · hold to repeat`;
+    if (chordEl && sampleMode()) chordEl.innerHTML = `<b>${ts.sample!.title.replace(/[<>&]/g, '')}</b> · tap pads: each plays a slice · hold to repeat`;
     else if (chordEl && ts.sample?.mode === 'backing') chordEl.innerHTML = `▶ <b>${ts.sample.title.replace(/[<>&]/g, '')}</b> · backing loop · play along`;
     else if (chordEl && ts.nowPlaying) chordEl.innerHTML = `♪ <b>${ts.nowPlaying.title.replace(/[<>&]/g, '')}</b> · listen on Stage`;
-    else if (chordEl && ts.freestyle) chordEl.innerHTML = '🎤 <b>FREESTYLE</b> · play anything, it becomes a song';
+    else if (chordEl && ts.freestyle) chordEl.innerHTML = '<b>FREESTYLE</b> · play anything, it becomes a song';
     else if (chordEl) {
       const step = Math.floor(stepPos(ts, b.serverMs));
       const c = chordAt(ts, step), n = chordAt(ts, step + 16 - (((step % 16) + 16) % 16));

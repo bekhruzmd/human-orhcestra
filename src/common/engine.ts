@@ -112,8 +112,18 @@ export class Engine {
     this.silence();
   }
 
+  private suspendedByPause = false;
+  /** Pause freezes everything already scheduled (notes, sample slices, the backing loop); resume continues in place. */
+  private applyPause(ts: TransportState) {
+    if (!this.ready) return;
+    const ctx = this.context;
+    if (ts.paused !== null && ctx.state === 'running') { this.suspendedByPause = true; void ctx.suspend(); }
+    else if (ts.paused === null && this.suspendedByPause) { this.suspendedByPause = false; void ctx.resume(); }
+  }
+
   setTransport(ts: TransportState) {
     this.ts = ts;
+    this.applyPause(ts);
     this.setGame(!!ts.game || !!ts.nowPlaying);
     if (!this.ready) return;
     // dotted-eighth echo, locked to tempo

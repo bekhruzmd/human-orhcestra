@@ -465,6 +465,21 @@ select {
 	flex: 1;
 }
 
+body.paused::after {
+  content: 'PAUSED';
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  padding: 6px 18px;
+  background: #ffd23f;
+  color: #111;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  pointer-events: none;
+}
+
 #audio {
 	position: absolute;
 	left: 50%;
