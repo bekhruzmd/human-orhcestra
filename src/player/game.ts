@@ -16,7 +16,7 @@ import type { Net } from '../common/net';
 import { esc } from '../common/util';
 import { stepTime, beatMs, transportNow, type PlayerInfo, type TransportState } from '../../shared/protocol';
 import {
-  DIFF, INSTRUMENT, accuracy, applyHit, applyMiss, buildChart, emptyStats, grade, judge,
+  DIFF, INSTRUMENT, accuracy, applyHit, applyMiss, buildChart, emptyStats, freeRoles, grade, judge,
   type ChartNote, type GameStats, type Judgement,
 } from '../../shared/game';
 import { Participation } from '../../shared/participation';
@@ -66,7 +66,8 @@ export class GameUI {
   /** Call whenever the transport state or our player info changes. */
   sync(ts: TransportState | null, me: PlayerInfo | null) {
     const g = ts?.game;
-    if (!g || !me) { if (this.el) this.stop(); return; }
+    const gs = g && (g.song ?? getSong(g.songId));
+    if (!g || !me || (gs && freeRoles(g, gs).includes(me.role))) { if (this.el) this.stop(); return; }
     if (!this.d.clock.isLocked) return;
     const key = `${g.songId}:${g.difficulty}:${g.startStep}:${me.role}`;
     if (key !== this.key || !this.el) this.start(ts!, me, key);

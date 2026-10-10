@@ -1,7 +1,7 @@
 /** The Stage owns every audible song note. Participation affects future pitch, articulation and dynamics, never note timing. */
 import { stepPos, stepTime, type NoteEvent, type Role, type TransportState } from '../../shared/protocol';
 import { getSong } from '../../shared/songs';
-import { songSteps, type GameSong } from '../../shared/game';
+import { freeRoles, songSteps, type GameSong } from '../../shared/game';
 import { Participation } from '../../shared/participation';
 import type { ClockSync } from '../common/clock';
 
@@ -80,8 +80,10 @@ export class GameConductor {
     const horizon = Math.floor(stepPos(ts, now + 600));
     if (this.next < stepPos(ts, now + 80)) this.next = Math.ceil(stepPos(ts, now + 120));
     const end = ts.game.startStep + songSteps(this.song);
+    const free = freeRoles(ts.game, this.song);
     while (this.next <= horizon && this.next < end) {
       for (const { role, n } of this.byStep.get(this.next - ts.game.startStep) ?? []) {
+        if (free.includes(role)) continue; // muted on purpose: people play this part live
         const loss = 1 - strengths.get(role)!;
         // Preserve the beat and tune, but missed notes weaken articulation and sour the pitch.
         // Deterministic alternating detune stays below a third of a semitone (32 cents).

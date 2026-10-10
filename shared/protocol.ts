@@ -107,7 +107,7 @@ export const beatMs = (bpm: number) => 60000 / bpm;
 
 /** Rhythm games own the audio; song playback (band / jam) accepts live instruments on top. */
 export const liveNotesAllowed = (ts: TransportState) =>
-  ts.paused == null && !ts.game && (!ts.nowPlaying || ts.nowPlaying.mode !== 'tap');
+  ts.paused == null && (ts.game ? !!ts.game.live : !ts.nowPlaying || ts.nowPlaying.mode !== 'tap');
 
 /** Fractional step position at a given server time. */
 export const stepPos = (ts: TransportState, serverMs: number) => (Math.min(serverMs, ts.paused ?? Infinity) - ts.epoch) / stepMs(ts.bpm);
@@ -189,7 +189,7 @@ export type ClientMsg =
   | { t: 'speaker'; on: boolean }
   | { t: 'note'; step: number; d: number; v: number; dur: number; role?: Role; midi?: number[] }
   | { t: 'jam'; action: 'start' | 'stop'; song?: GameSong; full?: boolean }
-  | { t: 'game'; action: 'start' | 'stop'; songId?: string; song?: GameSong; difficulty?: Difficulty }
+  | { t: 'game'; action: 'start' | 'stop'; songId?: string; song?: GameSong; difficulty?: Difficulty; live?: boolean; free?: Role[] }
   | { t: 'ghit'; startStep: number; step: number; noteId: number }
   | { t: 'gstats'; startStep: number; s: GameStats }
   | { t: 'ctl'; y: number; tilt: number }

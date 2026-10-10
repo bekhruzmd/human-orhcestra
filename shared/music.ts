@@ -44,13 +44,14 @@ export interface Chord {
   index: number;
 }
 
-export interface Key { root: number; scale: ScaleName; nowPlaying?: TransportState['nowPlaying'] }
+export interface Key { root: number; scale: ScaleName; nowPlaying?: TransportState['nowPlaying']; game?: TransportState['game'] }
 
 export function chordAt(key: Key, step: number): Chord {
   const bar = Math.floor(step / STEPS_PER_BAR);
   const index = ((bar % PROGRESSION_BARS) + PROGRESSION_BARS) % PROGRESSION_BARS;
   const { off, q } = PROGRESSIONS[key.scale][index];
-  const jam = key.nowPlaying?.mode === 'jam' ? key.nowPlaying : null;
+  const jam = key.nowPlaying?.mode === 'jam' ? { chords: key.nowPlaying.chords, startStep: key.nowPlaying.startStep }
+    : key.game?.live && key.game.chords?.length ? { chords: key.game.chords, startStep: key.game.startStep } : null;
   const jamBar = jam ? Math.max(0, Math.floor((step - jam.startStep) / STEPS_PER_BAR)) : 0;
   const guide = jam?.chords[((jamBar % jam.chords.length) + jam.chords.length) % jam.chords.length];
   const rootPc = guide?.root ?? (key.root + off) % 12;

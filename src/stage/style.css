@@ -1755,6 +1755,44 @@ select:focus-visible {
 .jam-mix.mix input { min-height: 32px; min-width: 70px; }
 .seq { display: grid; gap: 3px; margin-top: 10px; }
 .seq-row { display: grid; grid-template-columns: 52px repeat(16, minmax(14px, 1fr)); gap: 3px; align-items: center; font-size: 11px; }
-.seq-cell { min-height: 24px; padding: 0; border: 2px solid var(--line, #bbb); background: transparent; cursor: pointer; }
-.seq-cell.beat { border-color: var(--ink, #555); }
-.seq-cell.on { background: var(--accent, #35d0ff); border-color: var(--accent, #35d0ff); }
+.seq-cell { min-height: 24px; padding: 0; border: 2px solid var(--dim); background: transparent; cursor: pointer; }
+.seq-cell.beat { border-color: var(--ink); }
+.seq-cell.on { background: var(--sky); border-color: var(--sky); }
+
+/* Song parts in the picker and collapsible card sections */
+.parts { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.part { display: flex; flex-direction: column; align-items: flex-start; min-width: 104px; min-height: 44px; padding: 6px 10px; border: 2px solid var(--ink); background: transparent; cursor: pointer; font: inherit; text-align: left; }
+.part small { font-size: 11px; opacity: 0.75; }
+.part.free { background: var(--sky); }
+.part:disabled { cursor: default; color: var(--ink); background: var(--sky); opacity: 1; border-style: dashed; }
+.fold { margin-top: 8px; }
+.fold summary { cursor: pointer; min-height: 32px; display: flex; align-items: center; font-weight: 700; }
+
+/* Compact band card: bottom-right, Beat and Mix open upward so the card never covers the lanes */
+#card.band { top: auto; left: auto; right: 16px; bottom: 100px; width: 340px; flex-direction: column; align-items: stretch; gap: 8px; }
+#card.band .txt { position: static; }
+#card.band h3 { display: block; font-size: 14px; margin: 0; }
+#card.band .fold { display: inline-block; position: static; margin: 6px 8px 0 0; }
+#card.band .fold > summary { padding: 0 10px; border: 2px solid var(--ink); }
+#card.band .fold > div { position: absolute; bottom: calc(100% + 6px); right: 0; left: auto; z-index: 5; width: 520px; max-width: calc(100vw - 40px); padding: 10px; background: var(--paper); border: 3px solid var(--ink); box-shadow: var(--pixel-shadow); }
+#card.band .fold:last-of-type > div { width: 320px; }
+
+/* More panel: labelled sections on one uniform grid */
+.more-controls { display: flex; flex-direction: column; gap: 14px; width: min(680px, 96vw); max-height: min(70vh, 640px); }
+.more-controls .mc-sec { display: flex; flex-direction: column; gap: 8px; }
+.more-controls h4 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 11px; letter-spacing: .12em; color: var(--dim); }
+.more-controls .mc-grid { display: grid; gap: 10px; }
+.more-controls .mc-4 { grid-template-columns: repeat(4, 1fr); }
+.more-controls .mc-3 { grid-template-columns: repeat(3, 1fr); }
+.more-controls .mc-grid .btn, .more-controls .mc-grid .rec-btn { width: 100%; min-width: 0; padding-inline: 6px; }
+.more-controls .mc-music { display: grid; grid-template-columns: 1.4fr 70px 1.6fr 110px; gap: 10px; align-items: end; }
+.more-controls .mc-music .btn, .more-controls .mc-music select, .more-controls #scale { width: 100%; min-width: 0; }
+.more-controls .pf-fold > summary { cursor: pointer; font-size: 12px; font-weight: 700; min-height: 32px; display: flex; align-items: center; margin-top: 4px; }
+.more-controls .preflight { margin-top: 6px; }
+@media (max-width: 700px) {
+  .more-controls .mc-4 { grid-template-columns: repeat(2, 1fr); }
+  .more-controls .mc-3 { grid-template-columns: 1fr; }
+  .more-controls .mc-music { grid-template-columns: 1fr 1fr; }
+}
+.more-controls .mc-4 #play { grid-column: span 2; }
+@media (max-width: 700px) { .more-controls .mc-4 #play { grid-column: 1 / -1; } }

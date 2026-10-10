@@ -160,6 +160,19 @@ export interface GameState {
   startStep: number;
   /** step after which the performance is over */
   endStep: number;
+  /** "Play with the band": live instruments may be added on top while the song runs. */
+  live?: boolean;
+  /** Parts muted from the song on purpose so people can play them live (only meaningful with `live`). */
+  free?: Role[];
+  /** Per-bar chord guide inferred from the song, so live pitched parts follow its harmony (live games only). */
+  chords?: { root: number; minor: boolean }[];
+}
+
+/** Roles that people play live instead of following a chart: muted on purpose, or absent from the song. */
+export function freeRoles(g: GameState, song: GameSong): Role[] {
+  if (!g.live) return [];
+  // Pitched parts the song lacks are reassigned to a part it has; only percussion is free by default.
+  return (Object.keys(song.tracks) as Role[]).filter((r) => g.free?.includes(r) || (r === 'drums' && !song.tracks.drums.length));
 }
 
 /** Bound and copy untrusted imported arrangements before broadcasting them. */

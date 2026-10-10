@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
 import { WebSocketServer, WebSocket } from 'ws';
 import { getSong } from '../shared/songs.js';
-import { buildChart, DIFFICULTIES, songSteps, validateGameSong, type GameStats } from '../shared/game.js';
+import { buildChart, freeRoles, DIFFICULTIES, songSteps, validateGameSong, type GameStats } from '../shared/game.js';
 import { jamHarmony } from '../shared/jam.js';
 import { resolveEvent } from '../shared/music.js';
 import {
@@ -669,7 +669,8 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
     lastGameStart = startStep;
     gameHits.clear();
     gameCharts = new Map(ROLES.map((role) => [role, buildChart(song, role, difficulty)]));
-    transport.game = { ...(m.song ? { song } : {}), songId: song.id, difficulty, startStep, endStep: startStep + songSteps(song) + STEPS_PER_BAR };
+    const free = m.live ? [...new Set((Array.isArray(m.free) ? m.free : []).filter((r): r is Role => ROLES.includes(r) && song.tracks[r].length > 0))] : [];
+    transport.game = { ...(m.song ? { song } : {}), songId: song.id, difficulty, startStep, endStep: startStep + songSteps(song) + STEPS_PER_BAR, ...(m.live ? { live: true, free, chords: jamHarmony(song) } : {}) };
     recordEvent(now, 'game', 'stage', null, {
       action: 'start',
       songId: song.id,
@@ -679,7 +680,8 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
     }, startStep);
     for (const pl of players.values()) {
       pl.game = null;
-      if (m.song && !song.tracks[pl.role].length) {
+      const keepSeat = m.live && freeRoles(transport.game, song).includes(pl.role); // a free part is played live, no chart needed
+      if (m.song && !song.tracks[pl.role].length && !keepSeat) {
         const available = ROLES.filter((r) => song.tracks[r].length);
         pl.role = available.find((r) => !joinedPlayers().some((p) => p.id !== pl.id && p.role === r)) ?? available[0];
         if (pl.conn) send(pl.conn.ws, { t: 'you', you: info(pl) });
@@ -819,6 +821,11 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
     case 'note': {
       // Song playback is scheduled on Stage. Old clients must never inject off-grid game audio.
       if (!liveNotesAllowed(transport) || !Number.isFinite(m.d)) return;
+      if (transport.game) { // band mode: only parts nobody is chart-guided on may be played live
+        const gs = transport.game.song ?? getSong(transport.game.songId);
+        const liveRole: Role = m.role === 'drums' ? 'drums' : p.role;
+        if (!gs || !freeRoles(transport.game, gs).includes(liveRole)) return;
+      }
       // Guardrail 1: rate limit (a spammy phone can't swamp the stage).
       conn.noteTimes = conn.noteTimes.filter((t) => now - t < 1000);
       if (conn.noteTimes.length >= 24) return;
@@ -832,7 +839,7 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       // *current* transport, so key changes are instant and nobody can send an out-of-key pitch.
       const role: Role = m.role === 'drums' ? 'drums' : p.role; // non-drummers may shake in a hit
       // Jam pitches come from the server-owned harmonic guide, never from arbitrary client MIDI.
-      const resolved = transport.nowPlaying?.mode === 'jam' ? resolveEvent({ role, step, d: Math.max(0, Math.min(15, Math.round(m.d))) }, transport) : null;
+      const resolved = transport.nowPlaying?.mode === 'jam' || transport.game?.live ? resolveEvent({ role, step, d: Math.max(0, Math.min(15, Math.round(m.d))) }, transport) : null;
       const midi = resolved?.kind === 'notes' ? resolved.midi : undefined;
       recordEvent(now, 'note', p.id, role, { d: Math.max(0, Math.min(15, Math.round(m.d))), v: clamp01(m.v), dur: Math.max(1, Math.min(STEPS_PER_BAR, Math.round(m.dur || 2))), midi }, step);
       broadcast(
