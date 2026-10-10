@@ -127,7 +127,7 @@ function buildJam() {
       <div class="name" id="nm"></div>
       <div class="beats"><i></i><i></i><i></i><i></i></div>
       <button class="icon" id="songbtn" aria-label="Songs">♫</button>
-      <button class="icon" id="dbgbtn" aria-label="Sync details">⏱</button>
+      <button class="icon" id="dbgbtn" aria-label="Sync details">SYNC</button>
     </div>
     <div class="chord" id="chord"></div>
     <div id="pad"><canvas></canvas><div class="ylabel">${role === 'drums' ? 'HARDER ↑' : 'BRIGHTER ↑'}</div><div class="padlabel"></div></div>

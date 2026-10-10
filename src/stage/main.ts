@@ -98,8 +98,8 @@ app.innerHTML = `
     <h1 class="landing-title">HUMAN ORCHESTRA</h1>
     <p class="landing-sub">Phones become instruments. A shared server clock keeps everyone in time.</p>
     <div class="landing-pills">
-      <span class="l-pill">ZERO INSTALL · SCAN TO JOIN</span>
-      <span class="l-pill">⏱️ SUB-MS CLOCK SYNC</span>
+      <span class="l-pill">ZERO INSTALL</span>
+      <span class="l-pill">SUB-MS CLOCK SYNC</span>
       <span class="l-pill">16-BIT SOUND ENGINE</span>
     </div>
     <button class="btn-play-now" id="playnow">▶ PLAY NOW</button>
@@ -404,7 +404,7 @@ function renderRecordingsList(list: RecordedSessionItem[]) {
             <span class="rec-date">${esc(dateStr)}</span>
           </div>
           <div class="rec-info-row">
-            <span>⏱️ ${durStr}</span>
+            <span>${durStr}</span>
             <span>${r.players} player${r.players === 1 ? '' : 's'}</span>
             <span>${notesCount} note${notesCount === 1 ? '' : 's'}</span>
           </div>
@@ -651,7 +651,7 @@ function showCard(song: Song) {
   c.hidden = false;
   c.innerHTML = `<div class="txt"><h3>♪ ${esc(song.title)}</h3>${song.info.map((l) => `<p>${esc(l)}</p>`).join('')}</div>
     <div class="row"><button class="btn" id="c-restart">↻ Restart</button><button class="btn" id="c-stop">■ Stop</button>
-    <button class="btn" id="c-mid">⬇ MIDI</button>${lastDraftLog && song.title === 'Your jam' ? '<button class="btn" id="c-json">⬇ JSON</button>' : ''}</div>`;
+    <button class="btn" id="c-mid">SAVE MIDI</button>${lastDraftLog && song.title === 'Your jam' ? '<button class="btn" id="c-json">SAVE JSON</button>' : ''}</div>`;
   $('c-stop').onclick = () => stopSong();
   $('c-restart').onclick = () => { if (ts) { const st = Math.ceil(nextStepAfter(ts, clock.serverNow(), 800) / 16) * 16; engine.silence(); songs.start(song, st); } };
   $('c-mid').onclick = () => download(`${song.title.replace(/\W+/g, '-')}.mid`, toMidi(song).slice().buffer as ArrayBuffer, 'audio/midi');
@@ -1000,7 +1000,7 @@ function frame(t: number) {
       m.textContent = `SOLO · AUTO BAND BACKING${recTag}`;
       m.className = 'mode auto';
     } else {
-      m.textContent = `${n} PLAYERS${autoRoles().length ? ' + AUTO' : ''}${recTag}`;
+      m.textContent = `${n} ${n === 1 ? 'PLAYER' : 'PLAYERS'}${autoRoles().length ? ' + AUTO' : ''}${recTag}`;
       m.className = 'mode';
     }
     m.textContent += recTag;

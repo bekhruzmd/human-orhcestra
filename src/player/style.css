@@ -561,3 +561,23 @@ select:focus-visible {
   pointer-events: all;
 }
 .pausedbar[hidden] { display: none; }
+
+/* ================= polish layer ================= */
+:root { --ease-out: cubic-bezier(0.23, 1, 0.32, 1); }
+
+.tog, .icon, .chip, .rolebtn, .stage-link {
+  transition: transform 120ms var(--ease-out), box-shadow 120ms var(--ease-out), background-color 150ms ease, border-color 150ms ease;
+}
+.tog:active, .icon:active, .chip:active, .rolebtn:active {
+  transform: translate(2px, 2px);
+  box-shadow: 0 0 0 #000;
+}
+.icon { flex: none; min-width: 44px; padding: 0 8px; font-size: 10px; letter-spacing: 0.04em; }
+.icon#songbtn { font-size: 20px; padding: 0; }
+@media (hover: none) { .stage-link:hover { background: none; } }
+
+@keyframes sheet-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes rise-in { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+.sheet:not([hidden]) { animation: sheet-in 160ms ease-out; }
+.sheet:not([hidden]) > * { animation: rise-in 240ms var(--ease-out); }
+#dbgbtn { width: auto; padding: 0 10px; }

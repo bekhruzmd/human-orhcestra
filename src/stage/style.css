@@ -43,12 +43,17 @@ select {
 	inset: 0;
 }
 
+:root {
+	--cond-h: 84px;
+	--ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
 #viz {
 	position: absolute;
 	left: 16px;
 	top: 104px;
 	width: calc(100% - 340px);
-	height: calc(100% - 198px);
+	height: calc(100% - var(--cond-h) - 114px);
 	display: block;
 	box-sizing: border-box;
 }
@@ -185,7 +190,7 @@ select {
 	position: absolute;
 	top: 104px;
 	right: 16px;
-	bottom: 92px;
+	bottom: calc(var(--cond-h) + 8px);
 	width: 308px;
 	display: flex;
 	flex-direction: column;
@@ -302,7 +307,7 @@ select {
 	left: 0;
 	right: 0;
 	bottom: 0;
-	height: 84px;
+	height: var(--cond-h);
 	padding: 0 16px;
 	display: flex;
 	align-items: center;
@@ -920,7 +925,7 @@ body.ingame #midi {
 
 body.ingame #viz {
 	top: 182px;
-	height: calc(100% - 276px);
+	height: calc(100% - var(--cond-h) - 192px);
 	width: calc(100% - 340px);
 }
 
@@ -1410,3 +1415,78 @@ select:focus-visible {
 		transition: none !important;
 	}
 }
+/* ================= polish layer ================= */
+
+/* footer: below ~1750px the controls no longer fit one row, so wrap to two instead of clipping */
+@media (max-width: 1750px) {
+	:root { --cond-h: 128px; }
+	.conductor {
+		flex-wrap: wrap;
+		align-content: center;
+		row-gap: 10px;
+		overflow: hidden;
+		white-space: normal;
+	}
+	.transport-cluster { order: 1; }
+	.record-cluster { order: 2; margin-left: auto; }
+	.modes-cluster { order: 3; flex: 1 0 100%; }
+}
+
+/* press feedback: the key sinks into its own shadow */
+.btn, .rec-btn, .btn-play-now, .btn-close {
+	touch-action: manipulation;
+	transition: transform 120ms var(--ease-out), box-shadow 120ms var(--ease-out), background-color 150ms ease, border-color 150ms ease, color 150ms ease, opacity 150ms ease;
+}
+.btn:active, .rec-btn:active {
+	transform: translate(2px, 2px);
+	box-shadow: 0 0 0 #000;
+}
+.btn:disabled {
+	opacity: .35;
+	cursor: not-allowed;
+	box-shadow: none;
+	pointer-events: none;
+}
+#pause.on {
+	background: #ffd23f;
+	color: #07070d;
+	border-color: #000;
+	animation: pulse 1s infinite;
+}
+@media (hover: none) {
+	.btn:hover, .rec-btn:hover { border-color: var(--line); background-color: var(--panel); }
+}
+
+/* modals arrive instead of popping: fade + small rise, ease-out, exit stays instant */
+@keyframes sheet-in {
+	from { opacity: 0; }
+	to { opacity: 1; }
+}
+@keyframes box-in {
+	from { opacity: 0; transform: translateY(10px) scale(.97); }
+	to { opacity: 1; transform: none; }
+}
+#songs:not([hidden]), #gamepick:not([hidden]), #results:not([hidden]), #sampleui:not([hidden]), #recordingsui:not([hidden]) {
+	animation: sheet-in 160ms ease-out;
+}
+#songs:not([hidden]) .box, #gamepick:not([hidden]) .box, #results:not([hidden]) .box, #sampleui:not([hidden]) .box, #recordingsui:not([hidden]) .box {
+	animation: box-in 220ms var(--ease-out);
+}
+
+/* landing: pills stay on one balanced row; content rises in once */
+.landing-pills { flex-wrap: nowrap; justify-content: center; gap: 8px; }
+.l-pill { white-space: nowrap; }
+@keyframes rise {
+	from { opacity: 0; transform: translateY(8px); }
+	to { opacity: 1; transform: none; }
+}
+.landing-card > * { animation: rise 360ms var(--ease-out) backwards; }
+.landing-card > :nth-child(2) { animation-delay: 50ms; }
+.landing-card > :nth-child(3) { animation-delay: 100ms; }
+.landing-card > :nth-child(4) { animation-delay: 150ms; }
+.landing-card > :nth-child(5) { animation-delay: 200ms; }
+.landing-card > :nth-child(6) { animation-delay: 250ms; }
+
+/* difficulty choices share the row equally and wrap their detail line instead of overflowing the modal */
+.diffs .btn { flex: 1 1 0; min-width: 0; white-space: normal; text-align: center; align-items: center; }
+.diffs small { line-height: 1.4; }
