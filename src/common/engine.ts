@@ -10,6 +10,7 @@ import * as Tone from 'tone';
 import { dropPhase, stepTime, STEPS_PER_BAR, type NoteEvent, type Role, type TransportState } from '../../shared/protocol';
 import { mtof, resolveEvent, type Key, type Resolved } from '../../shared/music';
 import type { ClockSync } from './clock';
+import { clamp } from './util';
 
 interface Voice {
   out: Tone.Gain;
@@ -17,8 +18,6 @@ interface Voice {
   ctl(y: number, tilt: number): void;
   dispose(): void;
 }
-
-const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
 export class Engine {
   ready = false;

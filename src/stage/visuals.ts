@@ -9,6 +9,7 @@
  */
 import { ROLE_INFO, STEPS_PER_BAR, dropPhase, stepPos, type NoteEvent, type Role, type TransportState } from '../../shared/protocol';
 import { chordAt, resolveEvent } from '../../shared/music';
+import { clamp } from '../common/util';
 
 export interface Lane { id: string; name: string; role: Role; color: string; auto: boolean; connected: boolean; speaker: boolean }
 
@@ -167,7 +168,7 @@ export class Viz {
           const a = Math.pow(Math.max(0, 1 - age / ROLL_STEPS), 0.8);
           const hx = x0 + ((hit.step % ROLL_STEPS) / ROLL_STEPS) * rw;
           const hh = lane.role === 'pads' ? laneH - 24 : Math.max(10, laneH * 0.2);
-          const hy = lane.role === 'pads' ? y + 12 : y + 10 + (1 - clamp01(hit.yN)) * (laneH - 20 - hh);
+          const hy = lane.role === 'pads' ? y + 12 : y + 10 + (1 - clamp(hit.yN, 0, 1)) * (laneH - 20 - hh);
           const hw = Math.max(8, Math.min(hit.dur, ROLL_STEPS - (hit.step % ROLL_STEPS)) * cell - 3);
           if (hit.muted) { ctx.strokeStyle = ink(a * 0.5); ctx.lineWidth = 2; ctx.setLineDash([4, 3]); ctx.strokeRect(hx, hy, hw, hh); ctx.setLineDash([]); }
           else {
@@ -207,7 +208,7 @@ export class Viz {
 
   private burst(lane: Lane, ev: NoteEvent, yN: number, ts: TransportState) {
     const p = this.laneY.get(lane.id);
-    const y = p ? p.y + p.h * (1 - clamp01(yN)) * 0.8 + p.h * 0.1 : this.h / 2;
+    const y = p ? p.y + p.h * (1 - clamp(yN, 0, 1)) * 0.8 + p.h * 0.1 : this.h / 2;
     const x = this.lastPlayhead;
     const count = Math.round(6 + 26 * ev.v);
     for (let i = 0; i < count && this.particles.length < 700; i++) {
@@ -298,11 +299,3 @@ export class Viz {
   }
 }
 
-const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
-function round(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  if (w < 0) { x += w; w = -w; }
-  if (h < 0) { y += h; h = -h; }
-  r = Math.max(0, Math.min(r, w / 2, h / 2));
-  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
-}

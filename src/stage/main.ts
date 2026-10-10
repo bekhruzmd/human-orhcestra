@@ -10,7 +10,7 @@ import { ClockSync } from '../common/clock';
 import { BeatTracker, flashEnv } from '../common/beat';
 import { Engine } from '../common/engine';
 import { Recorder } from '../common/recorder';
-import { fmt, syncHeadline } from '../common/util';
+import { fmt, syncHeadline, esc } from '../common/util';
 import {
   BPM_MAX, BPM_MIN, ROLES, ROLE_INFO, dropPhase, nextStepAfter, stepPos, stepTime,
   type NoteEvent, type PlayerInfo, type Role, type ScaleName, type TransportState,
@@ -280,7 +280,6 @@ function renderRoster() {
   syncEl.className = errClass(worst);
   $('syncsub').textContent = `${live.length} phone${live.length > 1 ? 's' : ''} · path bound ±${fmt(bound, bound < 10 ? 1 : 0)} ms`;
 }
-const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
 // -------------------------------------------------------------- conductor UI
 const done = (g: { perfect: number; good: number; miss: number }) => ({ perfect: g.perfect, good: g.good, total: g.perfect + g.good + g.miss });
@@ -1003,7 +1002,6 @@ function frame(t: number) {
       m.textContent = `${n} ${n === 1 ? 'PLAYER' : 'PLAYERS'}${autoRoles().length ? ' + AUTO' : ''}${recTag}`;
       m.className = 'mode';
     }
-    m.textContent += recTag;
     if (rec.seconds > 0) $('rec').textContent = `SAVE LAST ${Math.floor(rec.seconds)} s`;
   }
 }

@@ -6,9 +6,7 @@
  */
 import { stepPos, STEPS_PER_BAR, type NoteEvent, type Role, type TransportState } from '../../shared/protocol';
 import type { ClockSync } from '../common/clock';
-
-/** Cheap deterministic hash -> [0,1): patterns are repeatable per step but don't feel looped. */
-const rnd = (n: number) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+import { rnd } from '../common/util';
 
 export class AutoBand {
   private next = -1;

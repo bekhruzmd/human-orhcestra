@@ -13,6 +13,7 @@
  */
 import type { ClockSync } from '../common/clock';
 import type { Net } from '../common/net';
+import { esc } from '../common/util';
 import { stepTime, beatMs, transportNow, type PlayerInfo, type TransportState } from '../../shared/protocol';
 import {
   DIFF, INSTRUMENT, accuracy, applyHit, applyMiss, buildChart, emptyStats, grade, judge,
@@ -92,7 +93,7 @@ export class GameUI {
     el.className = 'game';
     el.innerHTML = `
       <div class="ghud">
-        <div class="gs"><b>${inst.icon} ${inst.name}</b><small>${escapeHtml(song.title)} · ${g.difficulty.toUpperCase()}</small></div>
+        <div class="gs"><b>${inst.icon} ${inst.name}</b><small>${esc(song.title)} · ${g.difficulty.toUpperCase()}</small></div>
         <div class="gscore"><b id="g-score">0</b><small id="g-acc">accuracy –</small></div>
         <div class="gcombo"><b id="g-combo">0</b><small>COMBO</small></div>
       </div>
@@ -213,10 +214,10 @@ export class GameUI {
       this.report(true);
       this.showResults();
     }
-    this.draw(ts, now, spec.good);
+    this.draw(ts, now);
   }
 
-  private draw(ts: TransportState, now: number, goodMs: number) {
+  private draw(ts: TransportState, now: number) {
     const g = ts.game!;
     const { ctx } = this;
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
@@ -303,7 +304,6 @@ export class GameUI {
       ctx.fillText('tap the notes as they hit the line', w / 2, h * 0.42 + 40);
       ctx.textAlign = 'left';
     }
-    void goodMs;
   }
 
   private showResults() {
@@ -331,13 +331,5 @@ export class GameUI {
   }
   get currentStats() { return this.stats; }
 }
-
-function round(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  r = Math.min(r, w / 2, h / 2);
-  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
-}
-
-function escapeHtml(s: string) { return s.replace(/[&<>"\']/g, (c) => `&#${c.charCodeAt(0)};`); }
 
 function readTiming() { try { const n = Number(localStorage.getItem('ho.game.timing')); return Number.isFinite(n) ? Math.max(-200, Math.min(200, n)) : 0; } catch { return 0; } }

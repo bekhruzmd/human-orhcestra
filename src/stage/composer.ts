@@ -20,6 +20,7 @@ import { STEPS_PER_BAR, stepMs, type Role, type ScaleName, type RawKind } from '
 import {
   NOTE_NAMES, SCALE_INTERVALS, SCALE_LABEL, chordAt, freeMidi, freeZone, shakeVoice, snapToChord, resolveEvent,
 } from '../../shared/music';
+import { clamp, rnd as hash } from '../common/util';
 
 export interface RawEv { pid: string; role: Role; k: RawKind; at: number; x: number; y: number; v?: number }
 export interface PlayerMeta { id: string; name: string; color: string; role: Role }
@@ -43,8 +44,6 @@ export interface Draft {
 }
 
 const SCALES = Object.keys(SCALE_INTERVALS) as ScaleName[];
-const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
-const hash = (n: number) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
 
 // ---------------------------------------------------------------- analyze
 export function analyze(log: RawEv[], players: PlayerMeta[]): Draft | null {
@@ -90,7 +89,7 @@ export function analyze(log: RawEv[], players: PlayerMeta[]): Draft | null {
   return { notes, hits, bpm, phase, t0, root, scale, energy, players, shakes };
 }
 
-export function estimateTempo(on: number[]): { bpm: number; phase: number } {
+function estimateTempo(on: number[]): { bpm: number; phase: number } {
   if (on.length < 4) return { bpm: 100, phase: 0 };
   let best = { score: -Infinity, bpm: 100, phase: 0 };
   for (let bpm = 70; bpm <= 160; bpm++) {

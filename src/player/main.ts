@@ -10,7 +10,7 @@ import { Net } from '../common/net';
 import { ClockSync } from '../common/clock';
 import { BeatTracker, flashEnv } from '../common/beat';
 import { Engine } from '../common/engine';
-import { stableId, fmt, clamp } from '../common/util';
+import { stableId, fmt, clamp, esc } from '../common/util';
 import {
   ROLES, ROLE_INFO, nextStepAfter, stepPos, stepTime,
   type NoteEvent, type PlayerInfo, type RawKind, type Role, type TransportState,
@@ -97,7 +97,6 @@ function render() {
     <a href="/stage" class="stage-link">STAGE SCREEN (HOST / LAPTOP)</a></div>`;
   document.getElementById('go')!.onclick = onJoin;
 }
-const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
 async function onJoin() {
   // Everything that needs a user gesture happens right here, in the tap handler:
@@ -203,7 +202,7 @@ async function openSongs() {
     ...custom.map((c) => ({ id: `file:${c.file}`, title: c.name, sub: 'your file' })),
   ];
   sheet.innerHTML = `<div class="card"><h3>Pick a song</h3>
-data-m="band">Listen</button></div>
+    <div style="display:flex;gap:8px;margin-bottom:12px"><button class="rolebtn ${reqMode === 'tap' ? 'on' : ''}" data-m="tap">Play</button><button class="rolebtn ${reqMode === 'band' ? 'on' : ''}" data-m="band">Listen</button></div>
     ${items.map((i) => `<button class="rolebtn" data-id="${esc(i.id)}" style="font-size:18px">${esc(i.title)}<small style="margin-left:auto;color:var(--dim);font-size:12px">${i.sub}</small></button>`).join('')}
     <button class="rolebtn" data-id="" style="font-size:18px">■ Stop song</button>
     <button class="rolebtn" data-x="1" style="font-size:18px">Close</button></div>`;

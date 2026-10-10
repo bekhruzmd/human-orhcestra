@@ -494,10 +494,6 @@ select {
 	}
 }
 
-.spacer {
-	flex: 1;
-}
-
 body.paused::after {
   content: 'PAUSED';
   position: fixed;
