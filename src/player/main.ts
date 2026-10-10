@@ -279,7 +279,7 @@ function emit(col: number, vel: number, opts: { role?: Role; dur?: number } = {}
   const v = clamp(vel, 0.1, 1);
   net.send({ t: 'note', step, d: col, v, dur, role: opts.role });
   if (role === me.role) fires.push({ at: stepTime(ts, step), col, v });
-  if (speakerOn && (!ts.nowPlaying || ts.nowPlaying.mode === 'jam') && !ts.sample) {
+  if (speakerOn && !ts.sample) {
     const ev: NoteEvent = { pid: me.id, role, step, d: col, v, dur };
     engine.play(ev);
   }

@@ -69,6 +69,8 @@ export interface JamState {
   song: GameSong;
   startStep: number;
   chords: { root: number; minor: boolean }[];
+  /** Play the whole imported arrangement under the live players (default: the lead melody only). */
+  full?: boolean;
 }
 
 /** Everything that defines "where we are" in the music. Broadcast on every change. */
@@ -103,9 +105,9 @@ export interface TransportState {
 export const stepMs = (bpm: number) => 60000 / bpm / STEPS_PER_BEAT;
 export const beatMs = (bpm: number) => 60000 / bpm;
 
-/** Listen previews and rhythm games own the audio; melody jams accept live accompaniment too. */
+/** Rhythm games own the audio; song playback (band / jam) accepts live instruments on top. */
 export const liveNotesAllowed = (ts: TransportState) =>
-  ts.paused == null && !ts.game && (!ts.nowPlaying || ts.nowPlaying.mode === 'jam');
+  ts.paused == null && !ts.game && (!ts.nowPlaying || ts.nowPlaying.mode !== 'tap');
 
 /** Fractional step position at a given server time. */
 export const stepPos = (ts: TransportState, serverMs: number) => (Math.min(serverMs, ts.paused ?? Infinity) - ts.epoch) / stepMs(ts.bpm);
@@ -186,7 +188,7 @@ export type ClientMsg =
   | { t: 'role'; role: Role }
   | { t: 'speaker'; on: boolean }
   | { t: 'note'; step: number; d: number; v: number; dur: number; role?: Role; midi?: number[] }
-  | { t: 'jam'; action: 'start' | 'stop'; song?: GameSong }
+  | { t: 'jam'; action: 'start' | 'stop'; song?: GameSong; full?: boolean }
   | { t: 'game'; action: 'start' | 'stop'; songId?: string; song?: GameSong; difficulty?: Difficulty }
   | { t: 'ghit'; startStep: number; step: number; noteId: number }
   | { t: 'gstats'; startStep: number; s: GameStats }

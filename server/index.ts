@@ -479,7 +479,8 @@ const broadcastRoster = () => broadcast({ t: 'roster', players: joinedPlayers().
 
 /** First unused role in the configured order; when all are taken, reuse the least-used one. */
 function pickRole(others: Player[]): Role {
-  const roles = transport.nowPlaying?.mode === 'jam' ? ROLES.filter((r) => r !== 'melody') : ROLES;
+  const np = transport.nowPlaying;
+  const roles = np?.mode === 'jam' && !np.full ? ROLES.filter((r) => r !== 'melody') : ROLES;
   return roles.find((r) => !others.some((p) => p.role === r))
     ?? [...roles].sort((a, b) => others.filter((p) => p.role === a).length - others.filter((p) => p.role === b).length)[0];
 }
@@ -632,10 +633,10 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
     transport.root = song.root; transport.scale = song.scale; setBpm(song.bpm);
     const startStep = Math.max(lastJamStart + STEPS_PER_BAR, Math.ceil(stepPos(transport, now + 1800) / STEPS_PER_BAR) * STEPS_PER_BAR);
     lastJamStart = startStep;
-    transport.nowPlaying = { mode: 'jam', title: song.title, song, startStep, chords: jamHarmony(song) };
+    transport.nowPlaying = { mode: 'jam', title: song.title, song, startStep, chords: jamHarmony(song), ...(m.full ? { full: true } : {}) };
     for (const pl of players.values()) {
       pl.game = null;
-      if (pl.role === 'melody') {
+      if (pl.role === 'melody' && !m.full) {
         pl.role = 'guitar';
         if (pl.conn) send(pl.conn.ws, { t: 'you', you: info(pl) });
       }
@@ -757,7 +758,7 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       send(conn.ws, { t: 'you', you: info(p) });
       break;
     case 'role':
-      if (!transport.game && ROLES.includes(m.role) && !(transport.nowPlaying?.mode === 'jam' && m.role === 'melody')) { p.role = m.role; recordEvent(now, 'role', p.id, p.role, { role: p.role }); broadcastRoster(); send(conn.ws, { t: 'you', you: info(p) }); }
+      if (!transport.game && ROLES.includes(m.role) && !(transport.nowPlaying?.mode === 'jam' && !transport.nowPlaying.full && m.role === 'melody')) { p.role = m.role; recordEvent(now, 'role', p.id, p.role, { role: p.role }); broadcastRoster(); send(conn.ws, { t: 'you', you: info(p) }); }
       break;
     case 'speaker':
       recordEvent(now, 'speaker', p.id, p.role, { on: !!m.on });

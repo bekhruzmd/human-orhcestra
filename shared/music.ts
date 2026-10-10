@@ -128,7 +128,7 @@ export function grooveVoice(step: number, full = true): number {
   return s % 4 === 2 ? 3 : 2; // off-beat 8ths clap, the rest hats
 }
 
-export const COLS: Record<Role, number> = { melody: MELODY_COLS, bass: BASS_COLS, pads: PAD_COLS, guitar: 4, drums: 4 };
+export const COLS: Record<Role, number> = { melody: MELODY_COLS, bass: BASS_COLS, pads: PAD_COLS, guitar: 4, drums: 5 };
 
 // -------------------------------------------------------------- freestyle
 /** Freestyle pitch range per role: the whole pad is a continuous, UN-locked keyboard. */
@@ -148,7 +148,7 @@ export function resolveEvent(ev: Pick<NoteEvent, 'role' | 'step' | 'd'> & { midi
   if (ev.midi?.length && ev.role !== 'drums') return { kind: 'notes', midi: ev.midi }; // composed / imported: pitches are explicit
   const chord = chordAt(key, ev.step);
   switch (ev.role) {
-    case 'drums': return { kind: 'drum', voice: Math.max(0, Math.min(3, ev.d)) };
+    case 'drums': return { kind: 'drum', voice: Math.max(0, Math.min(4, ev.d)) };
     case 'bass': return { kind: 'notes', midi: [bassNote(ev.d, chord)] };
     case 'pads': return { kind: 'notes', midi: padVoicing(ev.d, chord) };
     case 'guitar': return { kind: 'notes', midi: padVoicing(ev.d, chord).slice(0, 3).map((n) => n - 12) };
@@ -166,7 +166,7 @@ export function padLabels(role: Role, key: Key): string[] {
     case 'guitar': return ['STRUM', 'LIFT', 'HIGH', 'LOW'];
     case 'bass': return ['ROOT', '5TH', '7TH', 'OCT'];
     case 'pads': return ['OPEN', 'LIFT', 'SOAR', 'WIDE'];
-    case 'drums': return ['KICK', 'SNARE', 'HAT', 'CLAP'];
+    case 'drums': return ['KICK', 'SNARE', 'HAT', 'CLAP', 'OPEN'];
   }
 }
 

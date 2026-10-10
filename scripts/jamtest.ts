@@ -36,7 +36,8 @@ assert.deepEqual(guitar, { kind: 'notes', midi: [41, 45, 48] }, 'guitar strums t
 assert.equal(padLabels('guitar', ts).length, COLS.guitar);
 assert.ok(NOTE_DUR.guitar > 0 && FREE_RANGE.guitar[0] < FREE_RANGE.guitar[1]);
 assert.ok(!liveNotesAllowed({ ...ts, paused: 100 }));
-assert.ok(!liveNotesAllowed({ ...ts, nowPlaying: { title: 'Preview', mode: 'band' } }));
+assert.ok(liveNotesAllowed({ ...ts, nowPlaying: { title: 'Concert', mode: 'band' } }), 'live instruments join a playing song');
+assert.ok(liveNotesAllowed({ ...ts, nowPlaying: { ...ts.nowPlaying!, full: true } as TransportState['nowPlaying'] }));
 assert.ok(!liveNotesAllowed({ ...ts, game: { songId: song.id, song, difficulty: 'easy', startStep: 32, endStep: 96 } }));
 
 let now = 0;
@@ -66,3 +67,25 @@ assert.ok(normalized.tracks.guitar.length);
 const { guitar: _, ...oldTracks } = song.tracks;
 assert.deepEqual(validateGameSong({ ...song, tracks: oldTracks })?.tracks.guitar, [], 'previously saved four-instrument MIDI songs remain compatible');
 console.log('✓ Melody-only backing, inferred harmony, guitar voicings, live-input gating, looping, pause, mixer, guitar MIDI roundtrip and old imports');
+
+// ---- live percussion on top of a song with no drums
+assert.deepEqual(resolveEvent({ role: 'drums', step: 0, d: 4 }, ts), { kind: 'drum', voice: 4 }, 'open hat is a real drum voice');
+assert.deepEqual(resolveEvent({ role: 'drums', step: 0, d: 9 }, ts), { kind: 'drum', voice: 4 }, 'out-of-range drum index clamps');
+assert.equal(COLS.drums, padLabels('drums', ts).length, 'one label per drum column');
+
+import { Sequencer } from '../src/stage/sequencer';
+{
+  let t = 0;
+  const out: NoteEvent[] = [];
+  const fresh: TransportState = { ...ts, epoch: 0, bpm: 120, paused: null };
+  const seq = new Sequencer({ serverNow: () => t, isLocked: true }, () => fresh, (n) => out.push(n), false);
+  seq.tick(); assert.equal(out.length, 0, 'a stopped sequencer is silent');
+  seq.toggle(0, 0); seq.toggle(0, 8); seq.toggle(3, 4);
+  seq.start(); // 120 BPM: 125 ms per step
+  for (t = 0; t <= 4000; t += 40) seq.tick();
+  assert.ok(out.length > 0 && out.every((n) => n.pid === 'seq:drums' && n.role === 'drums'));
+  assert.ok(out.every((n) => (n.d === 0 && n.step % 16 % 8 === 0) || (n.d === 4 && n.step % 16 === 4)), 'hits land on the pattern columns of the shared step grid');
+  const before = out.length; seq.stop(); t = 8000; seq.tick(); assert.equal(out.length, before, 'stop silences it');
+  seq.clear(); assert.ok(seq.empty);
+}
+console.log('live percussion + sequencer checks passed');

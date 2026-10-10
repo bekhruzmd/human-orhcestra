@@ -12,6 +12,13 @@ import { mtof, resolveEvent, type Key, type Resolved } from '../../shared/music'
 import type { ClockSync } from './clock';
 import { clamp } from './util';
 
+/** Mixer channels. `song` is the imported MIDI accompaniment; the rest are live inputs. */
+export const MIX_CHANNELS = ['song', 'kick', 'snare', 'hat', 'open', 'clap', 'other'] as const;
+export type MixChannel = typeof MIX_CHANNELS[number];
+/** Live percussion sits above the accompaniment: the song bus is deliberately lower than the live buses. */
+export const MIX_DEFAULTS: Record<MixChannel, number> = { song: 0.55, kick: 1.15, snare: 1, hat: 1, open: 1, clap: 1, other: 0.85 };
+export const MIX_LABEL: Record<MixChannel, string> = { song: 'Song', kick: 'Kick', snare: 'Snare', hat: 'Hat', open: 'Open hat', clap: 'Clap', other: 'Keys/bass' };
+
 interface Voice {
   out: Tone.Gain;
   trigger(r: ReturnType<typeof resolveEvent>, time: number, durSec: number, vel: number): void;
@@ -32,6 +39,10 @@ export class Engine {
   private delBus!: Tone.FeedbackDelay;
   private voices = new Map<string, { voice: Voice; role: Role; used: number; lastT: number; sends: Tone.Gain[] }>();
   private fxKit: DrumKit | null = null;
+  private chans = {} as Record<MixChannel, Tone.Gain>;
+  private mixLevels: Record<MixChannel, number> = { ...MIX_DEFAULTS };
+  /** Per-channel count of triggers handed to the audio graph (diagnostics, shown in the debug panel). */
+  readonly hits: Record<MixChannel, number> = { song: 0, kick: 0, snare: 0, hat: 0, open: 0, clap: 0, other: 0 };
   private lastDropStart = -1;
   private ts: TransportState | null = null;
 
@@ -59,10 +70,18 @@ export class Engine {
     this.delBus = new Tone.FeedbackDelay({ delayTime: 0.3, feedback: 0.32, wet: 1 });
     this.delBus.connect(this.master);
     this.delBus.connect(this.revBus);
+    for (const c of MIX_CHANNELS) { this.chans[c] = new Tone.Gain(this.mixLevels[c]).connect(this.master); }
     this.fxKit = new DrumKit(this.master, this.revBus);
     this.ready = true;
     if (this.ts) this.setTransport(this.ts);
   }
+
+  /** Adjust one mixer channel (0..1.5). Takes effect within 30 ms, also for channels not created yet. */
+  setMix(c: MixChannel, level: number) {
+    this.mixLevels[c] = clamp(level, 0, 1.5);
+    this.chans[c]?.gain.rampTo(this.mixLevels[c], 0.03);
+  }
+  mixLevel(c: MixChannel) { return this.mixLevels[c]; }
 
   /** The signal the recorder taps (post-limiter, i.e. what the room hears). */
   get tap(): Tone.ToneAudioNode { return this.limiter; }
@@ -180,6 +199,7 @@ export class Engine {
     try {
       entry.voice.trigger(r, t, Math.max(0.05, ev.dur * stepSec * 0.95), clamp(ev.v, 0.05, 1));
     } catch (err) { console.warn('trigger failed', err); return false; }
+    this.hits[ev.pid.startsWith('song:') ? 'song' : r.kind === 'drum' ? DRUM_CHANNEL[r.voice] : 'other']++;
     return true;
   }
 
@@ -204,7 +224,7 @@ export class Engine {
   prune(livePids: Set<string>) {
     for (const [k, e] of this.voices) {
       const pid = k.split('|')[0];
-      if (!/^(auto|song|game):/.test(pid) && !livePids.has(pid)) { e.voice.dispose(); e.sends.forEach((s) => s.dispose()); this.voices.delete(k); }
+      if (!/^(auto|song|game|seq):/.test(pid) && !livePids.has(pid)) { e.voice.dispose(); e.sends.forEach((s) => s.dispose()); this.voices.delete(k); }
     }
   }
 
@@ -212,8 +232,10 @@ export class Engine {
     const k = `${pid}|${role}`;
     let e = this.voices.get(k);
     if (!e) {
-      const voice = makeVoice(role, pid.startsWith('auto:'), this.gameMode && !(this.ts?.nowPlaying?.mode === 'jam' && !pid.startsWith('song:')));
-      voice.out.connect(this.master);
+      const isSong = pid.startsWith('song:');
+      const live = !isSong && !pid.startsWith('auto:') && !pid.startsWith('game:');
+      const voice = makeVoice(role, pid.startsWith('auto:'), this.gameMode && !(this.ts?.nowPlaying?.mode !== undefined && this.ts.nowPlaying.mode !== 'tap' && !isSong), live && role === 'drums' ? this.chans : undefined);
+      voice.out.connect(isSong ? this.chans.song : live && role !== 'drums' ? this.chans.other : this.master);
       // effect sends: pads/melody get a lot of space, bass/drums stay dry
       const rev = new Tone.Gain(this.gameMode ? (role === 'pads' ? 0.12 : role === 'melody' ? 0.08 : 0) : (role === 'pads' ? 0.55 : role === 'melody' ? 0.3 : role === 'drums' ? 0.12 : 0)).connect(this.revBus);
       voice.out.connect(rev);
@@ -271,14 +293,14 @@ export class Engine {
 }
 
 // ======================================================================= voices
-function makeVoice(role: Role, auto: boolean, punchy = false): Voice {
+function makeVoice(role: Role, auto: boolean, punchy = false, mix?: Record<MixChannel, Tone.Gain>): Voice {
   const level = auto ? 0.55 : 1; // AUTO parts sit under the humans
   switch (role) {
     case 'melody': return punchy ? padVoice(level, true) : melodyVoice(level);
     case 'bass': return punchy ? padVoice(level * 0.8, true, true) : bassVoice(level);
     case 'pads': return padVoice(level, punchy);
     case 'guitar': return guitarVoice(level);
-    case 'drums': return drumVoice(level);
+    case 'drums': return drumVoice(level, mix);
   }
 }
 
@@ -386,9 +408,13 @@ function padVoice(level: number, punchy = false, bass = false): Voice {
   };
 }
 
-function drumVoice(level: number): Voice {
+/** DrumKit piece -> mixer channel. */
+const DRUM_CHANNEL: MixChannel[] = ['kick', 'snare', 'hat', 'clap', 'open'];
+
+/** With `mix`, each drum piece feeds its own mixer channel and `out` stays silent (it is only a placeholder for the caller). */
+function drumVoice(level: number, mix?: Record<MixChannel, Tone.Gain>): Voice {
   const out = new Tone.Gain(level);
-  const kit = new DrumKit(out, null);
+  const kit = new DrumKit(out, null, mix && { kick: mix.kick, snare: mix.snare, hat: mix.hat, clap: mix.clap, open: mix.open });
   return {
     out,
     trigger(r, time, _dur, vel) { if (r.kind === 'drum') kit.hit(r.voice, time, vel); },
@@ -397,45 +423,51 @@ function drumVoice(level: number): Voice {
   };
 }
 
-/** Synth drum kit: 0 kick, 1 snare, 2 hat, 3 clap. */
+/** Synth drum kit: 0 kick, 1 snare, 2 closed hat, 3 clap, 4 open hat. */
 class DrumKit {
   private kick = new Tone.MembraneSynth({ pitchDecay: 0.045, octaves: 6, envelope: { attack: 0.001, decay: 0.32, sustain: 0, release: 0.1 } });
   private snareN = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.17, sustain: 0 } });
   private snareB = new Tone.Synth({ oscillator: { type: 'triangle' }, envelope: { attack: 0.001, decay: 0.09, sustain: 0 } });
   private hatN = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.045, sustain: 0 } });
   private clapN = new Tone.NoiseSynth({ noise: { type: 'pink' }, envelope: { attack: 0.003, decay: 0.14, sustain: 0 } });
+  private openN = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.32, sustain: 0 } });
   private crashN = new Tone.NoiseSynth({ noise: { type: 'white' }, envelope: { attack: 0.002, decay: 1.4, sustain: 0 } });
   private boom = new Tone.Synth({ oscillator: { type: 'sine' }, envelope: { attack: 0.002, decay: 1.1, sustain: 0, release: 0.2 } });
   private nodes: Tone.ToneAudioNode[] = [];
 
-  constructor(out: Tone.ToneAudioNode, rev: Tone.ToneAudioNode | null) {
+  constructor(out: Tone.ToneAudioNode, rev: Tone.ToneAudioNode | null, outs?: { kick: Tone.ToneAudioNode; snare: Tone.ToneAudioNode; hat: Tone.ToneAudioNode; clap: Tone.ToneAudioNode; open: Tone.ToneAudioNode }) {
+    const o = outs ?? { kick: out, snare: out, hat: out, clap: out, open: out };
+    const openHp = new Tone.Filter(6500, 'highpass');
     const snareHp = new Tone.Filter(1700, 'highpass');
     const hatHp = new Tone.Filter(7500, 'highpass');
     const clapBp = new Tone.Filter(1300, 'bandpass');
     const crashHp = new Tone.Filter(5200, 'highpass');
     this.kick.volume.value = -3;
-    this.snareN.chain(snareHp, out); this.snareN.volume.value = -9;
-    this.snareB.connect(out); this.snareB.volume.value = -10;
-    this.hatN.chain(hatHp, out); this.hatN.volume.value = -17;
-    this.clapN.chain(clapBp, out); this.clapN.volume.value = -9;
+    this.snareN.chain(snareHp, o.snare); this.snareN.volume.value = -9;
+    this.snareB.connect(o.snare); this.snareB.volume.value = -10;
+    this.hatN.chain(hatHp, o.hat); this.hatN.volume.value = -17;
+    this.openN.chain(openHp, o.open); this.openN.volume.value = -18;
+    this.clapN.chain(clapBp, o.clap); this.clapN.volume.value = -9;
     this.crashN.chain(crashHp, out); this.crashN.volume.value = -9;
     this.boom.connect(out); this.boom.volume.value = -2;
-    this.kick.connect(out);
+    this.kick.connect(o.kick);
     if (rev) { this.snareN.connect(rev); this.crashN.connect(rev); }
-    this.nodes = [snareHp, hatHp, clapBp, crashHp];
+    this.nodes = [snareHp, hatHp, openHp, clapBp, crashHp];
   }
 
   hit(voice: number, t: number, vel: number) {
     switch (voice) {
       case 0: this.kick.triggerAttackRelease('C1', 0.2, t, vel); break;
       case 1: this.snareN.triggerAttackRelease(0.15, t, vel); this.snareB.triggerAttackRelease(190, 0.08, t, vel * 0.8); break;
-      case 2: this.hatN.triggerAttackRelease(0.04, t, vel * 0.9); break;
+      case 2: this.hatN.triggerAttackRelease(0.04, t, vel * 0.9);
+        try { this.openN.triggerRelease(t); } catch { /* nothing ringing */ } break; // a closed hat chokes the open one
+      case 4: this.openN.triggerAttackRelease(0.3, t, vel * 0.9); break;
       default: this.clapN.triggerAttackRelease(0.12, t, vel);
         this.clapN.triggerAttackRelease(0.1, t + 0.012, vel * 0.7); break;
     }
   }
   crash(t: number) { this.crashN.triggerAttackRelease(1.3, t, 0.9); this.boom.triggerAttackRelease(42, 1.0, t, 1); }
   dispose() {
-    [this.kick, this.snareN, this.snareB, this.hatN, this.clapN, this.crashN, this.boom, ...this.nodes].forEach((n) => n.dispose());
+    [this.kick, this.snareN, this.snareB, this.hatN, this.openN, this.clapN, this.crashN, this.boom, ...this.nodes].forEach((n) => n.dispose());
   }
 }

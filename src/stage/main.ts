@@ -21,6 +21,8 @@ import { parseMidi } from './midi';
 import { toGameSong, toLoopSong } from './importsong';
 import { melodyBacking } from '../../shared/jam';
 import { SongPlayer } from './song';
+import { SEQ_ROWS, SEQ_STEPS, Sequencer } from './sequencer';
+import { MIX_CHANNELS, MIX_LABEL } from '../common/engine';
 import { GameConductor } from './gameconductor';
 import { SONGS, getSong } from '../../shared/songs';
 import { DIFF, DIFFICULTIES, INSTRUMENT, accuracy, grade, songSeconds, validateGameSong, type GameSong, type Difficulty } from '../../shared/game';
@@ -156,8 +158,8 @@ app.innerHTML = `
   <p class="hintp" id="gp-status" role="status" aria-live="polite">Load a MIDI arrangement of a song you want to play. Imports are saved in this browser.</p>
   <div id="gp-songs"></div>
   <div class="diffs" id="gp-diffs"></div>
-  <p class="hintp">Jam over melody: the MIDI lead loops while you create drums, bass, piano and guitar. No pills or scoring.</p>
-  <div class="row"><button class="btn drop" id="gp-start">Rhythm game</button><button class="btn" id="gp-jam">Jam over melody</button></div>
+  <p class="hintp">Jam over melody: the MIDI lead loops while you create drums, bass, piano and guitar. Full song + live band: the whole MIDI plays and phones add kick, snare, hats, clap and more on top. No pills or scoring.</p>
+  <div class="row"><button class="btn drop" id="gp-start">Rhythm game</button><button class="btn" id="gp-jam">Jam over melody</button><button class="btn" id="gp-full">Full song + live band</button></div>
   <div class="row"><button class="btn" id="gp-close">Close</button></div>
 </div></div>
 <div id="results" hidden></div>
@@ -255,6 +257,11 @@ const songs = new SongPlayer(clock, () => ts, (ev: NoteEvent) => {
   engine.play(ev);
   viz.push(ev, stepTime(ts, ev.step));
 });
+const seq = new Sequencer(clock, () => ts, (ev: NoteEvent) => {
+  if (!ts) return;
+  engine.play(ev);
+  viz.push(ev, stepTime(ts, ev.step));
+});
 const gameConductor = new GameConductor(clock, () => ts, (role) => humans().filter((p) => p.role === role).map((p) => p.id), (ev: NoteEvent) => {
   if (!ts) return;
   engine.play(ev);
@@ -278,6 +285,7 @@ function laneList(): Lane[] {
   const l: Lane[] = [...h, ...roster.filter((p) => !p.connected)].map((p) => ({
     id: p.id, name: p.name, role: p.role, color: p.color, auto: false, connected: p.connected, speaker: p.speaker,
   }));
+  if (seq.running && !seq.empty) l.push({ id: 'seq:drums', name: 'BEAT', role: 'drums', color: '#ffd166', auto: false, connected: true, speaker: false });
   if (songs.song) {
     const seen = new Set(songs.song.events.map((e) => e.role));
     for (const r of ROLES) if (seen.has(r)) {
@@ -737,7 +745,7 @@ function startSong(song: Song, startStep: number, _mode: 'tap' | 'band' = 'band'
 }
 function stopSong() {
   songLoadVersion++;
-  songs.stop(); engine.silence(); hideCard();
+  songs.stop(); seq.stop(); engine.silence(); hideCard();
   if (ts?.nowPlaying?.mode === 'jam') net.send({ t: 'jam', action: 'stop' });
   else { cmd('auto', false); cmd('nowplaying', ''); }
 }
@@ -816,34 +824,45 @@ const hideCard = () => { $('card').hidden = true; };
 
 // ------------------------------------------------------------ melody + live band
 let jamKey = '';
-async function startJam(song: GameSong) {
-  if (!song.tracks.melody.length) throw new Error('This arrangement has no melody. Select a melody part from a MIDI file first.');
+async function startJam(song: GameSong, full = false) {
+  if (!full && !song.tracks.melody.length) throw new Error('This arrangement has no melody. Select a melody part from a MIDI file first.');
   const version = ++songLoadVersion;
   await enableAudio();
   for (let i = 0; i < 40 && (!net.connected || !clock.isLocked); i++) await sleep(100);
   if (version !== songLoadVersion) return;
   if (!net.connected || !clock.isLocked) throw new Error('Waiting for connection. Try Jam again.');
   endPreview(); songs.stop(); engine.silence();
-  net.send({ t: 'jam', action: 'start', song: { ...song, id: song.id.startsWith('import:') ? song.id : `import:jam:${song.id}` } });
+  net.send({ t: 'jam', action: 'start', ...(full ? { full: true } : {}), song: { ...song, id: song.id.startsWith('import:') ? song.id : `import:jam:${song.id}` } });
   $('gamepick').hidden = true; $('songs').hidden = true; $('results').hidden = true;
 }
 
 function syncJam() {
   const jam = ts?.nowPlaying?.mode === 'jam' ? ts.nowPlaying : null;
-  const key = jam ? `${jam.song.id}:${jam.startStep}` : '';
+  const key = jam ? `${jam.song.id}:${jam.startStep}:${jam.full ? 'f' : 'm'}` : '';
   if (key === jamKey) return;
   const wasJam = !!jamKey;
   jamKey = key;
-  if (!jam) { if (wasJam) { songs.stop(); engine.silence(); hideCard(); } return; }
+  if (!jam) { if (wasJam) { songs.stop(); seq.stop(); engine.silence(); hideCard(); } return; }
   sampler.stop(engine); $('sampleui').hidden = true; document.body.classList.remove('insample');
   songs.stop(); engine.silence();
-  songs.level = 0.75;
-  songs.start(toLoopSong(melodyBacking(jam.song)), jam.startStep);
+  songs.level = 1;
+  seq.stop();
+  songs.start(toLoopSong(jam.full ? jam.song : melodyBacking(jam.song)), jam.startStep);
   const card = $('card'); card.hidden = false;
-  card.innerHTML = `<div class="txt"><h3>${esc(jam.title)} · Melody jam</h3><p>The lead loops. Choose drums, bass, piano or guitar on your phone and make your own part.</p>
-    <label class="jam-mix">Melody volume <input id="jam-volume" aria-label="Melody volume" type="range" min="0" max="100" value="75" /><output id="jam-level">75%</output></label></div>
-    <div class="row"><button class="btn" id="jam-restart">Restart melody</button><button class="btn" id="jam-stop">Stop jam</button></div>`;
-  $<HTMLInputElement>('jam-volume').oninput = (e) => { const value = Number((e.target as HTMLInputElement).value); songs.level = value / 100; $('jam-level').textContent = `${value}%`; };
+  const mixRow = (c: typeof MIX_CHANNELS[number]) => `<label class="jam-mix mix">${MIX_LABEL[c]} <input data-mix="${c}" aria-label="${MIX_LABEL[c]} volume" type="range" min="0" max="150" value="${Math.round(engine.mixLevel(c) * 100)}" /></label>`;
+  card.innerHTML = `<div class="txt"><h3>${esc(jam.title)} · ${jam.full ? 'Full song + live band' : 'Melody jam'}</h3><p>${jam.full ? 'The whole MIDI plays. Choose drums, bass, piano or guitar on your phone and add your part.' : 'The lead loops. Choose drums, bass, piano or guitar on your phone and make your own part.'}</p>
+    <div class="mixer">${MIX_CHANNELS.map(mixRow).join('')}</div>
+    <div class="seq" aria-label="Beat sequencer">${SEQ_ROWS.map((r, i) => `<div class="seq-row"><b>${r.name}</b>${Array.from({ length: SEQ_STEPS }, (_, s) => `<button class="seq-cell ${s % 4 === 0 ? 'beat' : ''}" data-row="${i}" data-step="${s}" aria-label="${r.name} step ${s + 1}" aria-pressed="false"></button>`).join('')}</div>`).join('')}</div></div>
+    <div class="row"><button class="btn" id="seq-play">Start beat</button><button class="btn" id="seq-clear">Clear beat</button><button class="btn" id="jam-restart">Restart song</button><button class="btn" id="jam-stop">Stop jam</button></div>`;
+  card.querySelectorAll<HTMLInputElement>('[data-mix]').forEach((el) => (el.oninput = () => engine.setMix(el.dataset.mix as typeof MIX_CHANNELS[number], Number(el.value) / 100)));
+  const paintSeq = () => card.querySelectorAll<HTMLElement>('.seq-cell').forEach((b) => { const on = seq.cells[Number(b.dataset.row)][Number(b.dataset.step)]; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
+  card.querySelectorAll<HTMLElement>('.seq-cell').forEach((b) => (b.onclick = () => {
+    seq.toggle(Number(b.dataset.row), Number(b.dataset.step)); paintSeq();
+    if (!seq.running) { seq.start(); $('seq-play').textContent = 'Pause beat'; } // the first cell placed starts the pattern on the song's grid
+  }));
+  $('seq-play').onclick = () => { if (seq.running) seq.stop(); else seq.start(); $('seq-play').textContent = seq.running ? 'Pause beat' : 'Start beat'; };
+  $('seq-clear').onclick = () => { seq.clear(); paintSeq(); };
+  paintSeq();
   $('jam-stop').onclick = () => stopSong();
   $('jam-restart').onclick = () => { void startJam(jam.song).catch((e) => { $('gp-status').textContent = String(e); openGamePicker(); }); };
 }
@@ -901,6 +920,11 @@ $('gp-jam').onclick = async () => {
   const song = allGameSongs().find((s) => s.id === pickSong);
   if (!song) return;
   try { await startJam(song); } catch (e) { $('gp-status').textContent = e instanceof Error ? e.message : String(e); }
+};
+$('gp-full').onclick = async () => {
+  const song = allGameSongs().find((s) => s.id === pickSong);
+  if (!song) return;
+  try { await startJam(song, true); } catch (e) { $('gp-status').textContent = e instanceof Error ? e.message : String(e); }
 };
 $('gp-import').onclick = () => $<HTMLInputElement>('gp-file').click();
 let pendingMidi: { buffer: ArrayBuffer; title: string; id: string } | null = null;
