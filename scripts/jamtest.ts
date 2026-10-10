@@ -25,7 +25,7 @@ const backing = melodyBacking(song);
 assert.deepEqual(backing.tracks.melody, song.tracks.melody);
 assert.ok(['drums', 'bass', 'pads', 'guitar'].every((r) => backing.tracks[r as keyof typeof backing.tracks].length === 0), 'jam never automates human accompaniment');
 assert.equal(song.tracks.bass.length, 2, 'source arrangement remains intact');
-const ts: TransportState = { bpm: 120, epoch: 0, root: 0, scale: 'majorPent', drop: null, autoBand: false, speakerMode: false, freestyle: false, sample: null, paused: null, recording: null, game: null,
+const ts: TransportState = { bpm: 120, epoch: 0, root: 0, scale: 'majorPent', drop: null, autoBand: false, speakerMode: false, syncTest: false, freestyle: false, sample: null, paused: null, recording: null, game: null,
   nowPlaying: { mode: 'jam', title: song.title, song, chords, startStep: 32 } };
 assert.ok(liveNotesAllowed(ts));
 assert.equal(chordAt(ts, 48).name, 'F', 'pad harmony follows the song, not the default four-chord progression');

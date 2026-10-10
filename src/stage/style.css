@@ -77,6 +77,10 @@ select {
 	mix-blend-mode: screen;
 }
 
+#sync-proof { position: fixed; inset: 0; z-index: 55; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2vh; background: #fff; color: #07070d; opacity: 0; pointer-events: none; }
+#sync-proof b { font: 900 clamp(120px, 45vw, 62vh)/.9 ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+#sync-proof small { font-size: clamp(12px, 2vw, 24px); letter-spacing: .24em; }
+
 .lbl {
 	font-size: 12px;
 	font-weight: 700;

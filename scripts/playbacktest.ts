@@ -11,7 +11,7 @@ import { toMidi, type Song } from '../src/stage/composer';
 
 function performanceRun(delay: number | null, song = SONGS[0], secondPlayer = false, stopAt = Infinity) {
   let now = 0;
-  const ts: TransportState = { bpm: song.bpm, epoch: 0, root: song.root, scale: song.scale, drop: null, autoBand: false, speakerMode: false, freestyle: false, nowPlaying: null, sample: null, paused: null, recording: null,
+  const ts: TransportState = { bpm: song.bpm, epoch: 0, root: song.root, scale: song.scale, drop: null, autoBand: false, speakerMode: false, syncTest: false, freestyle: false, nowPlaying: null, sample: null, paused: null, recording: null,
     game: { song, difficulty: 'easy', songId: song.id, startStep: 32, endStep: 32 + song.bars * 16 } };
   const events: NoteEvent[] = [];
   const c = new GameConductor({ get isLocked() { return true; }, serverNow: () => now }, () => ts, (role) => role === 'melody' ? (secondPlayer ? ['human', 'idle'] : ['human']) : [], (ev) => {
@@ -92,7 +92,7 @@ const midiActive = performanceRun(0, midiGame);
 assert.ok(midiIdle.some((n, i) => n.v < midiActive[i].v && n.midi?.[0] !== midiActive[i].midi?.[0]), '.mid inactivity must change the sound');
 assert.deepEqual(midiActive.map((n) => n.midi), midiGame.tracks.melody.map((n) => n.midi), 'consistent hits preserve original MIDI pitches');
 
-const ts: TransportState = { bpm: 120, epoch: 0, root: 0, scale: 'majorPent', drop: null, autoBand: false, speakerMode: false, freestyle: false, nowPlaying: null, sample: null, paused: null, recording: null,
+const ts: TransportState = { bpm: 120, epoch: 0, root: 0, scale: 'majorPent', drop: null, autoBand: false, speakerMode: false, syncTest: false, freestyle: false, nowPlaying: null, sample: null, paused: null, recording: null,
   game: { song: midiGame, songId: midiGame.id, difficulty: 'easy', startStep: 32, endStep: 96 } };
 let now = 0;
 const emitted: NoteEvent[] = [];

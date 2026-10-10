@@ -49,6 +49,7 @@ const importId = () => `import:${globalThis.crypto?.randomUUID?.() ?? `${Date.no
 const app = document.getElementById('app')!;
 app.innerHTML = `
 <div id="flash"></div>
+<div id="sync-proof" aria-hidden="true"><b id="sync-beat-number"></b><small>SYNC TEST · BEAT</small></div>
 <canvas id="viz"></canvas>
 <div id="big"></div>
 <section id="demo-guide" aria-live="polite" hidden><b id="demo-title"></b><span id="demo-copy"></span><strong id="demo-sync"></strong></section>
@@ -70,6 +71,7 @@ app.innerHTML = `
   <details id="more">
     <summary>MORE</summary>
     <div class="more-controls">
+    <button class="btn" id="sync-test">SYNC TEST: OFF</button>
   <div class="cond-cluster transport-cluster">
     <div class="ctl"><span class="lbl">TEMPO <b id="bpmv"></b></span><input id="bpmr" type="range" min="${BPM_MIN}" max="${BPM_MAX}" step="1" aria-label="Tempo" /></div>
     <div class="ctl"><span class="lbl">KEY</span><select id="key" aria-label="Key">${NOTE_NAMES.map((n, i) => `<option value="${i}">${n}</option>`).join('')}</select></div>
@@ -295,7 +297,7 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 
 // -------------------------------------------------------------- conductor UI
 const done = (g: { perfect: number; good: number; miss: number }) => ({ perfect: g.perfect, good: g.good, total: g.perfect + g.good + g.miss });
-const cmd = (c: 'bpm' | 'pause' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'freestyle' | 'nowplaying' | 'sample' | 'recordingStart' | 'recordingStop', value?: number | string | boolean) => net.send({ t: 'cmd', cmd: c, value });
+const cmd = (c: 'bpm' | 'pause' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'syncTest' | 'freestyle' | 'nowplaying' | 'sample' | 'recordingStart' | 'recordingStop', value?: number | string | boolean) => net.send({ t: 'cmd', cmd: c, value });
 let demoStep = 0;
 function updateDemoUI() {
   const guide = $('demo-guide');
@@ -333,6 +335,7 @@ $<HTMLInputElement>('bpmr').oninput = (e) => {
 $<HTMLSelectElement>('key').onchange = (e) => cmd('key', Number((e.target as HTMLSelectElement).value));
 $<HTMLSelectElement>('scale').onchange = (e) => cmd('scale', (e.target as HTMLSelectElement).value);
 $('drop').onclick = () => cmd('drop');
+$('sync-test').onclick = () => cmd('syncTest', !ts?.syncTest);
 $('pause').onclick = () => cmd('pause', ts?.paused == null);
 $('free').onclick = () => cmd('freestyle', !ts?.freestyle);
 $('play').onclick = () => openGamePicker();
@@ -563,6 +566,8 @@ function syncControls() {
   const jam = ts.nowPlaying?.mode === 'jam';
   for (const id of ['bpmr', 'key', 'scale', 'drop', 'auto', 'free', 'sample']) ($<HTMLButtonElement>(id)).disabled = jam || !!ts.game;
   $('spk').classList.toggle('on', ts.speakerMode);
+  $('sync-test').classList.toggle('on', ts.syncTest);
+  $('sync-test').textContent = `SYNC TEST: ${ts.syncTest ? 'ON' : 'OFF'}`;
   $('sessrec').classList.toggle('on', !!ts.recording);
   $('sessrec').textContent = ts.recording ? `■ STOP (${ts.recording.events})` : 'RECORD';
   $('keyline').textContent = `${NOTE_NAMES[ts.root]} ${SCALE_LABEL[ts.scale]}${audioOn ? ' · SOUND ON' : ''}`;
@@ -1056,7 +1061,15 @@ function frame(t: number) {
   requestAnimationFrame(frame);
   if (!ts || !clock.isLocked) return;
   const b = beats.frame(clock, ts, t);
-  flashEl.style.opacity = String((b.downbeat ? 0.22 : 0.08) * flashEnv(b.since));
+  const syncProof = $('sync-proof');
+  if (ts.syncTest) {
+    syncProof.style.opacity = String(Math.max(0, 1 - b.since / 160));
+    $('sync-beat-number').textContent = String(b.beat + 1);
+    flashEl.style.opacity = '0';
+  } else {
+    syncProof.style.opacity = '0';
+    flashEl.style.opacity = String((b.downbeat ? 0.22 : 0.08) * flashEnv(b.since));
+  }
   const pos = stepPos(ts, b.serverMs), step = Math.floor(pos);
 
   // drop choreography for the room
@@ -1099,6 +1112,13 @@ function frame(t: number) {
   }
 }
 requestAnimationFrame(frame);
+
+let syncLogAt = 0;
+setInterval(() => {
+  if (!ts?.syncTest) return;
+  const readings = roster.filter((p) => p.connected && p.sync).map((p) => ({ phone: p.name, role: ROLE_INFO[p.role].label, p90SyncErrorMs: syncHeadline(p.sync).err, jitterMs: p.sync!.jitter, rttMs: p.sync!.rttMin }));
+  console.info('[sync-test] per-phone p90 sync error (ms)', readings);
+}, 3000);
 
 (window as any).ho = { engine, clock, rec, gameConductor }; // console debugging
 net.connect();

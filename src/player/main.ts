@@ -45,7 +45,7 @@ const FLASH_LABEL: Record<FlashMode, string> = { soft: 'Flash: soft', full: 'Fla
 let motion: 'unknown' | 'granted' | 'denied' | 'none' = 'unknown';
 
 const app = document.getElementById('app')!;
-app.innerHTML = `<div id="flash"></div><div id="root"></div><div class="banner" id="banner" role="status" aria-live="polite" hidden>Reconnecting…</div><div class="pausedbar" id="pausedbar" role="status" aria-live="polite" hidden>PAUSED</div>`;
+app.innerHTML = `<div id="flash"></div><div id="sync-proof" aria-hidden="true"><b id="sync-beat-number"></b><small>SYNC TEST · BEAT</small></div><div id="root"></div><div class="banner" id="banner" role="status" aria-live="polite" hidden>Reconnecting…</div><div class="pausedbar" id="pausedbar" role="status" aria-live="polite" hidden>PAUSED</div>`;
 const root = document.getElementById('root')!;
 const flashEl = document.getElementById('flash')!;
 const banner = document.getElementById('banner')!;
@@ -419,11 +419,18 @@ function frame(t: number) {
 
   // The synchronised flash. Pure function of the synced clock.
   const e = flashEnv(b.since);
-  if (flashMode === 'off' || game.active) flashEl.style.opacity = '0';
+  const syncProof = document.getElementById('sync-proof')!;
+  if (ts.syncTest) {
+    syncProof.style.opacity = String(Math.max(0, 1 - b.since / 160));
+    document.getElementById('sync-beat-number')!.textContent = String(b.beat + 1);
+    flashEl.style.opacity = '0';
+  } else if (flashMode === 'off' || game.active) { syncProof.style.opacity = '0'; flashEl.style.opacity = '0'; }
   else if (flashMode === 'soft') { // gentle colour pulse, never white
+    syncProof.style.opacity = '0';
     flashEl.style.background = me?.color ?? '#fff';
     flashEl.style.opacity = String((b.downbeat ? 0.28 : 0.14) * e);
   } else {
+    syncProof.style.opacity = '0';
     flashEl.style.background = b.downbeat ? '#fff' : (me?.color ?? '#fff');
     flashEl.style.opacity = String((b.downbeat ? 0.9 : 0.55) * e);
   }
@@ -517,6 +524,10 @@ const hexA = (hex: string, a: number) => {
 // ------------------------------------------------------------------ housekeeping
 setInterval(() => {
   net.send({ t: 'stats', stats: clock.stats(beats.flashLate) });
+  if (ts?.syncTest) {
+    const s = clock.stats(beats.flashLate);
+    console.info('[sync-test] p90 sync error (ms)', { phone: me?.name ?? id, err: s.err, jitter: s.jitter, rtt: s.rttMin });
+  }
   updateDebug();
 }, 1000);
 setInterval(updateDebug, 250);

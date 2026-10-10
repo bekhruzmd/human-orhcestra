@@ -68,6 +68,7 @@ const transport: TransportState = {
   drop: null,
   autoBand: false,
   speakerMode: false,
+  syncTest: false,
   freestyle: false,
   nowPlaying: null,
   game: null,
@@ -717,6 +718,7 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       case 'drop': startDrop(); break;
       case 'auto': transport.autoBand = !!m.value; break;
       case 'speakers': transport.speakerMode = !!m.value; break;
+      case 'syncTest': transport.syncTest = !!m.value; break;
       case 'freestyle': transport.freestyle = !!m.value; break;
       case 'sample': { // value "chop|Title" / "backing|Title" / "" (clear). The audio itself never leaves the Stage.
         const [mode, ...rest] = String(m.value ?? '').split('|');

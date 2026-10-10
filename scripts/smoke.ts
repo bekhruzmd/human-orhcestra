@@ -65,6 +65,16 @@ phones[0].ws.send(JSON.stringify({ t: 'cmd', cmd: 'bpm', value: 70 }));
 await sleep(100);
 check(stage.ts!.bpm === 140, 'players cannot use conductor commands');
 
+stage.ws.send(JSON.stringify({ t: 'cmd', cmd: 'syncTest', value: true }));
+await sleep(100);
+check(stage.ts?.syncTest === true && phones[0].ts?.syncTest === true, 'Stage sync-test toggle reaches every phone in transport state');
+phones[0].ws.send(JSON.stringify({ t: 'cmd', cmd: 'syncTest', value: false }));
+await sleep(100);
+check(stage.ts?.syncTest === true, 'players cannot disable the Stage sync-test mode');
+stage.ws.send(JSON.stringify({ t: 'cmd', cmd: 'syncTest', value: false }));
+await sleep(100);
+check(stage.ts?.syncTest === false && phones[0].ts?.syncTest === false, 'Stage can turn off sync-test flashes for all phones');
+
 // reconnect keeps the seat
 phones[1].ws.terminate();
 await sleep(300);

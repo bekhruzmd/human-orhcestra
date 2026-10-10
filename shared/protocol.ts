@@ -84,6 +84,8 @@ export interface TransportState {
   autoBand: boolean;
   /** Phones play their own part locally ("speaker array" mode). */
   speakerMode: boolean;
+  /** Full-screen beat flash and counter for filmed synchronization tests. */
+  syncTest: boolean;
   /** Freestyle jam: no quantising, no scale lock. Phones stream raw gestures; the Stage records them. */
   freestyle: boolean;
   /** Song preview currently looping on the Stage. 'tap' is retained for older clients. */
@@ -191,7 +193,7 @@ export type ClientMsg =
   | { t: 'ctl'; y: number; tilt: number }
   | { t: 'raw'; k: RawKind; at: number; x: number; y: number; v?: number }
   | { t: 'songreq'; id: string; mode: 'band' | 'tap' | 'jam' }
-  | { t: 'cmd'; cmd: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'freestyle' | 'nowplaying' | 'sample' | 'pause' | 'recordingStart' | 'recordingStop'; value?: number | string | boolean };
+  | { t: 'cmd'; cmd: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'syncTest' | 'freestyle' | 'nowplaying' | 'sample' | 'pause' | 'recordingStart' | 'recordingStop'; value?: number | string | boolean };
 
 export type ServerMsg =
   | { t: 'welcome'; you: PlayerInfo | null; state: TransportState; serverNow: number }
