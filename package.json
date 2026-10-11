@@ -23,23 +23,38 @@
     "typecheck": "tsc --noEmit",
     "simtest": "node --import tsx scripts/simtest.ts",
     "roomtest": "node --import tsx scripts/roomtest.ts",
+    "xrtest": "node --import tsx scripts/xrtest.ts",
     "test": "node --import tsx scripts/musictest.ts && node --import tsx scripts/composertest.ts && node --import tsx scripts/librarytest.ts && node --import tsx scripts/gametest.ts && node --import tsx scripts/audiotest.ts && node --import tsx scripts/jamtest.ts && node --import tsx scripts/playbacktest.ts && SECS=8 node --import tsx scripts/simtest.ts"
   },
   "dependencies": {
+    "@react-three/drei": "^10.7.9",
+    "@react-three/fiber": "^9.8.1",
+    "@react-three/xr": "^6.6.31",
     "@types/pg": "^8.23.1",
     "pg": "^8.23.1",
     "qrcode": "^1.5.4",
+    "react": "~19.3.0",
+    "react-dom": "~19.3.0",
+    "three": "^0.186.1",
     "tone": "^15.1.22",
-    "ws": "^8.22.0"
+    "ws": "^8.22.0",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@neon/config": "^1.8.6",
     "@types/node": "^26.6.5",
     "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.186.0",
     "@types/ws": "^8.18.2",
+    "@vitejs/plugin-react": "^4.7.0",
     "concurrently": "^10.0.6",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^6.4.4"
+  },
+  "overrides": {
+    "three": "$three"
   }
 }

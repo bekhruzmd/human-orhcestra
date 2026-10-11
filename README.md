@@ -35,6 +35,13 @@ npm run demo                  # build + server + HTTPS tunnel
 | `npm test` | offline checks: scale-lock + clock-sync accuracy simulation |
 | `npm run test:network` | isolated live WebSocket regression tests (temporary server on port 3199) |
 | `npm run typecheck` | `tsc --noEmit` |
+| `npm run roomtest` / `npm run xrtest` | room-code isolation checks / VR networking against the real server |
+
+### VR conductor (Meta Quest)
+
+`/xr` is a mixed-reality view of the same session: each instrument floats in your room and lights up as phones play. Open `https://<this-site>/xr` in the Quest Browser, enter the room code shown on the Stage, press **Connect**, then **Enter Mixed Reality**. Observers are read-only; **Conductor** can pause, drop and change tempo. Per-instrument mute and volume are shown but disabled, because the server has no such command. The page is a separate bundle, so phones and the Stage never download the 3D code.
+
+Room codes: each Stage creates its own room (shown on screen and in the QR link, `/?room=ABCD`); phones and the VR page join it by code.
 
 Stage keys: **N** advances the three-moment Judge demo, **W** opens “How it works,” **H** hides the conductor bar, and **F** toggles fullscreen. Less-used controls, sync test, and demo preflight are under **More**.
 

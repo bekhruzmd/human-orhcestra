@@ -24,3 +24,9 @@ CLAUDE.md
 skills-lock.json
 .env
 .env.*
+
+# user-supplied MIDI files (third-party songs): keep local, never commit
+midi_songs/
+
+# standalone Quest app (own repo)
+/human-orchestrator_xr/

@@ -81,7 +81,7 @@ app.innerHTML = `
 </div>
 <aside class="side">
   <div class="qrbox"><canvas id="qr"></canvas></div>
-  <div class="scan">SCAN TO JOIN</div><div id="roomcode" aria-label="Room code"></div><div id="url"></div><div id="warn" aria-live="polite"></div>
+  <div class="scan">SCAN TO JOIN</div><div id="roomcode" aria-label="Room code"></div><div id="url"></div><div id="vrhint">VR: open <b>/xr</b> in a Quest browser, enter the code</div><div id="warn" aria-live="polite"></div>
   <div id="roster"></div>
 </aside>
 <button id="audio">SOUND OFF · click to enable audio</button>

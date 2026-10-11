@@ -584,7 +584,7 @@ const server = http.createServer((req, res) => {
     return;
   }
   // Static files: / -> player (index.html), /stage -> stage.html
-  let rel = url.pathname === '/stage' ? '/stage.html' : url.pathname === '/' ? '/index.html' : url.pathname;
+  let rel = url.pathname === '/stage' ? '/stage.html' : url.pathname === '/xr' ? '/xr.html' : url.pathname === '/' ? '/index.html' : url.pathname;
   const file = path.join(DIST, path.normalize(rel).replace(/^(\.\.[/\\])+/, ''));
   if (!file.startsWith(DIST)) return void res.writeHead(403).end();
   fs.readFile(file, (err, data) => {

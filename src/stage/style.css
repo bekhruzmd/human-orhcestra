@@ -252,6 +252,13 @@ select {
 	user-select: all;
 }
 
+#vrhint {
+	text-align: center;
+	font-size: 11px;
+	color: var(--dim);
+	letter-spacing: .04em;
+}
+
 #url {
 	text-align: center;
 	font-size: 13px;
