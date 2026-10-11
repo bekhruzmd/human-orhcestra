@@ -60,24 +60,6 @@ const wallIso = (ms: number) => new Date(WALL_T0 + ms).toISOString();
 
 // -------------------------------------------------------------- transport
 const SCALES: ScaleName[] = ['minorPent', 'majorPent', 'dorian', 'blues'];
-const transport: TransportState = {
-  bpm: 100,
-  epoch: serverNow() + 500, // first downbeat half a second from boot
-  root: 0, // C
-  scale: 'minorPent', // default: C minor pentatonic
-  drop: null,
-  autoBand: false,
-  speakerMode: false,
-  syncTest: false,
-  freestyle: false,
-  nowPlaying: null,
-  game: null,
-  sample: null,
-  paused: null,
-  recording: null,
-};
-let dropTimer: NodeJS.Timeout | null = null;
-let gameTimer: NodeJS.Timeout | null = null;
 const RESULTS_GRACE_MS = 45_000; // how long a finished game stays up so the results screens can be read
 const MAX_RECORDING_EVENTS = 200_000;
 const MAX_LOCAL_RECORDINGS = 80;
@@ -124,7 +106,6 @@ interface FinishedRecording {
   events: RecordingEvent[];
 }
 
-let recordingSession: RecordingSession | null = null;
 const localRecordings = new Map<string, FinishedRecording>();
 
 const cloneTransport = (ts: TransportState): TransportState => structuredClone(ts);
@@ -150,7 +131,7 @@ async function persistRecordingStart(session: RecordingSession) {
     await db.query(
       `INSERT INTO recording_sessions (
          id, started_at, mode, stage_instance_id, song_id, difficulty,
-         protocol_version, engine_version, transport_start, players
+         protocol_version, engine_version, transport_start, cur.players
        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb)
        ON CONFLICT (id) DO NOTHING`,
       [
@@ -215,7 +196,7 @@ async function listRecordings(limit: number) {
     try {
       const q = await db.query(
         `SELECT id, started_at, ended_at, ended_reason, mode, song_id, difficulty, summary,
-                jsonb_array_length(players) AS players_count
+                jsonb_array_length(cur.players) AS players_count
            FROM recording_sessions
           ORDER BY started_at DESC
           LIMIT $1`,
@@ -257,7 +238,7 @@ async function getRecording(id: string) {
     try {
       const head = await db.query(
         `SELECT id, started_at, ended_at, ended_reason, mode, song_id, difficulty,
-                transport_start, transport_end, players, summary
+                transport_start, transport_end, cur.players, summary
            FROM recording_sessions
           WHERE id = $1`,
         [id],
@@ -316,33 +297,33 @@ const recordingId = () =>
   ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
 function startRecording(now: number): boolean {
-  if (recordingSession || transport.recording) return false;
+  if (cur.recordingSession || cur.transport.recording) return false;
   const id = recordingId();
-  const startStep = Math.floor(stepPos(transport, now));
-  recordingSession = {
+  const startStep = Math.floor(stepPos(cur.transport, now));
+  cur.recordingSession = {
     id,
     startedAt: now,
     startStep,
-    mode: recordingMode(transport),
-    songId: transport.game?.songId ?? null,
-    difficulty: transport.game?.difficulty ?? null,
-    transportStart: cloneTransport(transport),
+    mode: recordingMode(cur.transport),
+    songId: cur.transport.game?.songId ?? null,
+    difficulty: cur.transport.game?.difficulty ?? null,
+    transportStart: cloneTransport(cur.transport),
     players: joinedPlayers().map(info),
     events: [],
     seq: 0,
   };
-  transport.recording = { sessionId: id, startedAt: now, startStep, events: 0 };
+  cur.transport.recording = { sessionId: id, startedAt: now, startStep, events: 0 };
   recordEvent(now, 'cmd', 'stage', null, { cmd: 'recordingStart' });
-  void persistRecordingStart(recordingSession);
+  void persistRecordingStart(cur.recordingSession);
   return true;
 }
 
 function stopRecording(now: number, reason: 'stage' | 'limit' | 'shutdown' = 'stage'): RecordingSession | null {
-  if (!recordingSession || !transport.recording) return null;
+  if (!cur.recordingSession || !cur.transport.recording) return null;
   recordEvent(now, 'cmd', 'stage', null, { cmd: 'recordingStop', reason });
-  const done = recordingSession;
-  recordingSession = null;
-  transport.recording = null;
+  const done = cur.recordingSession;
+  cur.recordingSession = null;
+  cur.transport.recording = null;
   const finished: FinishedRecording = {
     id: done.id,
     startedAt: done.startedAt,
@@ -352,7 +333,7 @@ function stopRecording(now: number, reason: 'stage' | 'limit' | 'shutdown' = 'st
     songId: done.songId,
     difficulty: done.difficulty,
     transportStart: done.transportStart,
-    transportEnd: cloneTransport(transport),
+    transportEnd: cloneTransport(cur.transport),
     players: done.players,
     summary: summarizeEvents(done.events),
     events: done.events,
@@ -370,11 +351,11 @@ function recordEvent(
   payload: Record<string, unknown>,
   step: number | null = null,
 ) {
-  if (!recordingSession || !transport.recording) return;
-  const ev: RecordingEvent = { seq: recordingSession.seq++, at, step, type, pid, role, payload };
-  recordingSession.events.push(ev);
-  transport.recording.events = recordingSession.events.length;
-  if (recordingSession.events.length >= MAX_RECORDING_EVENTS) {
+  if (!cur.recordingSession || !cur.transport.recording) return;
+  const ev: RecordingEvent = { seq: cur.recordingSession.seq++, at, step, type, pid, role, payload };
+  cur.recordingSession.events.push(ev);
+  cur.transport.recording.events = cur.recordingSession.events.length;
+  if (cur.recordingSession.events.length >= MAX_RECORDING_EVENTS) {
     stopRecording(at, 'limit');
     broadcastState();
   }
@@ -383,57 +364,57 @@ function recordEvent(
 function setBpm(bpm: number) {
   if (!Number.isFinite(bpm)) return;
   bpm = Math.min(BPM_MAX, Math.max(BPM_MIN, Math.round(bpm)));
-  const now = transport.paused ?? serverNow();
+  const now = cur.transport.paused ?? serverNow();
   // Re-anchor the epoch so the *current step position stays identical* under the new tempo.
   // Without this, every client's notion of "which step is it" would jump on a BPM change.
-  const pos = stepPos(transport, now);
-  transport.bpm = bpm;
-  transport.epoch = now - pos * stepMs(bpm);
+  const pos = stepPos(cur.transport, now);
+  cur.transport.bpm = bpm;
+  cur.transport.epoch = now - pos * stepMs(bpm);
 }
 
 function startDrop() {
-  if (transport.drop) return;
+  if (cur.transport.drop) return;
   const now = serverNow();
   // Build-up starts on the next bar line at least 400 ms away (so every client hears the start).
-  const bar = Math.ceil((stepPos(transport, now + 400)) / STEPS_PER_BAR);
+  const bar = Math.ceil((stepPos(cur.transport, now + 400)) / STEPS_PER_BAR);
   const startStep = bar * STEPS_PER_BAR;
-  transport.drop = { startStep, dropStep: startStep + DROP_BUILD_STEPS };
+  cur.transport.drop = { startStep, dropStep: startStep + DROP_BUILD_STEPS };
   armDropTimer();
 }
 
 function armDropTimer() {
-  if (dropTimer) clearTimeout(dropTimer);
-  if (!transport.drop) return;
-  const endMs = transport.epoch + (transport.drop.dropStep + STEPS_PER_BAR) * stepMs(transport.bpm);
-  dropTimer = setTimeout(() => {
-    transport.drop = null;
+  if (cur.dropTimer) clearTimeout(cur.dropTimer);
+  if (!cur.transport.drop) return;
+  const endMs = cur.transport.epoch + (cur.transport.drop.dropStep + STEPS_PER_BAR) * stepMs(cur.transport.bpm);
+  cur.dropTimer = setTimeout(inRoom(cur, () => {
+    cur.transport.drop = null;
     broadcastState();
-  }, Math.max(0, endMs - serverNow()) + 200);
+  }), Math.max(0, endMs - serverNow()) + 200);
 }
 
 /** A finished game must not linger: clear it after the results grace period (also covers a Stage that closed). */
 function armGameTimer() {
-  if (gameTimer) clearTimeout(gameTimer);
-  if (!transport.game) return;
-  const endMs = transport.epoch + transport.game.endStep * stepMs(transport.bpm);
-  gameTimer = setTimeout(() => {
-    transport.game = null;
-    for (const pl of players.values()) pl.game = null;
+  if (cur.gameTimer) clearTimeout(cur.gameTimer);
+  if (!cur.transport.game) return;
+  const endMs = cur.transport.epoch + cur.transport.game.endStep * stepMs(cur.transport.bpm);
+  cur.gameTimer = setTimeout(inRoom(cur, () => {
+    cur.transport.game = null;
+    for (const pl of cur.players.values()) pl.game = null;
     broadcastState(); broadcastRoster();
-  }, Math.max(0, endMs - serverNow()) + RESULTS_GRACE_MS);
+  }), Math.max(0, endMs - serverNow()) + RESULTS_GRACE_MS);
 }
 
 /** Pause freezes the shared transport clock; resume shifts the epoch by the pause length so every step lands where it left off. */
 function setPaused(on: boolean) {
-  if (on === (transport.paused !== null)) return;
+  if (on === (cur.transport.paused !== null)) return;
   const now = serverNow();
   if (on) {
-    transport.paused = now;
-    if (dropTimer) clearTimeout(dropTimer);
-    if (gameTimer) clearTimeout(gameTimer);
+    cur.transport.paused = now;
+    if (cur.dropTimer) clearTimeout(cur.dropTimer);
+    if (cur.gameTimer) clearTimeout(cur.gameTimer);
   } else {
-    transport.epoch += now - transport.paused!;
-    transport.paused = null;
+    cur.transport.epoch += now - cur.transport.paused!;
+    cur.transport.paused = null;
     armDropTimer(); armGameTimer();
   }
 }
@@ -441,6 +422,8 @@ function setPaused(on: boolean) {
 // ------------------------------------------------------------------ state
 interface Conn {
   ws: WebSocket;
+  /** Set by `hello`; a socket belongs to no room (and hears nothing) until then. */
+  room: Room | null;
   kind: 'stage' | 'player';
   playerId: string | null;
   lastSeen: number;
@@ -455,15 +438,72 @@ interface Player extends PlayerInfo {
   y: number;
   tilt: number;
 }
-const players = new Map<string, Player>();
-const gameHits = new Map<string, Set<number>>();
-let gameCharts = new Map<Role, ReturnType<typeof buildChart>>();
-let lastGameStart = -Infinity;
-let lastJamStart = -Infinity;
-const conns = new Set<Conn>();
 let publicUrl: string | null = null;
 
-const info = (p: Player): PlayerInfo => ({
+// ------------------------------------------------------------------ rooms
+// Every room owns the state that used to be global (transport, seats, game, recording). The handlers below are
+// synchronous and the server is single-threaded, so `cur` is simply the room the current event belongs to: each
+// entry point (socket message, socket close, timer) sets it first with `enter(room)`.
+interface Room {
+  code: string;
+  transport: TransportState;
+  dropTimer: NodeJS.Timeout | null;
+  gameTimer: NodeJS.Timeout | null;
+  recordingSession: RecordingSession | null;
+  players: Map<string, Player>;
+  gameHits: Map<string, Set<number>>;
+  gameCharts: Map<Role, ReturnType<typeof buildChart>>;
+  lastGameStart: number;
+  lastJamStart: number;
+  conns: Set<Conn>;
+  emptySince: number | null;
+}
+/** The room used by clients that send no code (the original single-session behaviour). */
+const DEFAULT_ROOM = '';
+const ROOM_CODE = /^[A-Z0-9]{3,8}$/;
+const MAX_ROOMS = 200;
+const EMPTY_ROOM_MS = 10 * 60_000; // a room with nobody connected is dropped after this long
+
+function createRoom(code: string): Room {
+  return {
+    code,
+    transport: {
+      bpm: 100,
+      epoch: serverNow() + 500, // first downbeat half a second from creation
+      root: 0, // C
+      scale: 'minorPent', // default: C minor pentatonic
+      drop: null,
+      autoBand: false,
+      speakerMode: false,
+      syncTest: false,
+      freestyle: false,
+      nowPlaying: null,
+      game: null,
+      sample: null,
+      paused: null,
+      recording: null,
+    },
+    dropTimer: null, gameTimer: null, recordingSession: null,
+    players: new Map(), gameHits: new Map(), gameCharts: new Map(),
+    lastGameStart: -Infinity, lastJamStart: -Infinity,
+    conns: new Set(), emptySince: null,
+  };
+}
+const rooms = new Map<string, Room>([[DEFAULT_ROOM, createRoom(DEFAULT_ROOM)]]);
+let cur: Room = rooms.get(DEFAULT_ROOM)!;
+const enter = (room: Room) => { cur = room; };
+/** Wrap a timer callback so it runs inside the room that scheduled it. */
+const inRoom = (room: Room, fn: () => void) => () => { enter(room); fn(); };
+
+/** Normalise a client-supplied code ('' / missing => default room). Returns null when it is malformed. */
+function parseRoomCode(raw: unknown): string | null {
+  if (raw === undefined || raw === null || raw === '') return DEFAULT_ROOM;
+  if (typeof raw !== 'string') return null;
+  const code = raw.trim().toUpperCase();
+  return ROOM_CODE.test(code) ? code : null;
+}
+
+const info =(p: Player): PlayerInfo => ({
   id: p.id, name: p.name, color: p.color, role: p.role, connected: p.connected, speaker: p.speaker, sync: p.sync, game: p.game,
 });
 
@@ -472,21 +512,21 @@ function send(ws: WebSocket, msg: ServerMsg) {
 }
 function broadcast(msg: ServerMsg, filter?: (c: Conn) => boolean) {
   const s = JSON.stringify(msg);
-  for (const c of conns) if (c.ws.readyState === WebSocket.OPEN && (!filter || filter(c))) c.ws.send(s);
+  for (const c of cur.conns) if (c.ws.readyState === WebSocket.OPEN && (!filter || filter(c))) c.ws.send(s);
 }
-const broadcastState = () => broadcast({ t: 'state', state: transport });
+const broadcastState = () => broadcast({ t: 'state', state: cur.transport });
 const broadcastRoster = () => broadcast({ t: 'roster', players: joinedPlayers().map(info) });
 
 /** First unused role in the configured order; when all are taken, reuse the least-used one. */
 function pickRole(others: Player[]): Role {
-  const np = transport.nowPlaying;
+  const np = cur.transport.nowPlaying;
   const roles = np?.mode === 'jam' && !np.full ? ROLES.filter((r) => r !== 'melody') : ROLES;
   return roles.find((r) => !others.some((p) => p.role === r))
     ?? [...roles].sort((a, b) => others.filter((p) => p.role === a).length - others.filter((p) => p.role === b).length)[0];
 }
 const pickColor = (others: Player[]) =>
   COLORS.find((c) => !others.some((p) => p.color === c)) ?? COLORS[others.length % COLORS.length];
-const joinedPlayers = () => [...players.values()].filter((p) => p.joined);
+const joinedPlayers = () => [...cur.players.values()].filter((p) => p.joined);
 
 /** Create a preview seat (role + colour are shown on the join screen; committed on "Join"). */
 function seat(id: string): Player {
@@ -495,7 +535,7 @@ function seat(id: string): Player {
     id, name: `Player ${others.length + 1}`, color: pickColor(others), role: pickRole(others), connected: true,
     speaker: false, sync: null, game: null, joined: false, conn: null, droppedAt: null, y: 0.5, tilt: 0,
   };
-  players.set(id, p);
+  cur.players.set(id, p);
   return p;
 }
 
@@ -568,8 +608,7 @@ const wss = new WebSocketServer({ server, path: ON_VERCEL ? undefined : '/ws', p
 wss.on('connection', (ws, req) => {
   // Disable Nagle: tiny JSON frames must leave immediately or ping RTTs get sticky/asymmetric.
   (req.socket as import('node:net').Socket).setNoDelay(true);
-  const conn: Conn = { ws, kind: 'player', playerId: null, lastSeen: serverNow(), noteTimes: [], rawTimes: [] };
-  conns.add(conn);
+  const conn: Conn = { ws, room: null, kind: 'player', playerId: null, lastSeen: serverNow(), noteTimes: [], rawTimes: [] };
 
   ws.on('message', (raw) => {
     // Timestamp BEFORE parsing/dispatch: this is the t1 of the NTP exchange.
@@ -579,11 +618,16 @@ wss.on('connection', (ws, req) => {
     try { m = JSON.parse(raw.toString()); } catch { return; }
     if (!m || typeof m !== 'object' || Array.isArray(m) || typeof m.t !== 'string') return;
     if (m.t === 'ping') return void send(ws, { t: 'pong', id: m.id, c0: m.c0, s: rx });
+    if (m.t !== 'hello' && !conn.room) return; // say hello (and pick a room) first
+    if (conn.room) enter(conn.room);
     handle(conn, m, rx);
   });
   ws.on('close', () => {
-    conns.delete(conn);
-    const p = conn.playerId ? players.get(conn.playerId) : null;
+    if (!conn.room) return;
+    enter(conn.room);
+    cur.conns.delete(conn);
+    if (!cur.conns.size) cur.emptySince = serverNow();
+    const p = conn.playerId ? cur.players.get(conn.playerId) : null;
     if (p && p.conn === conn) {
       p.conn = null; p.connected = false; p.droppedAt = serverNow();
       if (p.joined) broadcastRoster();
@@ -594,10 +638,23 @@ wss.on('connection', (ws, req) => {
 
 function handle(conn: Conn, m: ClientMsg, now: number) {
   if (m.t === 'hello') {
+    if (conn.room) return; // one hello per socket: a socket cannot hop between rooms
+    const code = parseRoomCode(m.room);
+    // Only a Stage that asks for it may create a room, so a mistyped code on a phone gets an error, not an empty room.
+    let room = code === null ? undefined : rooms.get(code);
+    if (code === null) return void send(conn.ws, { t: 'error', code: 'badroom', message: 'That room code is not valid. Use 3-8 letters or digits.' });
+    if (!room) {
+      if (!(m.kind === 'stage' && m.create)) return void send(conn.ws, { t: 'error', code: 'noroom', message: `No room "${code}". Check the code on the Stage screen.` });
+      if (rooms.size >= MAX_ROOMS) return void send(conn.ws, { t: 'error', code: 'busy', message: 'The server is full of rooms right now. Try again in a few minutes.' });
+      room = createRoom(code);
+      rooms.set(code, room);
+    }
+    conn.room = room; enter(room);
+    room.conns.add(conn); room.emptySince = null;
     conn.kind = m.kind;
     if (m.kind === 'player') {
       // Reconnect: same id => same seat, name, colour, role.
-      let p = m.id ? players.get(m.id) : undefined;
+      let p = m.id ? cur.players.get(m.id) : undefined;
       if (p) {
         if (p.conn && p.conn !== conn) p.conn.ws.terminate(); // stale half-open socket
       } else if (m.id) {
@@ -607,9 +664,9 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
         p.conn = conn; p.connected = true; p.droppedAt = null; conn.playerId = p.id;
         if (p.joined) broadcastRoster();
       }
-      send(conn.ws, { t: 'welcome', you: p ? info(p) : null, state: transport, serverNow: now });
+      send(conn.ws, { t: 'welcome', you: p ? info(p) : null, state: cur.transport, serverNow: now, room: cur.code });
     } else {
-      send(conn.ws, { t: 'welcome', you: null, state: transport, serverNow: now });
+      send(conn.ws, { t: 'welcome', you: null, state: cur.transport, serverNow: now, room: cur.code });
       send(conn.ws, { t: 'roster', players: joinedPlayers().map(info) });
     }
     return;
@@ -618,7 +675,7 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
   if (m.t === 'jam') {
     if (conn.kind !== 'stage') return;
     if (m.action === 'stop') {
-      if (transport.nowPlaying?.mode === 'jam') { transport.nowPlaying = null; setPaused(false); broadcastState(); }
+      if (cur.transport.nowPlaying?.mode === 'jam') { cur.transport.nowPlaying = null; setPaused(false); broadcastState(); }
       return;
     }
     const song = validateGameSong(m.song);
@@ -627,14 +684,14 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       return;
     }
     setPaused(false);
-    if (gameTimer) clearTimeout(gameTimer);
-    transport.game = null; transport.drop = null; transport.sample = null;
-    transport.freestyle = false; transport.autoBand = false;
-    transport.root = song.root; transport.scale = song.scale; setBpm(song.bpm);
-    const startStep = Math.max(lastJamStart + STEPS_PER_BAR, Math.ceil(stepPos(transport, now + 1800) / STEPS_PER_BAR) * STEPS_PER_BAR);
-    lastJamStart = startStep;
-    transport.nowPlaying = { mode: 'jam', title: song.title, song, startStep, chords: jamHarmony(song), ...(m.full ? { full: true } : {}) };
-    for (const pl of players.values()) {
+    if (cur.gameTimer) clearTimeout(cur.gameTimer);
+    cur.transport.game = null; cur.transport.drop = null; cur.transport.sample = null;
+    cur.transport.freestyle = false; cur.transport.autoBand = false;
+    cur.transport.root = song.root; cur.transport.scale = song.scale; setBpm(song.bpm);
+    const startStep = Math.max(cur.lastJamStart + STEPS_PER_BAR, Math.ceil(stepPos(cur.transport, now + 1800) / STEPS_PER_BAR) * STEPS_PER_BAR);
+    cur.lastJamStart = startStep;
+    cur.transport.nowPlaying = { mode: 'jam', title: song.title, song, startStep, chords: jamHarmony(song), ...(m.full ? { full: true } : {}) };
+    for (const pl of cur.players.values()) {
       pl.game = null;
       if (pl.role === 'melody' && !m.full) {
         pl.role = 'guitar';
@@ -649,9 +706,9 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
     if (conn.kind !== 'stage') return; // the host starts and stops performances
     if (m.action === 'stop') {
       recordEvent(now, 'game', 'stage', null, { action: 'stop' });
-      if (gameTimer) clearTimeout(gameTimer);
-      transport.game = null;
-      for (const pl of players.values()) pl.game = null;
+      if (cur.gameTimer) clearTimeout(cur.gameTimer);
+      cur.transport.game = null;
+      for (const pl of cur.players.values()) pl.game = null;
       broadcastState(); broadcastRoster();
       return;
     }
@@ -660,27 +717,27 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
     if (!song || !difficulty) { send(conn.ws, { t: 'error', message: 'Could not start: invalid song or difficulty.' }); return; }
     // One authoritative start: lock the tempo (position stays continuous), then begin on a bar line far enough
     // away for a 4-beat count-in plus network slack. Every phone derives every note time from these numbers.
-    transport.drop = null; transport.freestyle = false; transport.nowPlaying = null; transport.sample = null;
+    cur.transport.drop = null; cur.transport.freestyle = false; cur.transport.nowPlaying = null; cur.transport.sample = null;
     setPaused(false);
-    transport.root = song.root; transport.scale = song.scale;
+    cur.transport.root = song.root; cur.transport.scale = song.scale;
     setBpm(song.bpm);
     const lead = Math.max(4000, 4 * (60000 / song.bpm) + 1500);
-    const startStep = Math.max(lastGameStart + STEPS_PER_BAR, Math.ceil(stepPos(transport, serverNow() + lead) / STEPS_PER_BAR) * STEPS_PER_BAR);
-    lastGameStart = startStep;
-    gameHits.clear();
-    gameCharts = new Map(ROLES.map((role) => [role, buildChart(song, role, difficulty)]));
+    const startStep = Math.max(cur.lastGameStart + STEPS_PER_BAR, Math.ceil(stepPos(cur.transport, serverNow() + lead) / STEPS_PER_BAR) * STEPS_PER_BAR);
+    cur.lastGameStart = startStep;
+    cur.gameHits.clear();
+    cur.gameCharts = new Map(ROLES.map((role) => [role, buildChart(song, role, difficulty)]));
     const free = m.live ? [...new Set((Array.isArray(m.free) ? m.free : []).filter((r): r is Role => ROLES.includes(r) && song.tracks[r].length > 0))] : [];
-    transport.game = { ...(m.song ? { song } : {}), songId: song.id, difficulty, startStep, endStep: startStep + songSteps(song) + STEPS_PER_BAR, ...(m.live ? { live: true, free, chords: jamHarmony(song) } : {}) };
+    cur.transport.game = { ...(m.song ? { song } : {}), songId: song.id, difficulty, startStep, endStep: startStep + songSteps(song) + STEPS_PER_BAR, ...(m.live ? { live: true, free, chords: jamHarmony(song) } : {}) };
     recordEvent(now, 'game', 'stage', null, {
       action: 'start',
       songId: song.id,
       difficulty,
       startStep,
-      endStep: transport.game.endStep,
+      endStep: cur.transport.game.endStep,
     }, startStep);
-    for (const pl of players.values()) {
+    for (const pl of cur.players.values()) {
       pl.game = null;
-      const keepSeat = m.live && freeRoles(transport.game, song).includes(pl.role); // a free part is played live, no chart needed
+      const keepSeat = m.live && freeRoles(cur.transport.game, song).includes(pl.role); // a free part is played live, no chart needed
       if (m.song && !song.tracks[pl.role].length && !keepSeat) {
         const available = ROLES.filter((r) => song.tracks[r].length);
         pl.role = available.find((r) => !joinedPlayers().some((p) => p.id !== pl.id && p.role === r)) ?? available[0];
@@ -710,28 +767,28 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       broadcastState();
       return;
     }
-    if (transport.paused !== null && m.cmd === 'drop') return;
+    if (cur.transport.paused !== null && m.cmd === 'drop') return;
     // While a rhythm game runs, tempo/key/mode are locked: every chart is addressed in steps of THIS tempo.
-    if (transport.game && ['bpm', 'key', 'scale', 'drop', 'freestyle', 'nowplaying', 'sample'].includes(m.cmd)) return;
-    if (transport.nowPlaying?.mode === 'jam' && ['bpm', 'key', 'scale', 'drop', 'auto', 'freestyle', 'sample'].includes(m.cmd)) return;
+    if (cur.transport.game && ['bpm', 'key', 'scale', 'drop', 'freestyle', 'nowplaying', 'sample'].includes(m.cmd)) return;
+    if (cur.transport.nowPlaying?.mode === 'jam' && ['bpm', 'key', 'scale', 'drop', 'auto', 'freestyle', 'sample'].includes(m.cmd)) return;
     switch (m.cmd) {
       case 'bpm': setBpm(Number(m.value)); break;
-      case 'key': transport.root = ((Math.round(Number(m.value)) % 12) + 12) % 12; break;
-      case 'scale': if (SCALES.includes(m.value as ScaleName)) transport.scale = m.value as ScaleName; break;
+      case 'key': cur.transport.root = ((Math.round(Number(m.value)) % 12) + 12) % 12; break;
+      case 'scale': if (SCALES.includes(m.value as ScaleName)) cur.transport.scale = m.value as ScaleName; break;
       case 'drop': startDrop(); break;
-      case 'auto': transport.autoBand = !!m.value; break;
-      case 'speakers': transport.speakerMode = !!m.value; break;
-      case 'syncTest': transport.syncTest = !!m.value; break;
-      case 'freestyle': transport.freestyle = !!m.value; break;
+      case 'auto': cur.transport.autoBand = !!m.value; break;
+      case 'speakers': cur.transport.speakerMode = !!m.value; break;
+      case 'syncTest': cur.transport.syncTest = !!m.value; break;
+      case 'freestyle': cur.transport.freestyle = !!m.value; break;
       case 'sample': { // value "chop|Title" / "backing|Title" / "" (clear). The audio itself never leaves the Stage.
         const [mode, ...rest] = String(m.value ?? '').split('|');
-        transport.sample = rest.length && (mode === 'chop' || mode === 'backing') ? { mode, title: rest.join('|').slice(0, 60) } : null;
-        if (transport.sample) { transport.nowPlaying = null; transport.freestyle = false; }
+        cur.transport.sample = rest.length && (mode === 'chop' || mode === 'backing') ? { mode, title: rest.join('|').slice(0, 60) } : null;
+        if (cur.transport.sample) { cur.transport.nowPlaying = null; cur.transport.freestyle = false; }
         break;
       }
       case 'nowplaying': { // value "tap|Title" / "band|Title" / "" (clear)
         const [mode, ...rest] = String(m.value ?? '').split('|');
-        transport.nowPlaying = rest.length && (mode === 'tap' || mode === 'band') ? { mode, title: rest.join('|').slice(0, 60) } : null;
+        cur.transport.nowPlaying = rest.length && (mode === 'tap' || mode === 'band') ? { mode, title: rest.join('|').slice(0, 60) } : null;
         break;
       }
     }
@@ -740,7 +797,7 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
     return;
   }
 
-  const p = conn.playerId ? players.get(conn.playerId) : undefined;
+  const p = conn.playerId ? cur.players.get(conn.playerId) : undefined;
   if (!p || (!p.joined && m.t !== 'join')) return;
 
   switch (m.t) {
@@ -748,7 +805,7 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       if (!p.joined) {
         const others = joinedPlayers();
         p.joined = true; p.role = pickRole(others); p.color = pickColor(others);
-        const song = transport.game?.song;
+        const song = cur.transport.game?.song;
         if (song && !song.tracks[p.role].length) {
           const available = ROLES.filter((r) => song.tracks[r].length);
           p.role = available.find((r) => !others.some((pl) => pl.connected && pl.role === r)) ?? available[0];
@@ -760,7 +817,7 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       send(conn.ws, { t: 'you', you: info(p) });
       break;
     case 'role':
-      if (!transport.game && ROLES.includes(m.role) && !(transport.nowPlaying?.mode === 'jam' && !transport.nowPlaying.full && m.role === 'melody')) { p.role = m.role; recordEvent(now, 'role', p.id, p.role, { role: p.role }); broadcastRoster(); send(conn.ws, { t: 'you', you: info(p) }); }
+      if (!cur.transport.game && ROLES.includes(m.role) && !(cur.transport.nowPlaying?.mode === 'jam' && !cur.transport.nowPlaying.full && m.role === 'melody')) { p.role = m.role; recordEvent(now, 'role', p.id, p.role, { role: p.role }); broadcastRoster(); send(conn.ws, { t: 'you', you: info(p) }); }
       break;
     case 'speaker':
       recordEvent(now, 'speaker', p.id, p.role, { on: !!m.on });
@@ -768,7 +825,7 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       break;
     case 'gstats': {
       // Each phone judges its own taps against the shared timeline and reports the totals; clamp to sane ranges.
-      if (!transport.game || m.startStep !== transport.game.startStep || !m.s || typeof m.s !== 'object') return;
+      if (!cur.transport.game || m.startStep !== cur.transport.game.startStep || !m.s || typeof m.s !== 'object') return;
       const n = (v: unknown, max: number) => Math.max(0, Math.min(max, Math.round(Number(v) || 0)));
       const g: GameStats = { score: n(m.s.score, 1e7), combo: n(m.s.combo, 1e4), maxCombo: n(m.s.maxCombo, 1e4), perfect: n(m.s.perfect, 1e4), good: n(m.s.good, 1e4), miss: n(m.s.miss, 1e4), total: n(m.s.total, 1e4) };
       p.game = g;
@@ -785,7 +842,7 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       broadcast({ t: 'ctl', pid: p.id, y: p.y, tilt: p.tilt }, (c) => c !== conn);
       break;
     case 'songreq': {
-      if (transport.game) return;
+      if (cur.transport.game) return;
       // A phone asks the Stage to load a song (the Stage validates the id against its own list).
       if (typeof m.id !== 'string' || m.id.length > 120 || !['tap', 'band', 'jam'].includes(m.mode)) return;
       broadcast({ t: 'songreq', pid: p.id, name: p.name, id: m.id, mode: m.mode }, (c) => c.kind === 'stage');
@@ -802,44 +859,44 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       break;
     }
     case 'ghit': {
-      const g = transport.game;
-      if (!g || transport.paused !== null || m.startStep !== g.startStep || !Number.isInteger(m.step) || m.step < g.startStep || m.step >= g.endStep) return;
-      const note = gameCharts.get(p.role)?.[m.noteId];
+      const g = cur.transport.game;
+      if (!g || cur.transport.paused !== null || m.startStep !== g.startStep || !Number.isInteger(m.step) || m.step < g.startStep || m.step >= g.endStep) return;
+      const note = cur.gameCharts.get(p.role)?.[m.noteId];
       const hitKey = `${p.id}:${p.role}`;
-      if (!Number.isInteger(m.noteId) || !note || g.startStep + note.step !== m.step || gameHits.get(hitKey)?.has(m.noteId)) return;
-      const age = now - (transport.epoch + m.step * stepMs(transport.bpm));
+      if (!Number.isInteger(m.noteId) || !note || g.startStep + note.step !== m.step || cur.gameHits.get(hitKey)?.has(m.noteId)) return;
+      const age = now - (cur.transport.epoch + m.step * stepMs(cur.transport.bpm));
       if (age < -200 || age > 2000) return;
       conn.noteTimes = conn.noteTimes.filter((t) => now - t < 1000);
       if (conn.noteTimes.length >= 24) return;
       conn.noteTimes.push(now);
-      const hits = gameHits.get(hitKey) ?? new Set<number>();
-      hits.add(m.noteId); gameHits.set(hitKey, hits);
+      const hits = cur.gameHits.get(hitKey) ?? new Set<number>();
+      hits.add(m.noteId); cur.gameHits.set(hitKey, hits);
       recordEvent(now, 'ghit', p.id, p.role, { startStep: g.startStep, noteId: m.noteId }, m.step);
       broadcast({ t: 'ghit', startStep: g.startStep, step: m.step, pid: p.id, role: p.role, noteId: m.noteId }, (c) => c.kind === 'stage');
       break;
     }
     case 'note': {
       // Song playback is scheduled on Stage. Old clients must never inject off-grid game audio.
-      if (!liveNotesAllowed(transport) || !Number.isFinite(m.d)) return;
-      if (transport.game) { // band mode: only parts nobody is chart-guided on may be played live
-        const gs = transport.game.song ?? getSong(transport.game.songId);
+      if (!liveNotesAllowed(cur.transport) || !Number.isFinite(m.d)) return;
+      if (cur.transport.game) { // band mode: only parts nobody is chart-guided on may be played live
+        const gs = cur.transport.game.song ?? getSong(cur.transport.game.songId);
         const liveRole: Role = m.role === 'drums' ? 'drums' : p.role;
-        if (!gs || !freeRoles(transport.game, gs).includes(liveRole)) return;
+        if (!gs || !freeRoles(cur.transport.game, gs).includes(liveRole)) return;
       }
       // Guardrail 1: rate limit (a spammy phone can't swamp the stage).
       conn.noteTimes = conn.noteTimes.filter((t) => now - t < 1000);
       if (conn.noteTimes.length >= 24) return;
       conn.noteTimes.push(now);
       // Guardrail 2: only integer steps in a sane window: the grid is the only place a note can live.
-      const cur = stepPos(transport, now);
+      const stepNow = stepPos(cur.transport, now);
       let step = Math.round(m.step);
-      if (!Number.isFinite(step) || step > cur + 48) return;
-      if (step < cur - 1) step = Math.ceil(cur) + 1; // hopelessly late: land on the next grid line
+      if (!Number.isFinite(step) || step > stepNow + 48) return;
+      if (step < stepNow - 1) step = Math.ceil(stepNow) + 1; // hopelessly late: land on the next grid line
       // Pitch/voice quantisation to the key+scale happens in shared/music.ts at playback, from the
-      // *current* transport, so key changes are instant and nobody can send an out-of-key pitch.
+      // *current* cur.transport, so key changes are instant and nobody can send an out-of-key pitch.
       const role: Role = m.role === 'drums' ? 'drums' : p.role; // non-drummers may shake in a hit
       // Jam pitches come from the server-owned harmonic guide, never from arbitrary client MIDI.
-      const resolved = transport.nowPlaying?.mode === 'jam' || transport.game?.live ? resolveEvent({ role, step, d: Math.max(0, Math.min(15, Math.round(m.d))) }, transport) : null;
+      const resolved = cur.transport.nowPlaying?.mode === 'jam' || cur.transport.game?.live ? resolveEvent({ role, step, d: Math.max(0, Math.min(15, Math.round(m.d))) }, cur.transport) : null;
       const midi = resolved?.kind === 'notes' ? resolved.midi : undefined;
       recordEvent(now, 'note', p.id, role, { d: Math.max(0, Math.min(15, Math.round(m.d))), v: clamp01(m.v), dur: Math.max(1, Math.min(STEPS_PER_BAR, Math.round(m.dur || 2))), midi }, step);
       broadcast(
@@ -856,13 +913,23 @@ const clamp01 = (n: number) => (Number.isFinite(n) ? Math.max(0, Math.min(1, n))
 // ----------------------------------------------------------------- timers
 setInterval(() => {
   const now = serverNow();
-  for (const c of conns) if (now - c.lastSeen > SILENCE_MS) c.ws.terminate(); // half-open sockets
-  for (const [id, p] of players) if (p.droppedAt && now - p.droppedAt > (p.joined ? GRACE_MS : 5000)) { players.delete(id); broadcastRoster(); }
+  for (const room of [...rooms.values()]) {
+    enter(room);
+    for (const c of cur.conns) if (now - c.lastSeen > SILENCE_MS) c.ws.terminate(); // half-open sockets
+    for (const [id, p] of cur.players) if (p.droppedAt && now - p.droppedAt > (p.joined ? GRACE_MS : 5000)) { cur.players.delete(id); broadcastRoster(); }
+    // Drop a room nobody has been in for a while (never the default room).
+    if (room.code !== DEFAULT_ROOM && !room.conns.size && room.emptySince !== null && now - room.emptySince > EMPTY_ROOM_MS) {
+      stopRecording(now, 'shutdown');
+      if (room.dropTimer) clearTimeout(room.dropTimer);
+      if (room.gameTimer) clearTimeout(room.gameTimer);
+      rooms.delete(room.code);
+    }
+  }
 }, 2000);
 // Sync stats change constantly; push them to everyone at 1 Hz instead of per report.
-setInterval(broadcastRoster, 1000);
+setInterval(() => { for (const room of rooms.values()) { enter(room); broadcastRoster(); } }, 1000);
 
-process.on('exit', () => { stopRecording(serverNow(), 'shutdown'); });
+process.on('exit', () => { for (const room of rooms.values()) { enter(room); stopRecording(serverNow(), 'shutdown'); } });
 
 export default server; // Vercel Functions run an exported http.Server (api/ws.ts re-exports it)
 

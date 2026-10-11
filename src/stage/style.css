@@ -242,6 +242,16 @@ select {
 	font-size: 15px;
 }
 
+#roomcode {
+	text-align: center;
+	font-weight: 900;
+	letter-spacing: .3em;
+	font-size: 40px;
+	line-height: 1.1;
+	text-indent: .3em;
+	user-select: all;
+}
+
 #url {
 	text-align: center;
 	font-size: 13px;

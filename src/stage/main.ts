@@ -5,6 +5,7 @@
  *  - conductor controls are commands to the server; only Stage sockets may send them
  */
 import QRCode from 'qrcode';
+import { newRoomCode, normalizeRoomCode, roomFromUrl } from '../common/room';
 import { Net } from '../common/net';
 import { ClockSync } from '../common/clock';
 import { BeatTracker, flashEnv } from '../common/beat';
@@ -80,7 +81,7 @@ app.innerHTML = `
 </div>
 <aside class="side">
   <div class="qrbox"><canvas id="qr"></canvas></div>
-  <div class="scan">SCAN TO JOIN</div><div id="url"></div><div id="warn" aria-live="polite"></div>
+  <div class="scan">SCAN TO JOIN</div><div id="roomcode" aria-label="Room code"></div><div id="url"></div><div id="warn" aria-live="polite"></div>
   <div id="roster"></div>
 </aside>
 <button id="audio">SOUND OFF · click to enable audio</button>
@@ -226,7 +227,18 @@ const flashEl = $('flash');
 const viz = new Viz($<HTMLCanvasElement>('viz'));
 
 // ------------------------------------------------------------------ network
-net.onOpen(() => { net.send({ t: 'hello', kind: 'stage' }); clock.start(true); });
+// This Stage owns a room. The code is in the URL (?room=ABCD) so a refresh keeps it; a fresh Stage makes a new one.
+const roomCode = (() => {
+  let code = roomFromUrl();
+  try {
+    if (!code) code = normalizeRoomCode(sessionStorage.getItem('ho.stageRoom'));
+    if (!code) code = newRoomCode();
+    sessionStorage.setItem('ho.stageRoom', code);
+  } catch { if (!code) code = newRoomCode(); }
+  history.replaceState(null, '', `${location.pathname}?room=${code}${location.hash}`);
+  return code;
+})();
+net.onOpen(() => { net.send({ t: 'hello', kind: 'stage', room: roomCode, create: true }); clock.start(true); });
 net.on('pong', (m) => clock.onPong(m));
 net.on('welcome', (m) => { ts = m.state; wasFree = m.state.freestyle; engine.setTransport(m.state); syncControls(); onGameChange(); syncJam(); });
 net.on('state', (m) => { ts = m.state; engine.setTransport(m.state); syncControls(); onFreestyleChange(); onGameChange(); syncJam(); checkSampleState(); });
@@ -1211,9 +1223,13 @@ async function refreshJoinUrl() {
       url = publicJoinUrl || (localHost ? info.lanUrls?.[0] ?? location.origin : location.origin);
     } catch { /* keep origin */ }
   }
-  if (url !== joinUrl) {
-    joinUrl = url;
-    await QRCode.toCanvas($<HTMLCanvasElement>('qr'), url, { width: 560, margin: 0, errorCorrectionLevel: 'M', color: { dark: '#2b2540', light: '#ffffff' } });
+  const target = new URL(url);
+  target.searchParams.set('room', roomCode);
+  const withRoom = target.toString();
+  if (withRoom !== joinUrl) {
+    joinUrl = withRoom;
+    $('roomcode').textContent = roomCode;
+    await QRCode.toCanvas($<HTMLCanvasElement>('qr'), withRoom, { width: 560, margin: 0, errorCorrectionLevel: 'M', color: { dark: '#2b2540', light: '#ffffff' } });
     $('url').textContent = url.replace(/^https?:\/\//, '');
     $('warn').textContent = url.startsWith('https') ? '' : 'HTTP only: phones can’t use shake/tilt. Run `npm run demo` for HTTPS.';
   }

@@ -181,7 +181,11 @@ export interface NoteEvent {
 export type RawKind = 'd' | 'm' | 'u' | 's' | 't';
 
 export type ClientMsg =
-  | { t: 'hello'; kind: 'stage' | 'player'; id?: string }
+  | { t: 'hello'; kind: 'stage' | 'player'; id?: string;
+      /** Room code (3-8 letters/digits). Omitted => the default shared room, as before. */
+      room?: string;
+      /** Stage only: create the room if it does not exist yet. */
+      create?: boolean }
   | { t: 'join'; name: string }
   | { t: 'ping'; id: number; c0: number }
   | { t: 'stats'; stats: SyncStats }
@@ -198,13 +202,13 @@ export type ClientMsg =
   | { t: 'cmd'; cmd: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'syncTest' | 'freestyle' | 'nowplaying' | 'sample' | 'pause' | 'recordingStart' | 'recordingStop'; value?: number | string | boolean };
 
 export type ServerMsg =
-  | { t: 'welcome'; you: PlayerInfo | null; state: TransportState; serverNow: number }
+  | { t: 'welcome'; you: PlayerInfo | null; state: TransportState; serverNow: number; /** the room this socket joined ('' = default room) */ room?: string }
   | { t: 'pong'; id: number; c0: number; s: number }
   | { t: 'state'; state: TransportState }
   | { t: 'roster'; players: PlayerInfo[] }
   | ({ t: 'note' } & NoteEvent)
   | { t: 'ghit'; startStep: number; step: number; pid: string; role: Role; noteId: number }
-  | { t: 'error'; message: string }
+  | { t: 'error'; message: string; /** machine-readable reason for join failures */ code?: 'noroom' | 'badroom' | 'busy' }
   | { t: 'ctl'; pid: string; y: number; tilt: number }
   | { t: 'raw'; pid: string; role: Role; k: RawKind; at: number; x: number; y: number; v?: number }
   | { t: 'songreq'; pid: string; name: string; id: string; mode: 'band' | 'tap' | 'jam' }

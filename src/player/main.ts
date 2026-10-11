@@ -11,6 +11,7 @@ import { ClockSync } from '../common/clock';
 import { BeatTracker, flashEnv } from '../common/beat';
 import { Engine } from '../common/engine';
 import { stableId, fmt, clamp, esc } from '../common/util';
+import { normalizeRoomCode, roomFromUrl } from '../common/room';
 import {
   ROLES, ROLE_INFO, liveNotesAllowed, nextStepAfter, stepPos, stepTime,
   type NoteEvent, type PlayerInfo, type RawKind, type Role, type TransportState,
@@ -50,10 +51,39 @@ const root = document.getElementById('root')!;
 const flashEl = document.getElementById('flash')!;
 const banner = document.getElementById('banner')!;
 
+// --------------------------------------------------------------------- room
+// The code comes from the QR link (?room=ABCD) or was typed on this phone before. Without one we ask for it.
+let roomCode = roomFromUrl();
+if (!roomCode) { try { roomCode = normalizeRoomCode(localStorage.getItem('ho.room')); } catch { /* storage blocked */ } }
+const rememberRoom = (code: string) => { try { localStorage.setItem('ho.room', code); } catch { /* ignore */ } };
+const forgetRoom = () => { try { localStorage.removeItem('ho.room'); } catch { /* ignore */ } };
+
+function renderRoomScreen(error = '') {
+  root.innerHTML = `<div class="screen join">
+    <div class="swatch"></div><h1>Human Orchestra</h1>
+    <p>Enter the room code shown on the Stage screen</p>
+    <input id="room" name="roomCode" aria-label="Room code" maxlength="8" value="" placeholder="ABCD" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" inputmode="text" />
+    <div class="hint" id="room-err" role="alert">${esc(error)}</div>
+    <button class="big" id="room-go">JOIN ROOM</button></div>`;
+  const input = document.getElementById('room') as HTMLInputElement;
+  const go = () => {
+    const code = normalizeRoomCode(input.value);
+    if (!code) { document.getElementById('room-err')!.textContent = 'Codes are 3-8 letters or digits.'; return; }
+    rememberRoom(code);
+    location.href = `${location.pathname}?room=${code}`; // a socket belongs to one room: start clean
+  };
+  document.getElementById('room-go')!.onclick = go;
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+  input.focus();
+}
+net.on('error', (m) => {
+  if (m.code === 'noroom' || m.code === 'badroom' || m.code === 'busy') { forgetRoom(); joined = false; renderRoomScreen(m.message); }
+});
+
 // ------------------------------------------------------------------ network
 net.onOpen(() => {
   banner.hidden = true;
-  net.send({ t: 'hello', kind: 'player', id });
+  net.send({ t: 'hello', kind: 'player', id, room: roomCode });
   // After any drop the old offset may be stale (frozen tab, new Wi-Fi route): relock from scratch.
   clock.start(true);
   if (joined && me) net.send({ t: 'join', name: me.name });
@@ -94,7 +124,9 @@ function render() {
     <input id="name" name="displayName" aria-label="Display name" maxlength="14" value="${esc(me.name)}" autocomplete="off" autocapitalize="words" spellcheck="false" />
     <button class="big" id="go">JOIN THE BAND</button>
     <div class="hint">Your phone controls the music. Listen to the Stage.</div>
+    <div class="hint">Room <b>${esc(roomCode)}</b> · <a href="${location.pathname}" id="change-room">change</a></div>
     <a href="/stage" class="stage-link">STAGE SCREEN (HOST / LAPTOP)</a></div>`;
+  document.getElementById('change-room')!.onclick = (e) => { e.preventDefault(); forgetRoom(); renderRoomScreen(); };
   document.getElementById('go')!.onclick = onJoin;
 }
 
@@ -534,4 +566,4 @@ setInterval(() => {
 }, 1000);
 setInterval(updateDebug, 250);
 
-net.connect();
+if (roomCode) { rememberRoom(roomCode); net.connect(); } else renderRoomScreen();
