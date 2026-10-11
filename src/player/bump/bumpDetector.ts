@@ -25,8 +25,8 @@ export class BumpDetector {
   private permissionState: 'unknown' | 'granted' | 'denied' | 'none' = 'unknown';
 
   constructor(options: BumpDetectorOptions = {}) {
-    this.threshold = options.threshold ?? 25;
-    this.debounceMs = options.debounceMs ?? 1500;
+    this.threshold = options.threshold ?? 18;
+    this.debounceMs = options.debounceMs ?? 1200;
     this.onSpike = options.onSpike;
   }
 

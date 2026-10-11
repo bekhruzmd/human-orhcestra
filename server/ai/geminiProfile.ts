@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 /**
@@ -81,7 +82,7 @@ export async function generateProfileFromInput(transcriptOrText: string): Promis
   }
 
   // If no valid Gemini API key configured, return fallback profile gracefully
-  if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.includes('your_gemini_api_key')) {
+  if (!apiKey || apiKey.includes('your_gemini_api_key')) {
     console.warn('[Gravitate AI] GEMINI_API_KEY not configured. Returning fallback profile.');
     return createFallbackProfile(trimmed);
   }

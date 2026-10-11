@@ -435,14 +435,31 @@ interface Conn {
   ip: string;
 }
 
+function getNetworkGroup(ip: string): string {
+  if (
+    ip === '127.0.0.1' ||
+    ip === '::1' ||
+    ip === 'localhost' ||
+    ip.startsWith('10.') ||
+    ip.startsWith('192.168.') ||
+    /^172\.(1[6-9]|2[0-9]|3[01])\./.test(ip)
+  ) {
+    return 'lan';
+  }
+  const parts = ip.split('.');
+  if (parts.length === 4) return `${parts[0]}.${parts[1]}.${parts[2]}`;
+  return ip;
+}
+
 interface PendingSpike {
   conn: Conn;
+  serverTime: number;
   timestamp: number;
   profile: unknown;
   timer: NodeJS.Timeout;
 }
 const pendingSpikes = new Map<string, PendingSpike[]>();
-const SPIKE_WINDOW_MS = 250;
+const SPIKE_WINDOW_MS = 1200;
 
 interface ActiveBumpRoom {
   roomId: string;
@@ -680,7 +697,8 @@ wss.on('connection', (ws, req) => {
     cur.conns.delete(conn);
     if (!cur.conns.size) cur.emptySince = serverNow();
     // Remove any pending spikes from this connection
-    const list = pendingSpikes.get(conn.ip);
+    const group = getNetworkGroup(conn.ip);
+    const list = pendingSpikes.get(group);
     if (list) {
       const remaining = list.filter((item) => {
         if (item.conn === conn) {
@@ -689,8 +707,8 @@ wss.on('connection', (ws, req) => {
         }
         return true;
       });
-      if (remaining.length === 0) pendingSpikes.delete(conn.ip);
-      else pendingSpikes.set(conn.ip, remaining);
+      if (remaining.length === 0) pendingSpikes.delete(group);
+      else pendingSpikes.set(group, remaining);
     }
     // Clean up any pending unconfirmed bump room with this connection
     for (const [roomId, room] of activeBumpRooms.entries()) {
@@ -745,27 +763,27 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
   if (m.t === 'bump_spike') {
     const timestamp = Number(m.timestamp) || Date.now();
     const profile = m.profile ?? null;
-    const ip = conn.ip;
+    const group = getNetworkGroup(conn.ip);
 
-    let list = pendingSpikes.get(ip);
+    let list = pendingSpikes.get(group);
     if (!list) {
       list = [];
-      pendingSpikes.set(ip, list);
+      pendingSpikes.set(group, list);
     }
 
-    // Check if another client on the same IP spiked within ±250ms
+    // Check if another client in the same network group spiked within ±1200ms of server time
     const matchIndex = list.findIndex(
-      (item) => item.conn !== conn && item.conn.room === conn.room && Math.abs(item.timestamp - timestamp) <= SPIKE_WINDOW_MS
+      (item) => item.conn !== conn && item.conn.room === conn.room && Math.abs(item.serverTime - now) <= SPIKE_WINDOW_MS
     );
 
     if (matchIndex !== -1) {
       // Found a match!
       const counterpart = list.splice(matchIndex, 1)[0]!;
       clearTimeout(counterpart.timer);
-      if (list.length === 0) pendingSpikes.delete(ip);
+      if (list.length === 0) pendingSpikes.delete(group);
 
       const roomId = `bump_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-      console.log(`[Bump] Match confirmed on IP ${ip} between 2 devices! Room: ${roomId}`);
+      console.log(`[Bump] Match confirmed in network [${group}] between ${conn.ip} and ${counterpart.conn.ip}! Room: ${roomId}`);
 
       // Initialize mutual confirmation room
       const room: ActiveBumpRoom = {
@@ -784,21 +802,22 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       send(conn.ws, { t: 'bump_matched', roomId, peer: counterpart.profile });
       send(counterpart.conn.ws, { t: 'bump_matched', roomId, peer: profile });
     } else {
-      // Buffer spike and auto-clear after 1200ms
+      // Buffer spike and auto-clear after 2500ms
       const pendingItem: PendingSpike = {
         conn,
+        serverTime: now,
         timestamp,
         profile,
         timer: setTimeout(() => {
-          const curList = pendingSpikes.get(ip);
+          const curList = pendingSpikes.get(group);
           if (!curList) return;
           const idx = curList.indexOf(pendingItem);
           if (idx !== -1) curList.splice(idx, 1);
-          if (curList.length === 0) pendingSpikes.delete(ip);
-        }, 1200),
+          if (curList.length === 0) pendingSpikes.delete(group);
+        }, 2500),
       };
       list.push(pendingItem);
-      console.log(`[Bump] Spike registered on IP ${ip} (pending matches: ${list.length})`);
+      console.log(`[Bump] Spike registered in network [${group}] from ${conn.ip} (pending: ${list.length})`);
     }
     return;
   }
@@ -870,15 +889,20 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
       const playerA = Array.from(cur.players.values()).find((p) => p.conn === connA);
       const playerB = Array.from(cur.players.values()).find((p) => p.conn === connB);
 
-      if (playerA && playerB && playerA.role === playerB.role) {
-        const alternateRoles = ROLES.filter((r) => r !== playerA.role && song.tracks[r]?.length > 0);
-        if (alternateRoles.length > 0) {
-          playerB.role = alternateRoles[0];
-          if (playerB.conn) send(playerB.conn.ws, { t: 'you', you: info(playerB) });
+      if (playerA && playerB) {
+        playerA.joined = true;
+        playerB.joined = true;
+        if (playerA.role === playerB.role) {
+          const alternateRoles = ROLES.filter((r) => r !== playerA.role && song.tracks[r]?.length > 0);
+          if (alternateRoles.length > 0) {
+            playerB.role = alternateRoles[0];
+          }
         }
+        if (playerA.conn) send(playerA.conn.ws, { t: 'you', you: info(playerA) });
+        if (playerB.conn) send(playerB.conn.ws, { t: 'you', you: info(playerB) });
       }
 
-      startAuthoritativeGame(song, 'medium', 'bump_stage');
+      startAuthoritativeGame(song, 'easy', 'bump_stage');
       console.log(`[Bump] Stage handoff successful! Game started with ${song.id} (${song.title}) for room ${roomId}`);
     }
     return;

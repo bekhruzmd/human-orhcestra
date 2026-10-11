@@ -101,13 +101,23 @@ if (!userProfile?.approved) {
 // ------------------------------------------------------------------ Web Bump Engine
 let bumpActive = false;
 let bumpOverlayEl: HTMLElement | null = null;
+let detectingTimer: any = null;
 const bumpDetector = new BumpDetector({
-  threshold: 25, // ~2.5G
-  debounceMs: 1500,
+  threshold: 18, // ~1.8G for responsive gentle phone bumps
+  debounceMs: 1200,
 });
 
 function getActiveProfile(): GravitateProfile | null {
   return userProfile ?? OnboardingView.getStoredProfile();
+}
+
+function triggerSpike() {
+  if (!bumpActive) return;
+  const profile = getActiveProfile();
+  const timestamp = Date.now();
+  console.log('[Bump] Spiking to server! Triggered at', timestamp);
+  net.send({ t: 'bump_spike', timestamp, profile });
+  showBumpOverlay('detecting');
 }
 
 async function toggleBumpMode() {
@@ -120,10 +130,10 @@ async function toggleBumpMode() {
     return;
   }
 
-  // Request motion permission (iOS Safari requirement)
+  // Request motion permission (iOS Safari requirement when on HTTPS)
   const granted = await bumpDetector.requestPermission();
   if (!granted && (window as any).DeviceMotionEvent) {
-    console.warn('[Bump] Motion permission denied or unavailable');
+    console.warn('[Bump] Motion permission denied or unavailable (HTTP origin)');
   }
 
   bumpActive = true;
@@ -132,14 +142,16 @@ async function toggleBumpMode() {
 
   bumpDetector.start((magnitude, timestamp) => {
     if (!bumpActive) return;
-    const profile = getActiveProfile();
-    console.log('[Bump] Spiking to server! Magnitude:', magnitude);
-    net.send({ t: 'bump_spike', timestamp, profile });
-    showBumpOverlay('detecting');
+    console.log('[Bump] Accelerometer spike detected! Magnitude:', magnitude);
+    triggerSpike();
   });
 }
 
 function showBumpOverlay(state: 'ready' | 'detecting') {
+  if (detectingTimer) {
+    clearTimeout(detectingTimer);
+    detectingTimer = null;
+  }
   closeBumpOverlay();
   bumpOverlayEl = document.createElement('div');
   bumpOverlayEl.className = 'bump-overlay';
@@ -150,35 +162,51 @@ function showBumpOverlay(state: 'ready' | 'detecting') {
         <div class="bump-status-tag">WEB BUMP MODE ACTIVE</div>
         <div class="bump-icon-pulse">📱💥📱</div>
         <h2 class="pixel-title" style="font-size: 15px;">READY TO BUMP</h2>
-        <p class="hint-text">Gently tap or bump your phone with another player nearby on the same Wi-Fi!</p>
-        <div class="action-grid" style="margin-top: 8px;">
+        <p class="hint-text">Gently bump phones together, or tap the button below at the same time!</p>
+        
+        <button id="btn-manual-bump" class="pixel-btn btn-pink approve-btn" style="margin: 12px auto 6px; font-size: 13px; padding: 12px 18px; width: 100%;">
+          💥 BUMP NOW 💥
+        </button>
+
+        <div class="action-grid" style="margin-top: 6px;">
           <button id="btn-cancel-bump" class="pixel-btn btn-butter">CANCEL</button>
-          <button id="btn-sim-bump" class="pixel-btn btn-sky" style="font-size: 9px;">(TEST SPIKE)</button>
         </div>
       </div>
     `;
     bumpOverlayEl.querySelector('#btn-cancel-bump')?.addEventListener('click', () => {
       toggleBumpMode();
     });
-    bumpOverlayEl.querySelector('#btn-sim-bump')?.addEventListener('click', () => {
-      bumpDetector.simulateSpike();
+    bumpOverlayEl.querySelector('#btn-manual-bump')?.addEventListener('click', () => {
+      triggerSpike();
     });
   } else {
     bumpOverlayEl.innerHTML = `
       <div class="bump-modal">
         <div class="bump-status-tag" style="background: var(--pink);">IMPACT REGISTERED</div>
         <div class="bump-icon-pulse">⚡</div>
-        <h2 class="pixel-title" style="font-size: 15px;">DETECTING IMPACT...</h2>
+        <h2 class="pixel-title" style="font-size: 15px;">MATCHING BUMP...</h2>
         <div class="retro-progress"><div class="retro-progress-bar"></div></div>
         <p class="hint-text">Matching spatial spike with nearby device…</p>
         <div class="action-grid" style="margin-top: 8px;">
+          <button id="btn-retry-bump" class="pixel-btn btn-sky" style="font-size: 10px;">RE-TRIGGER BUMP</button>
           <button id="btn-cancel-bump" class="pixel-btn btn-butter">CANCEL</button>
         </div>
       </div>
     `;
+    bumpOverlayEl.querySelector('#btn-retry-bump')?.addEventListener('click', () => {
+      triggerSpike();
+    });
     bumpOverlayEl.querySelector('#btn-cancel-bump')?.addEventListener('click', () => {
       toggleBumpMode();
     });
+
+    // Auto-timeout after 3.2s back to 'ready' so devices never get stuck
+    detectingTimer = setTimeout(() => {
+      if (bumpActive && bumpOverlayEl) {
+        showBumpOverlay('ready');
+        showBumpToast('No collision detected in time. Tap BUMP NOW together!');
+      }
+    }, 3200);
   }
 
   app.appendChild(bumpOverlayEl);
@@ -242,8 +270,10 @@ function showVibeMatchReveal(roomId: string, match: any) {
   const sharedVibe = esc(match?.sharedVibe || 'Cosmic Harmony');
   const overlap = esc(match?.overlap || 'You both share an incredible passion for music and retro games.');
   const icebreaker = esc(match?.icebreaker || 'What song got you into rhythm games?');
-  const songId = esc(match?.song_id || 'neon');
-  const songTitle = esc(match?.song_title || match?.song_id?.toUpperCase() || 'Neon Run');
+  const hasMusicGenre = match?.hasMusicGenre !== false && Boolean(match?.hasMusicGenre || match?.song_id);
+  const songId = match?.song_id ? esc(match.song_id) : 'neon';
+  const songTitle = esc(match?.song_title || (match?.song_id ? match.song_id.toUpperCase() : 'Neon Run'));
+  const sharedGenre = match?.sharedMusicGenre ? esc(match.sharedMusicGenre) : null;
   const score = Number(match?.compatibilityScore) || 90;
 
   bumpOverlayEl = document.createElement('div');
@@ -251,29 +281,50 @@ function showVibeMatchReveal(roomId: string, match: any) {
   bumpOverlayEl.innerHTML = `
     <div class="bump-modal" style="max-width: 440px;">
       <div class="bump-status-tag" style="background: var(--pink);">★ VIBE MATCH ★ ${score}%</div>
-      <div class="bump-icon-pulse">✨</div>
+      <div class="bump-icon-pulse">${hasMusicGenre ? '✨' : '💬'}</div>
       <h2 class="pixel-title vibe-match-header">${sharedVibe}</h2>
 
       <p class="vibe-match-overlap">${overlap}</p>
 
       <div class="form-group" style="text-align: left;">
-        <label class="form-label">ICEBREAKER PROMPT</label>
+        <label class="form-label">CONVERSATION ICEBREAKER</label>
         <div class="icebreaker-bubble vibe-icebreaker">💬 "${icebreaker}"</div>
       </div>
 
-      <div class="recommended-track-card">
-        <div class="track-badge">RECOMMENDED TRACK</div>
-        <div class="track-title">${songTitle}</div>
-        <div class="track-id">[ID: ${songId}] · SYNCED MIDI</div>
-      </div>
+      ${hasMusicGenre ? `
+        <div class="recommended-track-card">
+          <div class="track-badge">SHARED MUSIC GENRE · ${sharedGenre ? sharedGenre.toUpperCase() : 'ORCHESTRA READY'}</div>
+          <div class="track-title">${songTitle}</div>
+          <div class="track-id">[ID: ${songId}] · SYNCED MIDI STAGE</div>
+        </div>
 
-      <div class="action-grid" style="margin-top: 10px;">
-        <button id="btn-enter-stage" class="pixel-btn btn-mint approve-btn" style="font-size: 11px;">
-          ▶ ENTER STAGE TOGETHER
-        </button>
-      </div>
+        <div class="action-grid" style="margin-top: 10px;">
+          <button id="btn-enter-stage" class="pixel-btn btn-mint approve-btn" style="font-size: 11px;">
+            ▶ ENTER STAGE TOGETHER
+          </button>
+        </div>
+      ` : `
+        <div class="recommended-track-card" style="border-color: var(--dim);">
+          <div class="track-badge" style="background: var(--butter); color: var(--ink);">SOCIAL CONNECTION</div>
+          <div class="track-title" style="font-size: 12px; margin: 4px 0;">NO SHARED MUSIC GENRE</div>
+          <div class="track-id">Chat about your shared interests, or jam anyway!</div>
+        </div>
+
+        <div class="action-grid" style="margin-top: 10px;">
+          <button id="btn-dismiss-bump" class="pixel-btn btn-butter" style="font-size: 11px;">
+            ★ NICE TO MEET YOU!
+          </button>
+          <button id="btn-enter-stage" class="pixel-btn btn-mint" style="font-size: 10px;">
+            ▶ JAM ANYWAY
+          </button>
+        </div>
+      `}
     </div>
   `;
+
+  bumpOverlayEl.querySelector('#btn-dismiss-bump')?.addEventListener('click', () => {
+    closeBumpOverlay();
+  });
 
   bumpOverlayEl.querySelector('#btn-enter-stage')?.addEventListener('click', () => {
     const rawSongId = String(match?.song_id || 'neon');
@@ -305,6 +356,10 @@ function showVibeMatchReveal(roomId: string, match: any) {
 }
 
 function closeBumpOverlay() {
+  if (detectingTimer) {
+    clearTimeout(detectingTimer);
+    detectingTimer = null;
+  }
   if (bumpOverlayEl) {
     bumpOverlayEl.remove();
     bumpOverlayEl = null;
@@ -391,18 +446,23 @@ function render() {
     me.name = userProfile.name;
   }
 
+  const interestsList = (userProfile.interests || []).slice(0, 4).map((i) => `<span class="pixel-badge" style="font-size: 8px; margin: 2px;">${esc(i)}</span>`).join('');
+
   root.innerHTML = `<div class="screen join">
     <div class="swatch"></div><h1>Human Orchestra</h1>
-    <div class="pixel-badge" style="margin: 0 auto 6px; font-size: 9px;">${esc(userProfile.vibe)}</div>
+    <div class="pixel-badge" style="margin: 0 auto 4px; font-size: 9px;">${esc(userProfile.vibe)}</div>
+    <div style="display:flex; flex-wrap:wrap; justify-content:center; gap:2px; margin-bottom:8px;">${interestsList}</div>
     <p>You're <b class="you-c" style="background:${me.color}">this colour</b>. Pick a name.</p>
     <input id="name" name="displayName" aria-label="Display name" maxlength="14" value="${esc(me.name)}" autocomplete="off" autocapitalize="words" spellcheck="false" />
     <button class="big" id="go">JOIN THE BAND</button>
-    <button class="pixel-btn btn-butter" id="btn-edit-persona" style="margin: 6px auto 0; font-size: 9px; padding: 6px 12px; width: fit-content;">EDIT 8-BIT PERSONA</button>
+    <button class="pixel-btn btn-pink" id="btn-bump-lobby" style="margin: 8px auto 2px; font-size: 11px; padding: 8px 16px; width: fit-content;">📱 BUMP TO FIND PLAYERS</button>
+    <button class="pixel-btn btn-butter" id="btn-edit-persona" style="margin: 4px auto 0; font-size: 9px; padding: 6px 12px; width: fit-content;">EDIT 8-BIT PERSONA</button>
     <div class="hint">Your phone controls the music. Listen to the Stage.</div>
     <div class="hint">Room <b>${esc(roomCode)}</b> · <a href="${location.pathname}" id="change-room">change</a></div>
     <a href="/" class="stage-link">STAGE SCREEN (HOST / LAPTOP)</a></div>`;
   document.getElementById('change-room')!.onclick = (e) => { e.preventDefault(); forgetRoom(); renderRoomScreen(); };
   document.getElementById('go')!.onclick = onJoin;
+  document.getElementById('btn-bump-lobby')!.onclick = toggleBumpMode;
   document.getElementById('btn-edit-persona')!.onclick = () => {
     OnboardingView.clearProfile();
     userProfile = null;

@@ -51,7 +51,13 @@ export class Engine {
   /** Must be called from a user gesture (tap) - browsers keep audio suspended until then. */
   private starting: Promise<void> | null = null;
   async start() {
-    if (this.ready) { await Tone.start(); return; }
+    if (this.ready) {
+      await Tone.start();
+      if ((Tone.getContext().rawContext as AudioContext)?.state === 'suspended') {
+        await (Tone.getContext().rawContext as AudioContext).resume().catch(() => {});
+      }
+      return;
+    }
     if (this.starting) return this.starting;
     this.starting = this.initialize();
     try { await this.starting; } finally { this.starting = null; }
@@ -60,6 +66,9 @@ export class Engine {
   private async initialize() {
     await Tone.start();
     const ctx = Tone.getContext();
+    if ((ctx.rawContext as AudioContext)?.state === 'suspended') {
+      await (ctx.rawContext as AudioContext).resume().catch(() => {});
+    }
     ctx.lookAhead = 0; // we schedule absolute times ourselves
     this.master = new Tone.Gain(0.9);
     this.limiter = new Tone.Limiter(-1);
@@ -174,6 +183,9 @@ export class Engine {
    */
   play(ev: NoteEvent, audible = true): boolean {
     if (!this.ready || !this.ts || !audible) return false;
+    if (this.context && this.context.state === 'suspended') {
+      void this.context.resume().catch(() => {});
+    }
     if (ev.v < 0.02) return false; // a part that has gone silent: the note still exists on the timeline, it just makes no sound
     const ts = this.ts;
     // Breakdown: drums + bass drop out while the build-up runs; the beat "returns" at dropStep.

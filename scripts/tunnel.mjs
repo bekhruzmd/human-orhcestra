@@ -23,11 +23,20 @@ cf.on('error', (e) => {
 });
 cf.on('exit', (c) => { console.error(`cloudflared exited (${c})`); process.exit(c ?? 1); });
 
+let warnedBlocked = false;
+
 cf.stderr.on('data', (buf) => {
-  const m = buf.toString().match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
+  const str = buf.toString();
+  const m = str.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
   if (m && !url) {
     url = m[0];
-    console.log(`\n🌐  Public HTTPS URL:  ${url}\n    Stage (open this on the laptop):  ${server}/\n    Phones: scan the QR on the Stage.\n`);
+    console.log(`\n🌐  Public HTTPS URL:  ${url}\n    Stage (open this on the laptop):  ${server}/\n    Phones: scan the QR on the Stage or open /mobile over Wi-Fi.\n`);
+  }
+
+  if (!warnedBlocked && (str.includes('7844: connect: connection refused') || str.includes('failed to dial to edge with quic'))) {
+    warnedBlocked = true;
+    console.warn('\n⚠️  Note: Outbound port 7844 is blocked on this local network/firewall.');
+    console.warn(`    If the trycloudflare URL shows Error 1033, use your local Wi-Fi IP instead: http://<laptop-ip>:${PORT}/mobile\n`);
   }
 });
 

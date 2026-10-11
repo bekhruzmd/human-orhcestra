@@ -84,6 +84,9 @@ app.innerHTML = `
   <div class="scan">SCAN TO JOIN</div><div id="roomcode" aria-label="Room code"></div><div id="url"></div><div id="vrhint">VR: open <b>/xr</b> in a Quest browser, enter the code</div><div id="warn" aria-live="polite"></div>
   <div id="roster"></div>
 </aside>
+<div id="stage-unmute-banner" class="stage-unmute-banner" hidden>
+  <span>🔊 CLICK ANYWHERE ON LAPTOP TO ENABLE AUDIO 🔊</span>
+</div>
 <button id="audio">SOUND OFF · click to enable audio</button>
 <footer class="conductor" id="cond">
   <div class="demo-flow"><div><b id="demo-step">JUDGE DEMO</b><small id="demo-hint">Three quick moments · N to advance</small></div><button class="btn play" id="demo-next" aria-label="Advance judge demo">NEXT <kbd>N</kbd></button></div>
@@ -429,19 +432,59 @@ $('auto').onclick = () => cmd('auto', !ts?.autoBand);
 $('spk').onclick = () => cmd('speakers', !ts?.speakerMode);
 $('sessrec').onclick = () => cmd(ts?.recording ? 'recordingStop' : 'recordingStart');
 $('rec').onclick = () => { if (!rec.save()) alert('Nothing recorded yet: enable audio first and play something.'); };
-async function enableAudio() {
-  await engine.start(); rec.start().catch((e) => console.warn('recorder unavailable', e));
-  $('audio').style.display = 'none'; audioOn = true; syncControls();
-}
-$('audio').onclick = enableAudio;
-$('playnow').onclick = async () => {
-  await enableAudio();
-  $('landing').classList.add('hide');
+function hideLanding() {
+  const landing = document.getElementById('landing');
+  if (!landing || landing.style.display === 'none') return;
+  landing.classList.add('hide');
   setTimeout(() => {
-    $('landing').style.display = 'none';
+    landing.style.display = 'none';
     viz.resize();
   }, 350);
+}
+
+function updateAudioBanner() {
+  const banner = document.getElementById('stage-unmute-banner');
+  if (!banner) return;
+  if (ts?.game && (!audioOn || !engine.ready)) {
+    banner.hidden = false;
+  } else {
+    banner.hidden = true;
+  }
+}
+
+function hideAudioBanner() {
+  const banner = document.getElementById('stage-unmute-banner');
+  if (banner) banner.hidden = true;
+}
+
+async function enableAudio() {
+  try {
+    await engine.start();
+    rec.start().catch((e) => console.warn('recorder unavailable', e));
+    $('audio').style.display = 'none';
+    audioOn = true;
+    syncControls();
+    hideAudioBanner();
+    hideLanding();
+  } catch (err) {
+    console.warn('Audio unlock error:', err);
+  }
+}
+
+$('audio').onclick = enableAudio;
+$('playnow').onclick = enableAudio;
+$('landing').onclick = enableAudio;
+const stageBannerEl = document.getElementById('stage-unmute-banner');
+if (stageBannerEl) stageBannerEl.onclick = enableAudio;
+
+// Global gesture listeners: ANY user click or keypress on laptop screen unlocks audio
+const onStageUserGesture = () => {
+  if (!audioOn || !engine.ready) {
+    void enableAudio();
+  }
 };
+window.addEventListener('pointerdown', onStageUserGesture, { passive: true });
+window.addEventListener('keydown', onStageUserGesture, { passive: true });
 const sessionPlayer = new SessionPlayer(engine, viz, clock, () => ts);
 
 function stopSessionReplay() {
@@ -663,6 +706,7 @@ function syncControls() {
   $('keyline').textContent = `${NOTE_NAMES[ts.root]} ${SCALE_LABEL[ts.scale]}${audioOn ? ' · SOUND ON' : ''}`;
   $('bpm').textContent = String(ts.bpm);
   updatePreflight();
+  updateAudioBanner();
 }
 
 function updatePreflight() {
@@ -1040,6 +1084,13 @@ function onGameChange() {
   document.body.classList.toggle('ingame', !!g);
   requestAnimationFrame(() => viz.resize());
   if (g) {
+    hideLanding();
+    if (!audioOn || !engine.ready) {
+      void enableAudio();
+      updateAudioBanner();
+    } else {
+      hideAudioBanner();
+    }
     songs.stop(); hideCard(); $('songs').hidden = true; $('results').hidden = true;
     seq.stop();
     sampler.stop(engine); $('sampleui').hidden = true; document.body.classList.remove('insample');
@@ -1051,6 +1102,7 @@ function onGameChange() {
       renderBandCard(`${song.title} · with the band`, `Open to play live: ${free.length ? free.join(', ') : 'nothing muted'}. Percussion can always be added.`, () => net.send({ t: 'game', action: 'stop' }));
     }
   } else {
+    hideAudioBanner();
     $('gamehud').hidden = true;
     if (gameKey === '' && songs.song === null && ts?.nowPlaying == null) { seq.stop(); hideCard(); }
   }

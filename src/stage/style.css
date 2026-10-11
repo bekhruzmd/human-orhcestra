@@ -1815,3 +1815,44 @@ select:focus-visible {
 @media (max-width: 700px) { .more-controls .mc-4 #play { grid-column: 1 / -1; } }
 .capacity { margin: 4px 0 10px; font-size: 13px; font-weight: 700; color: var(--dim); }
 .capacity b { color: var(--ink); }
+
+/* Prominent unmute banner for Stage when browser WebAudio autoplay blocks sound */
+.stage-unmute-banner {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 14px 28px;
+  background: var(--pink, #ff6b8b);
+  color: #fff;
+  border: 4px solid var(--ink, #111);
+  box-shadow: 4px 4px 0 var(--ink, #111);
+  font-family: var(--display, 'Press Start 2P', monospace);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  animation: stage-unmute-pulse 0.9s infinite alternate cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.stage-unmute-banner[hidden] {
+  display: none !important;
+}
+
+@keyframes stage-unmute-pulse {
+  0% {
+    transform: translateX(-50%) scale(1);
+    box-shadow: 4px 4px 0 var(--ink, #111);
+  }
+  100% {
+    transform: translateX(-50%) scale(1.05);
+    background: #ff2a5b;
+    box-shadow: 6px 6px 0 var(--ink, #111), 0 0 20px rgba(255, 42, 91, 0.8);
+  }
+}
