@@ -25,7 +25,9 @@
     "test": "node --import tsx scripts/musictest.ts && node --import tsx scripts/composertest.ts && node --import tsx scripts/librarytest.ts && node --import tsx scripts/gametest.ts && node --import tsx scripts/audiotest.ts && node --import tsx scripts/jamtest.ts && node --import tsx scripts/playbacktest.ts && SECS=8 node --import tsx scripts/simtest.ts"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@types/pg": "^8.23.1",
+    "dotenv": "^18.0.7",
     "pg": "^8.23.1",
     "qrcode": "^1.5.4",
     "tone": "^15.1.22",

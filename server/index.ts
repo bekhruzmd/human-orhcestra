@@ -6,6 +6,7 @@
  *  - answers clock-sync pings with a server timestamp
  *  - relays note events between players and the Stage, applying guardrails
  */
+import 'dotenv/config';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -13,10 +14,12 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
 import { WebSocketServer, WebSocket } from 'ws';
-import { getSong } from '../shared/songs.js';
-import { buildChart, freeRoles, DIFFICULTIES, songSteps, validateGameSong, type GameStats } from '../shared/game.js';
+import { getSong, SONGS } from '../shared/songs.js';
+import { buildChart, freeRoles, DIFFICULTIES, songSteps, validateGameSong, type GameStats, type GameSong, type Difficulty } from '../shared/game.js';
 import { jamHarmony } from '../shared/jam.js';
 import { resolveEvent } from '../shared/music.js';
+import { generateProfileFromInput, createFallbackProfile } from './ai/geminiProfile.js';
+import { matchProfilesAndRecommendSong } from './ai/geminiMatch.js';
 import {
   BPM_MAX, BPM_MIN, COLORS, DROP_BUILD_STEPS, ROLES, STEPS_PER_BAR,
   type ClientMsg, type PlayerInfo, type Role, type ScaleName, type ServerMsg, type TransportState,
@@ -446,7 +449,28 @@ interface Conn {
   lastSeen: number;
   noteTimes: number[]; // rate limiter
   rawTimes: number[];
+  ip: string;
 }
+
+interface PendingSpike {
+  conn: Conn;
+  timestamp: number;
+  profile: unknown;
+  timer: NodeJS.Timeout;
+}
+const pendingSpikes = new Map<string, PendingSpike[]>();
+const SPIKE_WINDOW_MS = 250;
+
+interface ActiveBumpRoom {
+  roomId: string;
+  createdAt: number;
+  conns: [Conn, Conn];
+  confirmations: Map<Conn, any>;
+  locked: boolean;
+  jamStarted?: boolean;
+  timer: NodeJS.Timeout;
+}
+const activeBumpRooms = new Map<string, ActiveBumpRoom>();
 interface Player extends PlayerInfo {
   /** Pressed "Join". Until then the seat is only a preview and is invisible on the Stage. */
   joined: boolean;
@@ -511,6 +535,31 @@ const lanUrls = () =>
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url ?? '/', 'http://x');
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    }).end();
+    return;
+  }
+  if (url.pathname === '/api/profile' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', async () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const transcript = String(payload.transcript ?? payload.text ?? '');
+        const profile = await generateProfileFromInput(transcript);
+        writeJson(res, 200, profile);
+      } catch (err: any) {
+        console.error('[API /api/profile] Error generating profile:', err);
+        const fallback = createFallbackProfile('Anonymous Jammer');
+        writeJson(res, 500, { error: err?.message || 'Failed to generate profile', fallback });
+      }
+    });
+    return;
+  }
   if (url.pathname === '/api/info') {
     res.setHeader('content-type', 'application/json');
     res.setHeader('cache-control', 'no-store');
@@ -568,7 +617,10 @@ const wss = new WebSocketServer({ server, path: ON_VERCEL ? undefined : '/ws', p
 wss.on('connection', (ws, req) => {
   // Disable Nagle: tiny JSON frames must leave immediately or ping RTTs get sticky/asymmetric.
   (req.socket as import('node:net').Socket).setNoDelay(true);
-  const conn: Conn = { ws, kind: 'player', playerId: null, lastSeen: serverNow(), noteTimes: [], rawTimes: [] };
+  const forwarded = req.headers['x-forwarded-for'];
+  const rawIp = typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : req.socket.remoteAddress;
+  const ip = rawIp?.replace(/^::ffff:/, '') || '127.0.0.1';
+  const conn: Conn = { ws, kind: 'player', playerId: null, lastSeen: serverNow(), noteTimes: [], rawTimes: [], ip };
   conns.add(conn);
 
   ws.on('message', (raw) => {
@@ -583,6 +635,26 @@ wss.on('connection', (ws, req) => {
   });
   ws.on('close', () => {
     conns.delete(conn);
+    // Remove any pending spikes from this connection
+    const list = pendingSpikes.get(conn.ip);
+    if (list) {
+      const remaining = list.filter((item) => {
+        if (item.conn === conn) {
+          clearTimeout(item.timer);
+          return false;
+        }
+        return true;
+      });
+      if (remaining.length === 0) pendingSpikes.delete(conn.ip);
+      else pendingSpikes.set(conn.ip, remaining);
+    }
+    // Clean up any pending unconfirmed bump room with this connection
+    for (const [roomId, room] of activeBumpRooms.entries()) {
+      if (room.conns.includes(conn) && !room.locked) {
+        clearTimeout(room.timer);
+        activeBumpRooms.delete(roomId);
+      }
+    }
     const p = conn.playerId ? players.get(conn.playerId) : null;
     if (p && p.conn === conn) {
       p.conn = null; p.connected = false; p.droppedAt = serverNow();
@@ -592,7 +664,182 @@ wss.on('connection', (ws, req) => {
   ws.on('error', () => ws.terminate());
 });
 
+function startAuthoritativeGame(song: GameSong, difficulty: Difficulty = 'medium', caller = 'stage', isCustomSong = false) {
+  if (gameTimer) clearTimeout(gameTimer);
+  transport.drop = null; transport.freestyle = false; transport.nowPlaying = null; transport.sample = null;
+  setPaused(false);
+  transport.root = song.root; transport.scale = song.scale;
+  setBpm(song.bpm);
+  const now = serverNow();
+  const lead = Math.max(4000, 4 * (60000 / song.bpm) + 1500);
+  const startStep = Math.max(lastGameStart + STEPS_PER_BAR, Math.ceil(stepPos(transport, now + lead) / STEPS_PER_BAR) * STEPS_PER_BAR);
+  lastGameStart = startStep;
+  gameHits.clear();
+  gameCharts = new Map(ROLES.map((role) => [role, buildChart(song, role, difficulty)]));
+  transport.game = { ...(isCustomSong ? { song } : {}), songId: song.id, difficulty, startStep, endStep: startStep + songSteps(song) + STEPS_PER_BAR };
+  recordEvent(now, 'game', caller, null, {
+    action: 'start',
+    songId: song.id,
+    difficulty,
+    startStep,
+    endStep: transport.game.endStep,
+  }, startStep);
+  for (const pl of players.values()) {
+    pl.game = null;
+    if (isCustomSong && !song.tracks[pl.role].length) {
+      const available = ROLES.filter((r) => song.tracks[r].length);
+      pl.role = available.find((r) => !joinedPlayers().some((p) => p.id !== pl.id && p.role === r)) ?? available[0];
+      if (pl.conn) send(pl.conn.ws, { t: 'you', you: info(pl) });
+    }
+  }
+  armGameTimer();
+  broadcastState();
+  broadcastRoster();
+}
+
 function handle(conn: Conn, m: ClientMsg, now: number) {
+  if (m.t === 'bump_spike') {
+    const timestamp = Number(m.timestamp) || Date.now();
+    const profile = m.profile ?? null;
+    const ip = conn.ip;
+
+    let list = pendingSpikes.get(ip);
+    if (!list) {
+      list = [];
+      pendingSpikes.set(ip, list);
+    }
+
+    // Check if another client on the same IP spiked within ±250ms
+    const matchIndex = list.findIndex(
+      (item) => item.conn !== conn && Math.abs(item.timestamp - timestamp) <= SPIKE_WINDOW_MS
+    );
+
+    if (matchIndex !== -1) {
+      // Found a match!
+      const counterpart = list.splice(matchIndex, 1)[0]!;
+      clearTimeout(counterpart.timer);
+      if (list.length === 0) pendingSpikes.delete(ip);
+
+      const roomId = `bump_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      console.log(`[Bump] Match confirmed on IP ${ip} between 2 devices! Room: ${roomId}`);
+
+      // Initialize mutual confirmation room
+      const room: ActiveBumpRoom = {
+        roomId,
+        createdAt: Date.now(),
+        conns: [conn, counterpart.conn],
+        confirmations: new Map(),
+        locked: false,
+        timer: setTimeout(() => {
+          activeBumpRooms.delete(roomId);
+        }, 60000),
+      };
+      activeBumpRooms.set(roomId, room);
+
+      // Emit bump_matched to both sockets with the peer's profile data
+      send(conn.ws, { t: 'bump_matched', roomId, peer: counterpart.profile });
+      send(counterpart.conn.ws, { t: 'bump_matched', roomId, peer: profile });
+    } else {
+      // Buffer spike and auto-clear after 1200ms
+      const pendingItem: PendingSpike = {
+        conn,
+        timestamp,
+        profile,
+        timer: setTimeout(() => {
+          const curList = pendingSpikes.get(ip);
+          if (!curList) return;
+          const idx = curList.indexOf(pendingItem);
+          if (idx !== -1) curList.splice(idx, 1);
+          if (curList.length === 0) pendingSpikes.delete(ip);
+        }, 1200),
+      };
+      list.push(pendingItem);
+      console.log(`[Bump] Spike registered on IP ${ip} (pending matches: ${list.length})`);
+    }
+    return;
+  }
+
+  if (m.t === 'bump_confirm') {
+    const roomId = String(m.roomId || '');
+    const room = activeBumpRooms.get(roomId);
+    if (!room || room.locked) return;
+
+    if (!room.conns.includes(conn)) return;
+
+    room.confirmations.set(conn, m.profile);
+    console.log(`[Bump] bump_confirm received for room ${roomId} (${room.confirmations.size}/2 confirmed)`);
+
+    // Mutual consent constraint: Gemini is only called once BOTH have confirmed
+    if (room.confirmations.size >= 2) {
+      room.locked = true;
+      clearTimeout(room.timer);
+
+      const [connA, connB] = room.conns;
+      const profileA = room.confirmations.get(connA);
+      const profileB = room.confirmations.get(connB);
+
+      console.log(`[Bump] Room ${roomId} locked in! Invoking Gemini Matcher...`);
+
+      void (async () => {
+        try {
+          const aiMatch = await matchProfilesAndRecommendSong(profileA, profileB);
+          console.log(`[Bump] Gemini match ready for room ${roomId}: "${aiMatch.sharedVibe}" -> ${aiMatch.song_id}`);
+
+          send(connA.ws, { t: 'bump_reveal', roomId, match: aiMatch });
+          send(connB.ws, { t: 'bump_reveal', roomId, match: aiMatch });
+        } catch (err: any) {
+          console.error(`[Bump] Error during Gemini match for room ${roomId}:`, err);
+        } finally {
+          setTimeout(() => activeBumpRooms.delete(roomId), 120000);
+        }
+      })();
+    }
+    return;
+  }
+
+  if (m.t === 'bump_start_jam') {
+    const roomId = String(m.roomId || '');
+    const room = activeBumpRooms.get(roomId);
+    if (!room) {
+      console.warn(`[Bump] bump_start_jam rejected: room ${roomId} not found or expired`);
+      return;
+    }
+    if (!room.conns.includes(conn)) {
+      console.warn(`[Bump] bump_start_jam rejected: connection does not belong to room ${roomId}`);
+      return;
+    }
+    // Prevent double-starting if the second player taps shortly after
+    if (room.jamStarted) {
+      console.log(`[Bump] bump_start_jam ignored: jam already started for room ${roomId}`);
+      return;
+    }
+    room.jamStarted = true;
+    console.log(`[Bump] bump_start_jam received for room ${roomId} with song_id: ${m.song_id}`);
+
+    // Resolve song from Gemini's recommendation, with fallbacks to neon/ode/canon
+    const songId = String(m.song_id || 'neon');
+    const song = getSong(songId) ?? (songId === 'blues' ? getSong('neon') : songId === 'jingle' ? getSong('ode') : SONGS[0]);
+
+    if (song) {
+      // Step 3: Auto-assign complementary instrument roles for the paired devices
+      const [connA, connB] = room.conns;
+      const playerA = Array.from(players.values()).find((p) => p.conn === connA);
+      const playerB = Array.from(players.values()).find((p) => p.conn === connB);
+
+      if (playerA && playerB && playerA.role === playerB.role) {
+        const alternateRoles = ROLES.filter((r) => r !== playerA.role && song.tracks[r]?.length > 0);
+        if (alternateRoles.length > 0) {
+          playerB.role = alternateRoles[0];
+          if (playerB.conn) send(playerB.conn.ws, { t: 'you', you: info(playerB) });
+        }
+      }
+
+      startAuthoritativeGame(song, 'medium', 'bump_stage');
+      console.log(`[Bump] Stage handoff successful! Game started with ${song.id} (${song.title}) for room ${roomId}`);
+    }
+    return;
+  }
+
   if (m.t === 'hello') {
     conn.kind = m.kind;
     if (m.kind === 'player') {

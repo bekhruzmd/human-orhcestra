@@ -24,3 +24,5 @@ CLAUDE.md
 skills-lock.json
 .env
 .env.*
+!.env.example
+
