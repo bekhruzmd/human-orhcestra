@@ -30,3 +30,4 @@ midi_songs/
 
 # standalone Quest app (own repo)
 /human-orchestrator_xr/
+!.env.example

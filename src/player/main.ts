@@ -18,6 +18,8 @@ import {
 } from '../../shared/protocol';
 import { LIBRARY } from '../songs/library';
 import { GameUI } from './game';
+import { OnboardingView, type GravitateProfile } from './onboarding/OnboardingView';
+import { BumpDetector } from './bump/bumpDetector';
 import { COLS, HOLD_REPEAT, NOTE_DUR, chordAt, grooveVoice, padLabels, SCALE_LABEL, NOTE_NAMES } from '../../shared/music';
 
 const net = new Net();
@@ -80,6 +82,243 @@ net.on('error', (m) => {
   if (m.code === 'noroom' || m.code === 'badroom' || m.code === 'busy') { forgetRoom(); joined = false; renderRoomScreen(m.message); }
 });
 
+let userProfile: GravitateProfile | null = OnboardingView.getStoredProfile();
+const onboarding = new OnboardingView(root);
+onboarding.onApproved((p) => {
+  userProfile = p;
+  if (me) {
+    me.name = p.name;
+    net.send({ t: 'join', name: me.name });
+  }
+  render();
+});
+
+// Intercept on boot if no approved profile exists in localStorage
+if (!userProfile?.approved) {
+  onboarding.mount();
+}
+
+// ------------------------------------------------------------------ Web Bump Engine
+let bumpActive = false;
+let bumpOverlayEl: HTMLElement | null = null;
+const bumpDetector = new BumpDetector({
+  threshold: 25, // ~2.5G
+  debounceMs: 1500,
+});
+
+function getActiveProfile(): GravitateProfile | null {
+  return userProfile ?? OnboardingView.getStoredProfile();
+}
+
+async function toggleBumpMode() {
+  const btn = document.getElementById('bumpbtn');
+  if (bumpActive) {
+    bumpActive = false;
+    bumpDetector.stop();
+    btn?.classList.remove('active');
+    closeBumpOverlay();
+    return;
+  }
+
+  // Request motion permission (iOS Safari requirement)
+  const granted = await bumpDetector.requestPermission();
+  if (!granted && (window as any).DeviceMotionEvent) {
+    console.warn('[Bump] Motion permission denied or unavailable');
+  }
+
+  bumpActive = true;
+  btn?.classList.add('active');
+  showBumpOverlay('ready');
+
+  bumpDetector.start((magnitude, timestamp) => {
+    if (!bumpActive) return;
+    const profile = getActiveProfile();
+    console.log('[Bump] Spiking to server! Magnitude:', magnitude);
+    net.send({ t: 'bump_spike', timestamp, profile });
+    showBumpOverlay('detecting');
+  });
+}
+
+function showBumpOverlay(state: 'ready' | 'detecting') {
+  closeBumpOverlay();
+  bumpOverlayEl = document.createElement('div');
+  bumpOverlayEl.className = 'bump-overlay';
+
+  if (state === 'ready') {
+    bumpOverlayEl.innerHTML = `
+      <div class="bump-modal">
+        <div class="bump-status-tag">WEB BUMP MODE ACTIVE</div>
+        <div class="bump-icon-pulse">📱💥📱</div>
+        <h2 class="pixel-title" style="font-size: 15px;">READY TO BUMP</h2>
+        <p class="hint-text">Gently tap or bump your phone with another player nearby on the same Wi-Fi!</p>
+        <div class="action-grid" style="margin-top: 8px;">
+          <button id="btn-cancel-bump" class="pixel-btn btn-butter">CANCEL</button>
+          <button id="btn-sim-bump" class="pixel-btn btn-sky" style="font-size: 9px;">(TEST SPIKE)</button>
+        </div>
+      </div>
+    `;
+    bumpOverlayEl.querySelector('#btn-cancel-bump')?.addEventListener('click', () => {
+      toggleBumpMode();
+    });
+    bumpOverlayEl.querySelector('#btn-sim-bump')?.addEventListener('click', () => {
+      bumpDetector.simulateSpike();
+    });
+  } else {
+    bumpOverlayEl.innerHTML = `
+      <div class="bump-modal">
+        <div class="bump-status-tag" style="background: var(--pink);">IMPACT REGISTERED</div>
+        <div class="bump-icon-pulse">⚡</div>
+        <h2 class="pixel-title" style="font-size: 15px;">DETECTING IMPACT...</h2>
+        <div class="retro-progress"><div class="retro-progress-bar"></div></div>
+        <p class="hint-text">Matching spatial spike with nearby device…</p>
+        <div class="action-grid" style="margin-top: 8px;">
+          <button id="btn-cancel-bump" class="pixel-btn btn-butter">CANCEL</button>
+        </div>
+      </div>
+    `;
+    bumpOverlayEl.querySelector('#btn-cancel-bump')?.addEventListener('click', () => {
+      toggleBumpMode();
+    });
+  }
+
+  app.appendChild(bumpOverlayEl);
+}
+
+function showBumpMatchedModal(roomId: string, peer: any) {
+  closeBumpOverlay();
+  bumpActive = false;
+  bumpDetector.stop();
+  document.getElementById('bumpbtn')?.classList.remove('active');
+
+  const peerName = esc(peer?.name || 'Anonymous Player');
+  const peerTagline = esc(peer?.tagline || 'Ready to jam in the Human Orchestra');
+  const peerVibe = esc(peer?.vibe || 'Retro Jammer');
+
+  bumpOverlayEl = document.createElement('div');
+  bumpOverlayEl.className = 'bump-overlay';
+  bumpOverlayEl.innerHTML = `
+    <div class="bump-modal">
+      <div class="bump-status-tag" style="background: var(--mint);">BUMP DETECTED!</div>
+      <div class="bump-icon-pulse">🤝</div>
+      <h2 class="pixel-title" style="font-size: 15px;">CONNECTION FOUND!</h2>
+      <p class="hint-text">Confirm connection with:</p>
+
+      <div class="persona-card" style="text-align: left;">
+        <div class="card-header">
+          <b style="font-family: var(--display); font-size: 13px;">${peerName}</b>
+          <span class="role-pill">${peerVibe}</span>
+        </div>
+        <p style="font-size: 11px; margin: 4px 0 0; color: var(--dim);">"${peerTagline}"</p>
+      </div>
+
+      <div class="action-grid" style="margin-top: 10px;">
+        <button id="btn-bump-cancel" class="pixel-btn btn-butter">CANCEL</button>
+        <button id="btn-bump-confirm" class="pixel-btn btn-mint approve-btn">★ CONFIRM</button>
+      </div>
+    </div>
+  `;
+
+  bumpOverlayEl.querySelector('#btn-bump-cancel')?.addEventListener('click', () => {
+    closeBumpOverlay();
+  });
+
+  bumpOverlayEl.querySelector('#btn-bump-confirm')?.addEventListener('click', (e) => {
+    const btn = e.currentTarget as HTMLButtonElement;
+    btn.disabled = true;
+    btn.textContent = '⏳ WAITING FOR PARTNER...';
+    btn.classList.remove('btn-mint');
+    btn.classList.add('btn-butter');
+    const profile = getActiveProfile();
+    console.log(`[Bump] Emitting bump_confirm for room ${roomId}...`);
+    net.send({ t: 'bump_confirm', roomId, profile });
+  });
+
+  app.appendChild(bumpOverlayEl);
+}
+
+function showVibeMatchReveal(roomId: string, match: any) {
+  closeBumpOverlay();
+
+  const sharedVibe = esc(match?.sharedVibe || 'Cosmic Harmony');
+  const overlap = esc(match?.overlap || 'You both share an incredible passion for music and retro games.');
+  const icebreaker = esc(match?.icebreaker || 'What song got you into rhythm games?');
+  const songId = esc(match?.song_id || 'neon');
+  const songTitle = esc(match?.song_title || match?.song_id?.toUpperCase() || 'Neon Run');
+  const score = Number(match?.compatibilityScore) || 90;
+
+  bumpOverlayEl = document.createElement('div');
+  bumpOverlayEl.className = 'bump-overlay';
+  bumpOverlayEl.innerHTML = `
+    <div class="bump-modal" style="max-width: 440px;">
+      <div class="bump-status-tag" style="background: var(--pink);">★ VIBE MATCH ★ ${score}%</div>
+      <div class="bump-icon-pulse">✨</div>
+      <h2 class="pixel-title vibe-match-header">${sharedVibe}</h2>
+
+      <p class="vibe-match-overlap">${overlap}</p>
+
+      <div class="form-group" style="text-align: left;">
+        <label class="form-label">ICEBREAKER PROMPT</label>
+        <div class="icebreaker-bubble vibe-icebreaker">💬 "${icebreaker}"</div>
+      </div>
+
+      <div class="recommended-track-card">
+        <div class="track-badge">RECOMMENDED TRACK</div>
+        <div class="track-title">${songTitle}</div>
+        <div class="track-id">[ID: ${songId}] · SYNCED MIDI</div>
+      </div>
+
+      <div class="action-grid" style="margin-top: 10px;">
+        <button id="btn-enter-stage" class="pixel-btn btn-mint approve-btn" style="font-size: 11px;">
+          ▶ ENTER STAGE TOGETHER
+        </button>
+      </div>
+    </div>
+  `;
+
+  bumpOverlayEl.querySelector('#btn-enter-stage')?.addEventListener('click', () => {
+    const rawSongId = String(match?.song_id || 'neon');
+    console.log(`[Gravitate] Entering stage together with track ${rawSongId} in room ${roomId}`);
+    showBumpToast(`Entering stage: ${songTitle}!`);
+
+    // Ensure player is joined into the band and audio is unlocked
+    if (!joined) {
+      engine.start().catch(() => {});
+      (navigator as any).audioSession && ((navigator as any).audioSession.type = 'playback');
+      requestMotion();
+      joined = true;
+      const profile = getActiveProfile();
+      const name = profile?.name || me?.name || 'Player';
+      net.send({ t: 'join', name });
+      if (me) me.name = name.trim().slice(0, 14) || me.name;
+    }
+
+    // Emit bump_start_jam to the server
+    net.send({ t: 'bump_start_jam', roomId, song_id: rawSongId });
+
+    // Hide bump overlay and reveal the main player UI
+    closeBumpOverlay();
+    buildJam();
+    syncGame();
+  });
+
+  app.appendChild(bumpOverlayEl);
+}
+
+function closeBumpOverlay() {
+  if (bumpOverlayEl) {
+    bumpOverlayEl.remove();
+    bumpOverlayEl = null;
+  }
+}
+
+function showBumpToast(message: string) {
+  const toast = document.createElement('div');
+  toast.className = 'bump-toast';
+  toast.textContent = `★ ${message}`;
+  app.appendChild(toast);
+  setTimeout(() => toast.remove(), 3500);
+}
+
 // ------------------------------------------------------------------ network
 net.onOpen(() => {
   banner.hidden = true;
@@ -90,7 +329,10 @@ net.onOpen(() => {
   if (joined) net.send({ t: 'speaker', on: speakerOn });
 });
 net.onClose(() => { banner.hidden = false; });
-net.on('pong', (m) => clock.onPong(m));
+net.on('pong', (m) => {
+  clock.onPong(m);
+  if (clock.isLocked && ts?.game && joined) syncGame();
+});
 net.on('welcome', (m) => {
   ts = m.state; engine.setTransport(m.state);
   if (m.you) { me = m.you; if (!joined) render(); }
@@ -101,6 +343,20 @@ net.on('state', (m) => {
   ts = m.state; engine.setTransport(m.state);
   if (joined && m.state.speakerMode !== was && was !== undefined) setSpeaker(m.state.speakerMode && engine.ready);
   document.getElementById('pausedbar')!.hidden = m.state.paused == null;
+  // If game is started by server (e.g. from partner clicking Enter Stage Together), auto-transition
+  if (ts.game && bumpOverlayEl) {
+    closeBumpOverlay();
+    if (!joined) {
+      engine.start().catch(() => {});
+      (navigator as any).audioSession && ((navigator as any).audioSession.type = 'playback');
+      joined = true;
+      const profile = getActiveProfile();
+      const name = profile?.name || me?.name || 'Player';
+      net.send({ t: 'join', name });
+      if (me) me.name = name.trim().slice(0, 14) || me.name;
+      buildJam();
+    }
+  }
   syncGame();
   refreshPadLabels();
 });
@@ -112,22 +368,46 @@ net.on('you', (m) => {
   else render();
   syncGame();
 });
+net.on('bump_matched', (m) => {
+  console.log('[Bump] bump_matched received from server! Room:', m.roomId, 'Peer:', m.peer);
+  showBumpMatchedModal(m.roomId, m.peer);
+});
+net.on('bump_reveal', (m) => {
+  console.log('[Bump] bump_reveal received from server! Room:', m.roomId, 'Match:', m.match);
+  showVibeMatchReveal(m.roomId, m.match);
+});
 
 // ------------------------------------------------------------------- screens
 function render() {
+  if (!userProfile?.approved) {
+    onboarding.mount();
+    return;
+  }
   if (!me) return;
   document.documentElement.style.setProperty('--c', me.color);
   if (joined) return buildJam();
+
+  if (userProfile.name && me.name.startsWith('P')) {
+    me.name = userProfile.name;
+  }
+
   root.innerHTML = `<div class="screen join">
     <div class="swatch"></div><h1>Human Orchestra</h1>
+    <div class="pixel-badge" style="margin: 0 auto 6px; font-size: 9px;">${esc(userProfile.vibe)}</div>
     <p>You're <b class="you-c" style="background:${me.color}">this colour</b>. Pick a name.</p>
     <input id="name" name="displayName" aria-label="Display name" maxlength="14" value="${esc(me.name)}" autocomplete="off" autocapitalize="words" spellcheck="false" />
     <button class="big" id="go">JOIN THE BAND</button>
+    <button class="pixel-btn btn-butter" id="btn-edit-persona" style="margin: 6px auto 0; font-size: 9px; padding: 6px 12px; width: fit-content;">EDIT 8-BIT PERSONA</button>
     <div class="hint">Your phone controls the music. Listen to the Stage.</div>
     <div class="hint">Room <b>${esc(roomCode)}</b> · <a href="${location.pathname}" id="change-room">change</a></div>
     <a href="/stage" class="stage-link">STAGE SCREEN (HOST / LAPTOP)</a></div>`;
   document.getElementById('change-room')!.onclick = (e) => { e.preventDefault(); forgetRoom(); renderRoomScreen(); };
   document.getElementById('go')!.onclick = onJoin;
+  document.getElementById('btn-edit-persona')!.onclick = () => {
+    OnboardingView.clearProfile();
+    userProfile = null;
+    onboarding.mount();
+  };
 }
 
 async function onJoin() {
@@ -157,6 +437,7 @@ function buildJam() {
       <button class="chip" id="rolebtn">${ROLE_INFO[role].icon} ${ROLE_INFO[role].label} ▾</button>
       <div class="name" id="nm"></div>
       <div class="beats"><i></i><i></i><i></i><i></i></div>
+      <button class="icon btn-bump ${bumpActive ? 'active' : ''}" id="bumpbtn" aria-label="Bump and Jam">BUMP</button>
       <button class="icon" id="songbtn" aria-label="Songs">SONG</button>
       <button class="icon" id="dbgbtn" aria-label="Sync details">SYNC</button>
     </div>
@@ -173,6 +454,7 @@ function buildJam() {
   beatDots = [...root.querySelectorAll<HTMLElement>('.beats i')];
   chordEl = document.getElementById('chord')!;
   nameEl = document.getElementById('nm')!;
+  document.getElementById('bumpbtn')!.onclick = toggleBumpMode;
   document.getElementById('rolebtn')!.onclick = openRoleSheet;
   document.getElementById('dbgbtn')!.onclick = openDebug;
   document.getElementById('songbtn')!.onclick = openSongs;

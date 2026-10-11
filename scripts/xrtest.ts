@@ -16,8 +16,8 @@ const tsxBin = path.join(repo, 'node_modules/.bin/tsx');
 if (!fs.existsSync(tsxBin)) { console.log('SKIP: server entry not found at', repo); process.exit(0); }
 
 const PORT = 3987;
-const env = { ...process.env, PORT: String(PORT) } as Record<string, string | undefined>;
-for (const k of ['DATABASE_URL', 'POSTGRES_URL', 'NEON_DATABASE_URL', 'POSTGRES_URL_NON_POOLING']) delete env[k];
+const env = { ...process.env, PORT: String(PORT), VERCEL: '', DOTENV_CONFIG_PATH: '/dev/null', GEMINI_API_KEY: '' } as Record<string, string | undefined>;
+for (const k of ['DATABASE_URL', 'POSTGRES_URL', 'NEON_DATABASE_URL', 'POSTGRES_URL_NON_POOLING']) env[k] = '';
 const server = spawn(tsxBin, ['server/index.ts'], { cwd: repo, env: env as NodeJS.ProcessEnv, stdio: 'pipe' });
 let serverOut = '';
 server.stdout.on('data', (d) => (serverOut += d));

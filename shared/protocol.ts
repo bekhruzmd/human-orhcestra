@@ -199,7 +199,10 @@ export type ClientMsg =
   | { t: 'ctl'; y: number; tilt: number }
   | { t: 'raw'; k: RawKind; at: number; x: number; y: number; v?: number }
   | { t: 'songreq'; id: string; mode: 'band' | 'tap' | 'jam' }
-  | { t: 'cmd'; cmd: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'syncTest' | 'freestyle' | 'nowplaying' | 'sample' | 'pause' | 'recordingStart' | 'recordingStop'; value?: number | string | boolean };
+  | { t: 'cmd'; cmd: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'syncTest' | 'freestyle' | 'nowplaying' | 'sample' | 'pause' | 'recordingStart' | 'recordingStop'; value?: number | string | boolean }
+  | { t: 'bump_spike'; timestamp: number; profile: unknown }
+  | { t: 'bump_confirm'; roomId: string; profile: unknown }
+  | { t: 'bump_start_jam'; roomId: string; song_id: string };
 
 export type ServerMsg =
   | { t: 'welcome'; you: PlayerInfo | null; state: TransportState; serverNow: number; /** the room this socket joined ('' = default room) */ room?: string }
@@ -212,7 +215,9 @@ export type ServerMsg =
   | { t: 'ctl'; pid: string; y: number; tilt: number }
   | { t: 'raw'; pid: string; role: Role; k: RawKind; at: number; x: number; y: number; v?: number }
   | { t: 'songreq'; pid: string; name: string; id: string; mode: 'band' | 'tap' | 'jam' }
-  | { t: 'you'; you: PlayerInfo };
+  | { t: 'you'; you: PlayerInfo }
+  | { t: 'bump_matched'; roomId: string; peer: unknown }
+  | { t: 'bump_reveal'; roomId: string; match: unknown };
 
 export const BPM_MIN = 60;
 export const BPM_MAX = 180;

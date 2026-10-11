@@ -8,7 +8,7 @@ import type { ClientMsg, ServerMsg } from '../shared/protocol.js';
 
 const PORT = 3990;
 const server = spawn('node', ['--import', 'tsx', 'server/index.ts'], {
-  env: { ...process.env, PORT: String(PORT), DATABASE_URL: '', POSTGRES_URL: '', NEON_DATABASE_URL: '', POSTGRES_URL_NON_POOLING: '' },
+  env: { ...process.env, PORT: String(PORT), VERCEL: '', DOTENV_CONFIG_PATH: '/dev/null', GEMINI_API_KEY: '', DATABASE_URL: '', POSTGRES_URL: '', NEON_DATABASE_URL: '', POSTGRES_URL_NON_POOLING: '' },
   stdio: 'ignore',
 });
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -66,7 +66,36 @@ async function main() {
   check(silent.last('welcome')?.room === 'AAAA' && silent.inbox.filter((m) => m.t === 'welcome').length === 1, 'a socket cannot hop rooms with a second hello');
   void before;
 
-  for (const c of [stageA, stageB, pA, typo, sneaky, bad, legacy, silent]) c.ws.close();
+  const pB = await connect({ t: 'hello', kind: 'player', id: 'p2', room: 'BBBB' });
+  const profile = { name: 'Player', interests: ['music'], musicalTastes: ['jazz'], vibe: 'calm' };
+  const timestamp = Date.now();
+  pA.send({ t: 'bump_spike', timestamp, profile });
+  pB.send({ t: 'bump_spike', timestamp, profile });
+  await sleep(100);
+  check(!pA.last('bump_matched') && !pB.last('bump_matched'), 'phones on the same network cannot bump across rooms');
+  silent.send({ t: 'bump_spike', timestamp, profile });
+  await sleep(100);
+  const match = pA.last('bump_matched');
+  check(!!match && match.roomId === silent.last('bump_matched')?.roomId, 'phones in the same room can bump');
+  if (match) {
+    pA.send({ t: 'bump_start_jam', roomId: match.roomId, song_id: 'neon' });
+    await sleep(100);
+    check(!stageA.last('state')?.state.game, 'bump game waits for mutual confirmation');
+    pA.send({ t: 'bump_confirm', roomId: match.roomId, profile });
+    silent.send({ t: 'bump_confirm', roomId: match.roomId, profile });
+    await sleep(150);
+    check(!!pA.last('bump_reveal') && !!silent.last('bump_reveal'), 'confirmed pair receives a song recommendation');
+    pA.send({ t: 'bump_start_jam', roomId: match.roomId, song_id: 'neon' });
+    await sleep(150);
+    const game = stageA.last('state')?.state.game;
+    check(game?.songId === 'neon', 'bump starts the game in the paired room');
+    check(!stageB.last('state')?.state.game, 'bump game does not affect another room');
+    silent.send({ t: 'bump_start_jam', roomId: match.roomId, song_id: 'ode' });
+    await sleep(100);
+    check(stageA.last('state')?.state.game?.startStep === game?.startStep && stageA.last('state')?.state.game?.songId === 'neon', 'second partner cannot restart the bump game');
+  }
+
+  for (const c of [stageA, stageB, pA, pB, typo, sneaky, bad, legacy, silent]) c.ws.close();
 }
 
 main().catch((e) => { console.error(e); failed++; }).finally(() => { server.kill(); console.log(failed ? `\n${failed} FAILED` : '\nall room checks passed'); process.exit(failed ? 1 : 0); });

@@ -105,11 +105,11 @@ rtt = c3 − c0         offset = s − (c0 + c3)/2
 
 That formula assumes the path is symmetric. If it isn't, the offset is wrong by half the asymmetry, which can never exceed `rtt/2`. So:
 
-1. a burst of 24 pings at lock-on (40 ms apart), then one probe every 1.5 s, in a sliding window of 48 samples;
-2. **keep only the lowest-RTT 30%.** Wi-Fi delay is "mostly fast, with random spikes", and the spikes are what create asymmetry;
-3. **median** offset of that slice, with jitter reported as the scaled MAD of the same slice;
-4. after the first lock, the applied offset **slews** (max 1.5 ms per update) so audio never glitches. A jump over 50 ms (tab was frozen) snaps instead;
-5. after a reconnect the estimate is thrown away and relocked, because the old one may be stale.
+1. A burst of 24 pings at lock-on (40 ms apart), then one probe every 1.5 s, in a sliding window of 48 samples;
+2. **Keep only the lowest-RTT 30%.** Wi-Fi delay is "mostly fast, with random spikes", and the spikes are what create asymmetry;
+3. **Median** offset of that slice, with jitter reported as the scaled MAD of the same slice;
+4. After the first lock, the applied offset **slews** (max 1.5 ms per update) so audio never glitches. A jump over 50 ms (tab was frozen) snaps instead;
+5. After a reconnect the estimate is thrown away and relocked, because the old one may be stale.
 
 The server's clock is `process.hrtime` (monotonic), not `Date.now()`, so an NTP step on the laptop can't move the beat.
 
