@@ -193,41 +193,80 @@ export function PianoKeys() {
 }
 
 // ------------------------------------------------------------------ bass
+export const BASS_STRINGS = 4;
+const BASS_GAUGE = [0.016, 0.012, 0.009, 0.006]; // E A D G, thickest first
+export const bassStringX = (i: number) => (i - (BASS_STRINGS - 1) / 2) * 0.07;
+
+/** Upright bass: four heavy strings over a fingerboard, with a big waisted body and f-holes. */
 export function BassCore() {
-  const core = useRef<Mesh>(null);
-  const shell = useRef<Mesh>(null);
-  const ring = useRef<Mesh>(null);
-  const coreMat = useMemo(() => glowMat(ROLE_COLOR.bass, 0.3), []);
-  const ringMat = useMemo(() => glowMat(ROLE_COLOR.bass, 0), []);
+  const strings = useRef<(Mesh | null)[]>([]);
+  const amp = useMemo(() => new Float32Array(BASS_STRINGS), []);
+  const mats = useMemo(() => Array.from({ length: BASS_STRINGS }, () => glowMat(ROLE_COLOR.bass, 0.35)), []);
+  const t = useRef(0);
+  const body = useRef<Group>(null);
   useFrame((_, dt) => {
-    const e = clamp01(activity.energy.bass);
-    core.current!.scale.setScalar(0.8 + e * 0.5);
-    shell.current!.scale.setScalar(0.8 + e * 0.5);
-    shell.current!.rotation.y += dt * (0.3 + e * 2.5);
-    coreMat.opacity = 0.2 + e * 0.7;
-    ringMat.opacity = e * 0.7;
-    ring.current!.scale.setScalar(1 + (1 - e) * 1.6);
+    t.current += dt;
+    amp.fill(0);
+    const k = activity.keys.bass;
+    for (let m = 0; m < 128; m++) if (k[m] > 0.001) amp[m % BASS_STRINGS] += k[m];
+    for (let i = 0; i < BASS_STRINGS; i++) {
+      const a = clamp01(amp[i]);
+      const s = strings.current[i];
+      if (!s) continue;
+      s.position.x = bassStringX(i) + Math.sin(t.current * 45 + i * 1.7) * a * 0.024;
+      s.scale.x = 1 + a * 2.2;
+      mats[i].opacity = 0.35 + a * 0.65;
+    }
+    body.current!.scale.setScalar(1 + clamp01(activity.energy.bass) * 0.06);
   });
   return (
-    <>
-    {/* amp cabinet the core floats in front of */}
-    <mesh position={[0, 0.38, -0.12]}>
-      <boxGeometry args={[0.56, 0.76, 0.2]} />
-      <meshBasicMaterial color={BODY} toneMapped={false} />
-    </mesh>
-    <Outline r={0.215} w={0.01} color={ROLE_COLOR.bass} opacity={0.45} position={[0, 0.5, -0.018]} seg={48} />
-    <Outline r={0.12} w={0.006} color={ROLE_COLOR.bass} opacity={0.35} position={[0, 0.5, -0.018]} seg={40} />
-    <Outline r={0.07} w={0.05} color={ROLE_COLOR.bass} opacity={0.18} position={[0, 0.5, -0.016]} seg={32} />
-    <Outline r={0.045} w={0.03} color={ROLE_COLOR.bass} opacity={0.5} position={[0, 0.17, -0.018]} seg={24} />
-    <group position={[0, 0.72, 0]}>
-      <mesh ref={core} material={coreMat}><sphereGeometry args={[0.2, 20, 14]} /></mesh>
-      <mesh ref={shell}>
-        <icosahedronGeometry args={[0.3, 1]} />
-        <meshBasicMaterial color={ROLE_COLOR.bass} wireframe transparent opacity={0.55} toneMapped={false} />
+    <group position={[0, 0.9, 0]}>
+      {/* strings run from the scroll down over the fingerboard to the bridge */}
+      {Array.from({ length: BASS_STRINGS }, (_, i) => (
+        <mesh key={i} ref={(m) => { strings.current[i] = m; }} position={[bassStringX(i), -0.02, 0]} material={mats[i]}>
+          <boxGeometry args={[BASS_GAUGE[i], 1.2, BASS_GAUGE[i]]} />
+        </mesh>
+      ))}
+      {/* neck, fingerboard, scroll and tuning pegs */}
+      <mesh position={[0, 0.05, -0.02]}>
+        <boxGeometry args={[0.27, 0.95, 0.012]} />
+        <meshBasicMaterial color={BODY} toneMapped={false} />
       </mesh>
-      <mesh ref={ring} rotation={[Math.PI / 2, 0, 0]} material={ringMat}><torusGeometry args={[0.32, 0.01, 6, 40]} /></mesh>
+      {[0.0, 0.18, 0.34].map((y) => (
+        <mesh key={y} position={[0, y, -0.012]}>
+          <boxGeometry args={[0.27, 0.005, 0.004]} />
+          <meshBasicMaterial color={ROLE_COLOR.bass} transparent opacity={0.4} blending={AdditiveBlending} toneMapped={false} />
+        </mesh>
+      ))}
+      <mesh position={[0, 0.58, -0.02]}>
+        <boxGeometry args={[0.2, 0.14, 0.012]} />
+        <meshBasicMaterial color={BODY_LIGHT} toneMapped={false} />
+      </mesh>
+      {[-1, 1].flatMap((sd) => [0.55, 0.61].map((y) => (
+        <mesh key={`${sd}${y}`} position={[sd * 0.115, y, -0.01]}>
+          <circleGeometry args={[0.014, 10]} />
+          <meshBasicMaterial color={ROLE_COLOR.bass} toneMapped={false} />
+        </mesh>
+      )))}
+      <group ref={body}>
+        {/* body: upper bout, waist, big lower bout, f-holes, bridge, tailpiece */}
+        <mesh position={[0, -0.24, -0.03]}><circleGeometry args={[0.2, 36]} /><meshBasicMaterial color={BODY} toneMapped={false} /></mesh>
+        <mesh position={[0, -0.6, -0.03]}><circleGeometry args={[0.3, 44]} /><meshBasicMaterial color={BODY} toneMapped={false} /></mesh>
+        <mesh position={[0, -0.4, -0.031]}><planeGeometry args={[0.3, 0.3]} /><meshBasicMaterial color={BODY} toneMapped={false} /></mesh>
+        <Outline r={0.2} w={0.008} color={ROLE_COLOR.bass} opacity={0.5} position={[0, -0.24, -0.02]} />
+        <Outline r={0.3} w={0.008} color={ROLE_COLOR.bass} opacity={0.5} position={[0, -0.6, -0.02]} seg={52} />
+        {[-1, 1].map((sd) => (
+          <mesh key={sd} position={[sd * 0.1, -0.5, -0.012]} rotation={[0, 0, sd * 0.2]}>
+            <planeGeometry args={[0.014, 0.16]} />
+            <meshBasicMaterial color={ROLE_COLOR.bass} transparent opacity={0.7} blending={AdditiveBlending} toneMapped={false} />
+          </mesh>
+        ))}
+        <mesh position={[0, -0.66, -0.005]}>
+          <boxGeometry args={[0.24, 0.022, 0.008]} />
+          <meshBasicMaterial color={ROLE_COLOR.bass} transparent opacity={0.75} blending={AdditiveBlending} toneMapped={false} />
+        </mesh>
+      </group>
     </group>
-    </>
   );
 }
 

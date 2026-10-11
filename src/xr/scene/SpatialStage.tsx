@@ -6,7 +6,8 @@ import { ROLES, type PlayerInfo, type Role } from '../networking/protocol';
 import { activity } from '../state/activity';
 import { useStore } from '../state/store';
 import { HolographicInstrument } from './HolographicInstrument';
-import { ConductorPanel } from './InstrumentControls';
+import { MixerPanel, SongsPanel, TransportPanel } from './InstrumentControls';
+import { BatonControl } from './BatonControl';
 import { NoteParticles } from './NoteParticles';
 import { FONT, DIM, glowMat } from './theme';
 
@@ -35,7 +36,10 @@ export function SpatialStage() {
       <Text font={FONT.regular} fontSize={0.045} color={DIM} position={[0, 0.03, 0.3]} rotation={[-Math.PI / 2, 0, 0]} anchorX="center" letterSpacing={0.2}>
         CONDUCTOR
       </Text>
-      <ConductorPanel />
+      <MixerPanel />
+      <TransportPanel />
+      <SongsPanel />
+      <BatonControl />
       {mode === 'simulation' && (
         <Text font={FONT.bold} fontSize={0.07} color="#ffb020" position={[0, 2.05, -RADIUS_BANNER]} anchorX="center" letterSpacing={0.12}>
           SIMULATION · NOT A LIVE CONNECTION

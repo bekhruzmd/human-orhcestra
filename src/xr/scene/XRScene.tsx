@@ -44,7 +44,8 @@ function RoomAnchor({ children }: { children: ReactNode }) {
 
 function DesktopControls() {
   const session = useXR((s) => s.session);
-  return session ? null : <OrbitControls makeDefault target={[0, 0.8, -1.1]} maxPolarAngle={Math.PI * 0.52} minDistance={0.6} maxDistance={7} enableDamping />;
+  const overUi = useStore((s) => s.uiHover);
+  return session ? null : <OrbitControls makeDefault enabled={!overUi} target={[0, 0.8, -1.1]} maxPolarAngle={Math.PI * 0.52} minDistance={0.6} maxDistance={7} enableDamping />;
 }
 
 function SessionFlag() {

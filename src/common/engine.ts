@@ -7,7 +7,7 @@
  * use Tone.Transport: the one transport in this system lives on the server.
  */
 import * as Tone from 'tone';
-import { dropPhase, stepTime, STEPS_PER_BAR, type NoteEvent, type Role, type TransportState } from '../../shared/protocol';
+import { defaultMix, dropPhase, roleAudible, stepTime, STEPS_PER_BAR, type MixState, type NoteEvent, type Role, type TransportState } from '../../shared/protocol';
 import { mtof, resolveEvent, type Key, type Resolved } from '../../shared/music';
 import type { ClockSync } from './clock';
 import { clamp } from './util';
@@ -45,6 +45,8 @@ export class Engine {
   readonly hits: Record<MixChannel, number> = { song: 0, kick: 0, snare: 0, hat: 0, open: 0, clap: 0, other: 0 };
   private lastDropStart = -1;
   private ts: TransportState | null = null;
+  /** Conductor mix, mirrored from the transport: section mute/solo/volume and the master level. */
+  private mix: MixState = defaultMix();
 
   constructor(private clock: ClockSync, private isStage: boolean) {}
 
@@ -150,6 +152,8 @@ export class Engine {
 
   setTransport(ts: TransportState) {
     this.ts = ts;
+    this.mix = ts.mix ?? defaultMix();
+    if (this.ready) this.master.gain.rampTo(0.9 * this.mix.master, 0.05);
     this.applyPause(ts);
     this.setGame(!!ts.game || !!ts.nowPlaying);
     if (!this.ready) return;
@@ -186,7 +190,9 @@ export class Engine {
     if (this.context && this.context.state === 'suspended') {
       void this.context.resume().catch(() => {});
     }
-    if (ev.v < 0.02) return false; // a part that has gone silent: the note still exists on the timeline, it just makes no sound
+    if (!roleAudible(this.mix, ev.role)) return false; // conductor muted this section (or soloed another)
+    const v = ev.v * this.mix.roles[ev.role].vol;
+    if (v < 0.02) return false; // a part that has gone silent: the note still exists on the timeline, it just makes no sound
     const ts = this.ts;
     // Breakdown: drums + bass drop out while the build-up runs; the beat "returns" at dropStep.
     if (dropPhase(ts, ev.step) === 'build' && (ev.role === 'drums' || ev.role === 'bass')) return false;
@@ -210,7 +216,7 @@ export class Engine {
     if (t <= entry.lastT) t = entry.lastT + 0.0015;
     entry.lastT = t;
     try {
-      entry.voice.trigger(r, t, Math.max(0.05, ev.dur * stepSec * 0.95), clamp(ev.v, 0.05, 1));
+      entry.voice.trigger(r, t, Math.max(0.05, ev.dur * stepSec * 0.95), clamp(v, 0.05, 1));
     } catch (err) { console.warn('trigger failed', err); return false; }
     this.hits[ev.pid.startsWith('song:') ? 'song' : r.kind === 'drum' ? DRUM_CHANNEL[r.voice] : 'other']++;
     return true;
@@ -218,7 +224,8 @@ export class Engine {
 
   /** Freestyle: play a raw (unquantised) sound at the gesture's own server time. */
   playFree(pid: string, role: Role, r: Resolved, serverMs: number, durSec: number, vel: number) {
-    if (!this.ready) return false;
+    if (!this.ready || !roleAudible(this.mix, role)) return false;
+    vel *= this.mix.roles[role].vol;
     let t = this.ctxTime(serverMs);
     const now = this.context.currentTime;
     if (t < now) t = now + 0.005;

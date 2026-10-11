@@ -49,7 +49,22 @@ export interface TransportState {
   /** server ms at which the Stage paused; null while running */
   paused: number | null;
   recording: { sessionId: string; startedAt: number; startStep: number; events: number } | null;
+  /** Conductor mix. Absent on older servers: everything is then full volume. */
+  mix?: MixState;
 }
+
+export interface MixState {
+  master: number;
+  solo: Role | null;
+  roles: Record<Role, { vol: number; mute: boolean }>;
+}
+export const defaultMix = (): MixState => ({
+  master: 1, solo: null,
+  roles: { drums: { vol: 1, mute: false }, bass: { vol: 1, mute: false }, melody: { vol: 1, mute: false }, pads: { vol: 1, mute: false }, guitar: { vol: 1, mute: false } },
+});
+
+/** Commands the server accepts from a Stage-declared connection (mirrors `ClientMsg` cmd in shared/protocol). */
+export type ConductorCmd = 'pause' | 'drop' | 'bpm' | 'key' | 'scale' | 'auto' | 'mix' | 'solo' | 'master';
 
 export interface PlayerInfo {
   id: string; name: string; color: string; role: Role; connected: boolean; speaker: boolean;
@@ -70,10 +85,13 @@ export type ServerMsg =
   | { t: 'roster'; players: PlayerInfo[] }
   | { t: 'note'; pid: string; role: Role; step: number; d: number; v: number; dur: number; midi?: number[] }
   | { t: 'ctl'; pid: string; y: number; tilt: number }
+  | { t: 'rtc'; from: string; data: unknown }
   | { t: 'error'; message: string; code?: 'noroom' | 'badroom' | 'busy' };
 
-/** Messages XR may send. Observer mode sends only `hello` and `ping`. */
+/** Messages XR may send. Observer mode sends only `hello` and `ping`; Conductor mode also sends the commands below. */
 export type ClientMsg =
   | { t: 'hello'; kind: 'stage' | 'player'; room?: string }
   | { t: 'ping'; id: number; c0: number }
-  | { t: 'cmd'; cmd: 'pause' | 'drop' | 'bpm'; value?: boolean | number };
+  | { t: 'cmd'; cmd: ConductorCmd; value?: boolean | number | string }
+  | { t: 'jam'; action: 'start' | 'stop'; song?: GameSong; full?: boolean }
+  | { t: 'rtc'; to?: string; data: unknown };

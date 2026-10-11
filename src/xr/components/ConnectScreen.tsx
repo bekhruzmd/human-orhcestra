@@ -12,7 +12,7 @@ const SAME_ORIGIN_ABS = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${lo
 export function ConnectScreen({ onClose, canClose }: { onClose: () => void; canClose: boolean }) {
   const { status, error, mode, xrSupported } = useStore();
   const [addr, setAddr] = useState(SAME_ORIGIN);
-  const [priv, setPriv] = useState<Privilege>('observer');
+  const [priv, setPriv] = useState<Privilege>('conductor');
   const [room, setRoom] = useState(() => new URLSearchParams(location.search).get('room')?.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8) ?? '');
   const [localErr, setLocalErr] = useState<string | null>(null);
   const busy = status === 'connecting';
@@ -56,11 +56,11 @@ export function ConnectScreen({ onClose, canClose }: { onClose: () => void; canC
           placeholder="e.g. K7QM" />
 
         <div className="seg" role="radiogroup" aria-label="Access level">
-          <button role="radio" aria-checked={priv === 'observer'} className={priv === 'observer' ? 'on' : ''} onClick={() => setPriv('observer')}>Observer<small>read-only, no seat</small></button>
-          <button role="radio" aria-checked={priv === 'conductor'} className={priv === 'conductor' ? 'on warn' : 'warn'} onClick={() => setPriv('conductor')}>Conductor<small>can send commands</small></button>
+          <button role="radio" aria-checked={priv === 'conductor'} className={priv === 'conductor' ? 'on warn' : 'warn'} onClick={() => setPriv('conductor')}>Conductor<small>mix, tempo, songs, baton</small></button>
+          <button role="radio" aria-checked={priv === 'observer'} className={priv === 'observer' ? 'on' : ''} onClick={() => setPriv('observer')}>Observer<small>watch only</small></button>
         </div>
         {priv === 'conductor' && (
-          <p className="note warn">Conductor declares this device a Stage so pause, beat drop and tempo reach the real orchestra. The server has no login, so use it only on your own session.</p>
+          <p className="note warn">Conductor declares this device a Stage so mixer, tempo, songs and baton commands reach the real orchestra. The server has no login, so use it only on your own session.</p>
         )}
 
         <div className="status"><span className={`dot ${connected ? 'ok' : status === 'error' ? 'bad' : busy || status === 'reconnecting' ? 'wait' : ''}`} />{chip}</div>

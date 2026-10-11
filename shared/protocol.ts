@@ -100,7 +100,24 @@ export interface TransportState {
   paused: number | null;
   /** Recording session in progress (null when not recording). */
   recording: RecordingState | null;
+  /** Conductor mix (section volumes, mute, solo, master). */
+  mix?: MixState;
 }
+
+/** Conductor mix: per-section volume and mute, an optional solo, and a master level. Lives in the transport so every client sees one truth. */
+export interface MixState {
+  /** 0..1.2 final level */
+  master: number;
+  solo: Role | null;
+  roles: Record<Role, { vol: number; mute: boolean }>;
+}
+export const defaultMix = (): MixState => ({
+  master: 1,
+  solo: null,
+  roles: { drums: { vol: 1, mute: false }, bass: { vol: 1, mute: false }, melody: { vol: 1, mute: false }, pads: { vol: 1, mute: false }, guitar: { vol: 1, mute: false } },
+});
+/** Is this section heard at all under the current mute/solo state? */
+export const roleAudible = (mix: MixState | undefined, role: Role) => !mix || (!mix.roles[role].mute && (mix.solo === null || mix.solo === role));
 
 export const stepMs = (bpm: number) => 60000 / bpm / STEPS_PER_BEAT;
 export const beatMs = (bpm: number) => 60000 / bpm;
@@ -199,7 +216,9 @@ export type ClientMsg =
   | { t: 'ctl'; y: number; tilt: number }
   | { t: 'raw'; k: RawKind; at: number; x: number; y: number; v?: number }
   | { t: 'songreq'; id: string; mode: 'band' | 'tap' | 'jam' }
-  | { t: 'cmd'; cmd: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'syncTest' | 'freestyle' | 'nowplaying' | 'sample' | 'pause' | 'recordingStart' | 'recordingStop'; value?: number | string | boolean }
+  | { t: 'cmd'; cmd: 'bpm' | 'key' | 'scale' | 'drop' | 'auto' | 'speakers' | 'syncTest' | 'freestyle' | 'nowplaying' | 'sample' | 'pause' | 'recordingStart' | 'recordingStop' | 'mix' | 'solo' | 'master'; value?: number | string | boolean }
+  /** WebRTC signalling (Stage audio -> a headset). Relayed within the room, never stored. `to`: a listener id; omitted = the Stage(s). */
+  | { t: 'rtc'; to?: string; data: unknown }
   | { t: 'bump_spike'; timestamp: number; profile: unknown }
   | { t: 'bump_confirm'; roomId: string; profile: unknown }
   | { t: 'bump_start_jam'; roomId: string; song_id: string };
@@ -216,6 +235,7 @@ export type ServerMsg =
   | { t: 'raw'; pid: string; role: Role; k: RawKind; at: number; x: number; y: number; v?: number }
   | { t: 'songreq'; pid: string; name: string; id: string; mode: 'band' | 'tap' | 'jam' }
   | { t: 'you'; you: PlayerInfo }
+  | { t: 'rtc'; from: string; data: unknown }
   | { t: 'bump_matched'; roomId: string; peer: unknown }
   | { t: 'bump_reveal'; roomId: string; match: unknown };
 

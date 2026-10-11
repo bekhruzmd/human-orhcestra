@@ -21,7 +21,7 @@ import { resolveEvent } from '../shared/music.js';
 import { generateProfileFromInput, createFallbackProfile } from './ai/geminiProfile.js';
 import { matchProfilesAndRecommendSong } from './ai/geminiMatch.js';
 import {
-  BPM_MAX, BPM_MIN, COLORS, DROP_BUILD_STEPS, ROLES, STEPS_PER_BAR,
+  BPM_MAX, BPM_MIN, COLORS, defaultMix, DROP_BUILD_STEPS, ROLES, STEPS_PER_BAR,
   type ClientMsg, type PlayerInfo, type Role, type ScaleName, type ServerMsg, type TransportState,
   stepPos, stepMs, liveNotesAllowed,
 } from '../shared/protocol.js';
@@ -428,6 +428,8 @@ interface Conn {
   /** Set by `hello`; a socket belongs to no room (and hears nothing) until then. */
   room: Room | null;
   kind: 'stage' | 'player';
+  /** Opaque id so WebRTC signalling can be addressed to one socket. */
+  cid: string;
   playerId: string | null;
   lastSeen: number;
   noteTimes: number[]; // rate limiter
@@ -523,6 +525,7 @@ function createRoom(code: string): Room {
       sample: null,
       paused: null,
       recording: null,
+      mix: defaultMix(),
     },
     dropTimer: null, gameTimer: null, recordingSession: null,
     players: new Map(), gameHits: new Map(), gameCharts: new Map(),
@@ -677,7 +680,7 @@ wss.on('connection', (ws, req) => {
   const forwarded = req.headers['x-forwarded-for'];
   const rawIp = typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : req.socket.remoteAddress;
   const ip = rawIp?.replace(/^::ffff:/, '') || '127.0.0.1';
-  const conn: Conn = { ws, room: null, kind: 'player', playerId: null, lastSeen: serverNow(), noteTimes: [], rawTimes: [], ip };
+  const conn: Conn = { ws, room: null, kind: 'player', cid: Math.random().toString(36).slice(2, 10), playerId: null, lastSeen: serverNow(), noteTimes: [], rawTimes: [], ip };
 
   ws.on('message', (raw) => {
     // Timestamp BEFORE parsing/dispatch: this is the t1 of the NTP exchange.
@@ -943,6 +946,18 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
     return;
   }
 
+  if (m.t === 'rtc') {
+    // Pure relay inside the room: a headset asks the Stage for its audio, the two swap SDP/ICE. Nothing is kept.
+    if (typeof m.data !== 'object' || m.data === null || JSON.stringify(m.data).length > 24000) return;
+    const rtcMsg = (from: string): ServerMsg => ({ t: 'rtc', from, data: m.data });
+    if (typeof m.to === 'string') {
+      for (const c of cur.conns) if (c.cid === m.to && c !== conn) send(c.ws, rtcMsg(conn.cid));
+    } else {
+      broadcast(rtcMsg(conn.cid), (c) => c.kind === 'stage' && c !== conn);
+    }
+    return;
+  }
+
   if (m.t === 'jam') {
     if (conn.kind !== 'stage') return;
     if (m.action === 'stop') {
@@ -1041,9 +1056,21 @@ function handle(conn: Conn, m: ClientMsg, now: number) {
     if (cur.transport.paused !== null && m.cmd === 'drop') return;
     // While a rhythm game runs, tempo/key/mode are locked: every chart is addressed in steps of THIS tempo.
     if (cur.transport.game && ['bpm', 'key', 'scale', 'drop', 'freestyle', 'nowplaying', 'sample'].includes(m.cmd)) return;
-    if (cur.transport.nowPlaying?.mode === 'jam' && ['bpm', 'key', 'scale', 'drop', 'auto', 'freestyle', 'sample'].includes(m.cmd)) return;
+    // A jam keeps its key and band, but the conductor may still push the tempo and call a drop.
+    if (cur.transport.nowPlaying?.mode === 'jam' && ['key', 'scale', 'auto', 'freestyle', 'sample'].includes(m.cmd)) return;
     switch (m.cmd) {
       case 'bpm': setBpm(Number(m.value)); break;
+      case 'mix': { // value "role|vol|mute": vol 0..1.5 or empty to leave, mute 1/0 or empty to leave
+        const [r, vol, mute] = String(m.value ?? '').split('|');
+        if (!ROLES.includes(r as Role)) return;
+        const mix = (cur.transport.mix ??= defaultMix());
+        const e = mix.roles[r as Role];
+        if (vol !== '' && vol !== undefined && Number.isFinite(Number(vol))) e.vol = Math.max(0, Math.min(1.5, Number(vol)));
+        if (mute === '1' || mute === '0') e.mute = mute === '1';
+        break;
+      }
+      case 'solo': (cur.transport.mix ??= defaultMix()).solo = ROLES.includes(m.value as Role) ? (m.value as Role) : null; break;
+      case 'master': if (Number.isFinite(Number(m.value))) (cur.transport.mix ??= defaultMix()).master = Math.max(0, Math.min(1.2, Number(m.value))); break;
       case 'key': cur.transport.root = ((Math.round(Number(m.value)) % 12) + 12) % 12; break;
       case 'scale': if (SCALES.includes(m.value as ScaleName)) cur.transport.scale = m.value as ScaleName; break;
       case 'drop': startDrop(); break;

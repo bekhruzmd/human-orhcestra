@@ -10,6 +10,7 @@ import { Net } from '../common/net';
 import { ClockSync } from '../common/clock';
 import { BeatTracker, flashEnv } from '../common/beat';
 import { Engine } from '../common/engine';
+import { StageAudioOut } from './audioout';
 import { Recorder } from '../common/recorder';
 import { fmt, syncHeadline, esc } from '../common/util';
 import {
@@ -38,6 +39,7 @@ const clock = new ClockSync((m) => net.send(m));
 const beats = new BeatTracker();
 const engine = new Engine(clock, true);
 const rec = new Recorder(engine);
+const audioOut = new StageAudioOut(engine, (to, data) => net.send({ t: 'rtc', to, data }));
 const sampler = new Sampler();
 
 let ts: TransportState | null = null;
@@ -246,6 +248,7 @@ net.on('pong', (m) => clock.onPong(m));
 net.on('welcome', (m) => { ts = m.state; wasFree = m.state.freestyle; engine.setTransport(m.state); syncControls(); onGameChange(); syncJam(); });
 net.on('state', (m) => { ts = m.state; engine.setTransport(m.state); syncControls(); onFreestyleChange(); onGameChange(); syncJam(); checkSampleState(); });
 net.on('raw', (r) => onRaw(r));
+net.on('rtc', (m) => void audioOut.onSignal(m.from, m.data));
 net.on('roster', (m) => { roster = m.players; engine.prune(new Set(roster.map((p) => p.id))); renderRoster(); updatePreflight(); if (!$('gamepick').hidden) renderParts(); });
 net.on('ctl', (m) => engine.ctl(m.pid, m.y, m.tilt));
 net.on('note', (ev) => {
