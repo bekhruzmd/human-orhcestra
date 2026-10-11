@@ -4,10 +4,32 @@
  */
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Color, DynamicDrawUsage, Matrix4, Quaternion, Vector3, type InstancedMesh, type Mesh, type MeshBasicMaterial, type Group } from 'three';
+import { AdditiveBlending, Color, DynamicDrawUsage, Matrix4, Quaternion, Vector3, type InstancedMesh, type Mesh, type MeshBasicMaterial, type Group } from 'three';
 import { activity } from '../state/activity';
 import { DRUM_POS, KEYS, PIANO_HI, PIANO_LO, PIANO_W, WHITE_W } from './layout';
-import { ROLE_COLOR, glowMat } from './theme';
+import { Text } from '@react-three/drei';
+import { DIM, FONT, ROLE_COLOR, glowMat } from './theme';
+
+/** Dark, unlit body colour: gives each instrument a solid silhouette for the neon to sit on. */
+const BODY = '#0a1620';
+const BODY_LIGHT = '#16303f';
+
+/** Thin vertical stand/pole from the floor (or `y0`) up to `y1`. */
+const Pole = ({ x, z = 0, y0 = 0, y1, color = BODY_LIGHT, r = 0.008 }: { x: number; z?: number; y0?: number; y1: number; color?: string; r?: number }) => (
+  <mesh position={[x, (y0 + y1) / 2, z]}>
+    <cylinderGeometry args={[r, r, y1 - y0, 6]} />
+    <meshBasicMaterial color={color} toneMapped={false} />
+  </mesh>
+);
+
+/** Flat glowing outline ring, faces +z unless rotated. */
+const Outline = ({ r, w = 0.006, color, opacity = 0.6, position, rotation, seg = 40 }:
+  { r: number; w?: number; color: string; opacity?: number; position?: [number, number, number]; rotation?: [number, number, number]; seg?: number }) => (
+  <mesh position={position} rotation={rotation}>
+    <ringGeometry args={[r - w, r, seg]} />
+    <meshBasicMaterial color={color} transparent opacity={opacity} blending={AdditiveBlending} depthWrite={false} toneMapped={false} />
+  </mesh>
+);
 
 const clamp01 = (n: number) => (n < 0 ? 0 : n > 1 ? 1 : n);
 
@@ -28,21 +50,54 @@ export function DrumKit() {
   const [kick, snare, hat, clap, open] = DRUM_POS;
   return (
     <group>
+      {/* kick: dark shell behind the glowing head, rim and spurs */}
+      <mesh position={[kick[0], kick[1], kick[2] - 0.1]} rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.235, 0.235, 0.2, 28]} />
+        <meshBasicMaterial color={BODY} toneMapped={false} />
+      </mesh>
+      <Outline r={0.25} w={0.012} color={DRUM_COLORS[0]} opacity={0.7} position={[kick[0], kick[1], kick[2] + 0.085]} />
+      <Pole x={-0.2} y1={0.2} z={0.02} />
+      <Pole x={0.2} y1={0.2} z={0.02} />
       <mesh ref={ref(0)} position={kick} rotation={[Math.PI / 2, 0, 0]} material={mats[0]}>
         <cylinderGeometry args={[0.24, 0.24, 0.16, 28]} />
+      </mesh>
+      {/* snare on a stand */}
+      <Pole x={snare[0]} z={snare[2]} y1={snare[1] - 0.04} />
+      <mesh position={[snare[0], snare[1] - 0.02, snare[2]]} rotation={[0.4, 0, 0]}>
+        <cylinderGeometry args={[0.145, 0.145, 0.06, 24]} />
+        <meshBasicMaterial color={BODY} toneMapped={false} />
       </mesh>
       <mesh ref={ref(1)} position={snare} rotation={[0.4, 0, 0]} material={mats[1]}>
         <cylinderGeometry args={[0.15, 0.15, 0.07, 24]} />
       </mesh>
+      {/* hi-hat: pole, lower cymbal, glowing top */}
+      <Pole x={hat[0]} z={hat[2]} y1={hat[1] - 0.03} />
+      <mesh position={[hat[0], hat[1] - 0.035, hat[2]]} rotation={[0.2, 0, 0]}>
+        <cylinderGeometry args={[0.13, 0.13, 0.012, 24]} />
+        <meshBasicMaterial color={BODY_LIGHT} toneMapped={false} />
+      </mesh>
       <mesh ref={ref(2)} position={hat} rotation={[0.2, 0, 0]} material={mats[2]}>
         <cylinderGeometry args={[0.14, 0.14, 0.025, 24]} />
+      </mesh>
+      {/* clap pad */}
+      <Pole x={clap[0]} z={clap[2]} y1={clap[1] - 0.03} />
+      <mesh position={[clap[0], clap[1], clap[2]]} rotation={[0.3, 0, 0]}>
+        <circleGeometry args={[0.1, 20]} />
+        <meshBasicMaterial color={BODY} side={2} toneMapped={false} />
       </mesh>
       <mesh ref={ref(3)} position={clap} rotation={[0.3, 0, 0]} material={mats[3]}>
         <torusGeometry args={[0.1, 0.025, 8, 24]} />
       </mesh>
+      {/* open cymbal / crash */}
+      <Pole x={open[0]} z={open[2]} y1={open[1] - 0.01} />
+      <mesh position={open} rotation={[0.3, 0, 0]}>
+        <circleGeometry args={[0.15, 28]} />
+        <meshBasicMaterial color={BODY_LIGHT} transparent opacity={0.55} side={2} toneMapped={false} />
+      </mesh>
       <mesh ref={ref(4)} position={open} rotation={[0.3, 0, 0]} material={mats[4]}>
         <torusGeometry args={[0.15, 0.02, 8, 28]} />
       </mesh>
+      <Outline r={0.5} w={0.004} color="#ff4d8d" opacity={0.18} position={[0, 0.006, 0]} rotation={[-Math.PI / 2, 0, 0]} seg={64} />
     </group>
   );
 }
@@ -101,6 +156,9 @@ export function PianoKeys() {
   });
 
   return (
+    <>
+    <Pole x={-PIANO_W / 2 + 0.03} z={0.1} y1={0.6} r={0.012} />
+    <Pole x={PIANO_W / 2 - 0.03} z={0.1} y1={0.6} r={0.012} />
     <group position={[0, 0.62, 0.08]} rotation={[0.9, 0, 0]}>
       <instancedMesh ref={white} args={[undefined, undefined, WHITE_COUNT]} frustumCulled={false}>
         <boxGeometry args={[WHITE_W * 0.9, 0.02, 0.26]} />
@@ -114,7 +172,23 @@ export function PianoKeys() {
         <boxGeometry args={[PIANO_W + 0.04, 0.012, 0.29]} />
         <meshBasicMaterial color="#12303d" toneMapped={false} />
       </mesh>
+      {/* cabinet end blocks and back rail, plus a neon strip along the front lip */}
+      {[-1, 1].map((sd) => (
+        <mesh key={sd} position={[sd * (PIANO_W / 2 + 0.035), 0.0, 0]}>
+          <boxGeometry args={[0.05, 0.05, 0.31]} />
+          <meshBasicMaterial color={BODY_LIGHT} toneMapped={false} />
+        </mesh>
+      ))}
+      <mesh position={[0, 0.02, -0.15]}>
+        <boxGeometry args={[PIANO_W + 0.1, 0.07, 0.03]} />
+        <meshBasicMaterial color={BODY} toneMapped={false} />
+      </mesh>
+      <mesh position={[0, -0.008, 0.148]}>
+        <boxGeometry args={[PIANO_W + 0.1, 0.006, 0.006]} />
+        <meshBasicMaterial color={ROLE_COLOR.pads} transparent opacity={0.8} blending={AdditiveBlending} toneMapped={false} />
+      </mesh>
     </group>
+    </>
   );
 }
 
@@ -128,13 +202,23 @@ export function BassCore() {
   useFrame((_, dt) => {
     const e = clamp01(activity.energy.bass);
     core.current!.scale.setScalar(0.8 + e * 0.5);
-    shell.current!.scale.setScalar(1 + e * 0.9);
+    shell.current!.scale.setScalar(0.8 + e * 0.5);
     shell.current!.rotation.y += dt * (0.3 + e * 2.5);
     coreMat.opacity = 0.2 + e * 0.7;
     ringMat.opacity = e * 0.7;
     ring.current!.scale.setScalar(1 + (1 - e) * 1.6);
   });
   return (
+    <>
+    {/* amp cabinet the core floats in front of */}
+    <mesh position={[0, 0.38, -0.12]}>
+      <boxGeometry args={[0.56, 0.76, 0.2]} />
+      <meshBasicMaterial color={BODY} toneMapped={false} />
+    </mesh>
+    <Outline r={0.215} w={0.01} color={ROLE_COLOR.bass} opacity={0.45} position={[0, 0.5, -0.018]} seg={48} />
+    <Outline r={0.12} w={0.006} color={ROLE_COLOR.bass} opacity={0.35} position={[0, 0.5, -0.018]} seg={40} />
+    <Outline r={0.07} w={0.05} color={ROLE_COLOR.bass} opacity={0.18} position={[0, 0.5, -0.016]} seg={32} />
+    <Outline r={0.045} w={0.03} color={ROLE_COLOR.bass} opacity={0.5} position={[0, 0.17, -0.018]} seg={24} />
     <group position={[0, 0.72, 0]}>
       <mesh ref={core} material={coreMat}><sphereGeometry args={[0.2, 20, 14]} /></mesh>
       <mesh ref={shell}>
@@ -143,11 +227,14 @@ export function BassCore() {
       </mesh>
       <mesh ref={ring} rotation={[Math.PI / 2, 0, 0]} material={ringMat}><torusGeometry args={[0.32, 0.01, 6, 40]} /></mesh>
     </group>
+    </>
   );
 }
 
 // ------------------------------------------------------------------ melody
 const PCS = 12;
+const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const SHARP = new Set([1, 3, 6, 8, 10]);
 export const MELODY_BAR_W = 0.07;
 export const melodyBarX = (pc: number) => (pc - (PCS - 1) / 2) * MELODY_BAR_W * 1.25;
 
@@ -170,6 +257,22 @@ export function MelodyLadder() {
   });
   return (
     <group>
+      {/* plinth, baseline and pitch-class labels */}
+      <mesh position={[0, 0.4, -0.02]}>
+        <boxGeometry args={[PCS * MELODY_BAR_W * 1.25 + 0.1, 0.03, 0.12]} />
+        <meshBasicMaterial color={BODY_LIGHT} toneMapped={false} />
+      </mesh>
+      <Pole x={-0.4} z={-0.02} y1={0.4} r={0.01} />
+      <Pole x={0.4} z={-0.02} y1={0.4} r={0.01} />
+      <mesh position={[0, 0.418, 0.045]}>
+        <boxGeometry args={[PCS * MELODY_BAR_W * 1.25 + 0.1, 0.004, 0.004]} />
+        <meshBasicMaterial color={ROLE_COLOR.melody} transparent opacity={0.8} blending={AdditiveBlending} toneMapped={false} />
+      </mesh>
+      {NOTE_NAMES.map((n, i) => (
+        <Text key={n} font={FONT.regular} fontSize={0.03} color={SHARP.has(i) ? DIM : ROLE_COLOR.melody} position={[melodyBarX(i), 0.375, 0.045]} anchorX="center" anchorY="top">
+          {n}
+        </Text>
+      ))}
       {Array.from({ length: PCS }, (_, i) => (
         <mesh key={i} ref={(m) => { bars.current[i] = m; }} position={[melodyBarX(i), 0.5, 0]} material={mats[i]}>
           <boxGeometry args={[MELODY_BAR_W, 0.3, 0.03]} />
@@ -207,14 +310,41 @@ export function GuitarStrings() {
   return (
     <group position={[0, 0.78, 0]}>
       {Array.from({ length: GUITAR_STRINGS }, (_, i) => (
-        <mesh key={i} ref={(m) => { strings.current[i] = m; }} position={[guitarStringX(i), 0, 0]} material={mats[i]}>
-          <boxGeometry args={[0.006, 0.7, 0.006]} />
+        <mesh key={i} ref={(m) => { strings.current[i] = m; }} position={[guitarStringX(i), -0.01, 0]} material={mats[i]}>
+          <boxGeometry args={[0.006, 0.9, 0.006]} />
         </mesh>
       ))}
+      {/* neck and headstock behind the strings */}
+      <mesh position={[0, 0.05, -0.02]}>
+        <boxGeometry args={[0.34, 0.8, 0.012]} />
+        <meshBasicMaterial color={BODY} toneMapped={false} />
+      </mesh>
+      {[0.15, 0.3].map((y) => (
+        <mesh key={y} position={[0, y, -0.012]}>
+          <boxGeometry args={[0.34, 0.006, 0.004]} />
+          <meshBasicMaterial color={ROLE_COLOR.guitar} transparent opacity={0.4} blending={AdditiveBlending} toneMapped={false} />
+        </mesh>
+      ))}
+      <mesh position={[0, 0.5, -0.02]}>
+        <boxGeometry args={[0.2, 0.2, 0.012]} />
+        <meshBasicMaterial color={BODY_LIGHT} toneMapped={false} />
+      </mesh>
+      {[-1, 1].flatMap((sd) => [0.46, 0.54].map((y) => (
+        <mesh key={`${sd}${y}`} position={[sd * 0.115, y, -0.01]}>
+          <circleGeometry args={[0.014, 10]} />
+          <meshBasicMaterial color={ROLE_COLOR.guitar} toneMapped={false} />
+        </mesh>
+      )))}
       <group ref={body}>
-        <mesh position={[0, -0.28, 0]} rotation={[Math.PI / 2, 0, 0]}>
-          <torusGeometry args={[0.2, 0.008, 6, 36]} />
-          <meshBasicMaterial color={ROLE_COLOR.guitar} transparent opacity={0.5} toneMapped={false} />
+        {/* body: two bouts, soundhole, bridge */}
+        <mesh position={[0, -0.12, -0.03]}><circleGeometry args={[0.21, 36]} /><meshBasicMaterial color={BODY} toneMapped={false} /></mesh>
+        <mesh position={[0, -0.4, -0.03]}><circleGeometry args={[0.28, 40]} /><meshBasicMaterial color={BODY} toneMapped={false} /></mesh>
+        <Outline r={0.21} w={0.008} color={ROLE_COLOR.guitar} opacity={0.5} position={[0, -0.12, -0.02]} />
+        <Outline r={0.28} w={0.008} color={ROLE_COLOR.guitar} opacity={0.5} position={[0, -0.4, -0.02]} seg={48} />
+        <Outline r={0.075} w={0.012} color={ROLE_COLOR.guitar} opacity={0.6} position={[0, -0.26, -0.01]} />
+        <mesh position={[0, -0.46, -0.005]}>
+          <boxGeometry args={[0.26, 0.022, 0.008]} />
+          <meshBasicMaterial color={ROLE_COLOR.guitar} transparent opacity={0.7} blending={AdditiveBlending} toneMapped={false} />
         </mesh>
       </group>
     </group>

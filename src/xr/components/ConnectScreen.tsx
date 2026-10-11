@@ -35,9 +35,8 @@ export function ConnectScreen({ onClose, canClose }: { onClose: () => void; canC
   return (
     <div className="connect">
       <div className="card">
-        <div className="eyebrow">MIXED REALITY</div>
         <h1>HUMAN ORCHESTRA</h1>
-        <h2>SPATIAL CONDUCTOR</h2>
+        <h2>Spatial conductor · mixed reality</h2>
 
         <details className="adv">
           <summary>Server: {addr === SAME_ORIGIN ? 'this site' : addr}</summary>

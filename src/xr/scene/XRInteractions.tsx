@@ -5,71 +5,81 @@
 import { useMemo, useRef, type ReactNode } from 'react';
 import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import { Text } from '@react-three/drei';
-import { EdgesGeometry, PlaneGeometry, Vector3, type Mesh } from 'three';
-import { DIM, FONT, INK, glassMat, glowMat } from './theme';
+import { Color, MeshBasicMaterial, PlaneGeometry, Vector3, type Group, type Mesh } from 'three';
+import { FONT, PAPER, inkMat, paperMat, shadowMat, solidMat } from './theme';
 
 type V3 = [number, number, number];
 
-export function GlassPanel({ width, height, position, rotation, accent = '#52e0ff', children }:
+const T = 0.008; // outline thickness: one "pixel" of the Stage UI
+
+/** Opaque paper card: ink outline, hard lilac offset shadow, pastel title strip. `accent` is a pastel from ROLE_PASTEL. */
+export function GlassPanel({ width, height, position, rotation, accent = PAPER.lilac, children }:
   { width: number; height: number; position?: V3; rotation?: V3; accent?: string; children?: ReactNode }) {
-  const geo = useMemo(() => new PlaneGeometry(width, height), [width, height]);
-  const edges = useMemo(() => new EdgesGeometry(geo), [geo]);
-  const line = useMemo(() => glowMat(accent, 0.45), [accent]);
+  const bar = useMemo(() => solidMat(accent), [accent]);
   return (
     <group position={position} rotation={rotation}>
-      <mesh geometry={geo} material={glassMat} />
-      <lineSegments geometry={edges} material={line} />
+      <mesh material={shadowMat} position={[0.018, -0.018, -0.006]}><planeGeometry args={[width + 2 * T, height + 2 * T]} /></mesh>
+      <mesh material={inkMat} position={[0, 0, -0.004]}><planeGeometry args={[width + 2 * T, height + 2 * T]} /></mesh>
+      <mesh material={paperMat} position={[0, 0, -0.002]}><planeGeometry args={[width, height]} /></mesh>
+      <mesh material={bar} position={[0, height / 2 - 0.045, -0.001]}><planeGeometry args={[width, 0.09]} /></mesh>
+      <mesh material={inkMat} position={[0, height / 2 - 0.09, -0.0005]}><planeGeometry args={[width, T]} /></mesh>
       {children}
     </group>
   );
 }
 
-export function SpatialButton({ position, width = 0.36, height = 0.09, label, onPress, disabled, accent = '#52e0ff', active }:
+export function SpatialButton({ position, width = 0.36, height = 0.09, label, onPress, disabled, accent = PAPER.lilac, active }:
   { position: V3; width?: number; height?: number; label: string; onPress: () => void; disabled?: boolean; accent?: string; active?: boolean }) {
   const hover = useRef(false);
-  const mat = useMemo(() => glowMat(accent, 0.15), [accent]);
+  const face = useRef<Mesh>(null);
+  const grp = useRef<Group>(null);
+  const fill = useMemo(() => solidMat(PAPER.paper), []);
+  const tint = useMemo(() => new Color(accent), [accent]);
+  const white = useMemo(() => new Color('#ffffff'), []);
   const geo = useMemo(() => new PlaneGeometry(width, height), [width, height]);
-  const edges = useMemo(() => new EdgesGeometry(geo), [geo]);
-  const line = useMemo(() => glowMat(accent, 0.6), [accent]);
   useFrame(() => {
-    mat.opacity = disabled ? 0.04 : active ? 0.4 : hover.current ? 0.32 : 0.14;
-    line.opacity = disabled ? 0.15 : 0.7;
+    fill.color.copy(disabled ? white : active || hover.current ? tint : white);
+    if (grp.current) grp.current.position.set(hover.current && !disabled ? -0.004 : 0, hover.current && !disabled ? 0.004 : 0, 0);
+    if (face.current) (face.current.material as MeshBasicMaterial).opacity = disabled ? 0.45 : 1;
   });
   return (
     <group position={position}>
-      <mesh
-        geometry={geo} material={mat}
-        onClick={(e) => { e.stopPropagation(); if (!disabled) onPress(); }}
-        onPointerOver={() => { hover.current = true; }}
-        onPointerOut={() => { hover.current = false; }}
-      />
-      <lineSegments geometry={edges} material={line} />
-      <Text font={FONT.bold} fontSize={height * 0.4} color={disabled ? DIM : INK} position={[0, 0, 0.004]} anchorX="center" anchorY="middle" letterSpacing={0.06}>
-        {label}
-      </Text>
+      <mesh material={inkMat} position={[0.01, -0.01, -0.002]}><planeGeometry args={[width + 2 * T, height + 2 * T]} /></mesh>
+      <group ref={grp}>
+        <mesh material={inkMat} position={[0, 0, 0.0005]}><planeGeometry args={[width + 2 * T, height + 2 * T]} /></mesh>
+        <mesh
+          ref={face} geometry={geo} material={fill} position={[0, 0, 0.001]}
+          onClick={(e) => { e.stopPropagation(); if (!disabled) onPress(); }}
+          onPointerOver={() => { hover.current = true; }}
+          onPointerOut={() => { hover.current = false; }}
+        />
+        <Text font={FONT.bold} fontSize={height * 0.36} color={disabled ? PAPER.soft : PAPER.ink} position={[0, 0, 0.004]} anchorX="center" anchorY="middle" letterSpacing={0.06}>
+          {label}
+        </Text>
+      </group>
     </group>
   );
 }
 
-export function SpatialSlider({ position, width = 0.4, value, onChange, onCommit, disabled, accent = '#52e0ff', label }:
+export function SpatialSlider({ position, width = 0.4, value, onChange, onCommit, disabled, accent = PAPER.lilac, label }:
   { position: V3; width?: number; value: number; onChange?: (v: number) => void; onCommit?: (v: number) => void; disabled?: boolean; accent?: string; label?: string }) {
   const track = useRef<Mesh>(null);
   const knob = useRef<Mesh>(null);
   const dragging = useRef(false);
   const local = useMemo(() => new Vector3(), []);
-  const knobMat = useMemo(() => glowMat(accent, 0.9), [accent]);
-  const fillMat = useMemo(() => glowMat(accent, 0.5), [accent]);
+  const knobMat = useMemo(() => solidMat(accent), [accent]);
+  const fillMat = useMemo(() => solidMat(accent), [accent]);
   const fill = useRef<Mesh>(null);
+  const knobFace = useRef<Mesh>(null);
   const latest = useRef(value);
   latest.current = value;
 
   useFrame(() => {
     const v = Math.max(0, Math.min(1, latest.current));
     knob.current!.position.x = (v - 0.5) * width;
+    knobFace.current!.position.x = (v - 0.5) * width;
     fill.current!.scale.x = Math.max(0.001, v);
     fill.current!.position.x = -width / 2 + (v * width) / 2;
-    knobMat.opacity = disabled ? 0.2 : 0.9;
-    fillMat.opacity = disabled ? 0.12 : 0.5;
   });
 
   const setFrom = (e: ThreeEvent<PointerEvent>) => {
@@ -82,7 +92,7 @@ export function SpatialSlider({ position, width = 0.4, value, onChange, onCommit
 
   return (
     <group position={position}>
-      {label && <Text font={FONT.regular} fontSize={0.04} color={disabled ? DIM : INK} position={[-width / 2, 0.06, 0]} anchorX="left">{label}</Text>}
+      {label && <Text font={FONT.regular} fontSize={0.04} color={disabled ? PAPER.soft : PAPER.ink} position={[-width / 2, 0.06, 0]} anchorX="left">{label}</Text>}
       <mesh ref={track}
         onPointerDown={(e) => { e.stopPropagation(); dragging.current = true; (e.target as Element)?.setPointerCapture?.(e.pointerId); setFrom(e); }}
         onPointerMove={(e) => { if (dragging.current) setFrom(e); }}
@@ -90,14 +100,15 @@ export function SpatialSlider({ position, width = 0.4, value, onChange, onCommit
         onPointerMissed={() => { dragging.current = false; }}
       >
         <planeGeometry args={[width, 0.09]} />
-        <meshBasicMaterial transparent opacity={0.04} depthWrite={false} color="#7fdcff" toneMapped={false} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
-      <mesh ref={fill} material={fillMat} position={[0, 0, 0.002]}><planeGeometry args={[width, 0.012]} /></mesh>
-      <mesh position={[0, 0, 0.001]}>
-        <planeGeometry args={[width, 0.004]} />
-        <meshBasicMaterial color={disabled ? DIM : '#7fdcff'} transparent opacity={0.5} toneMapped={false} />
+      <mesh material={inkMat} position={[0, 0, 0.001]}><planeGeometry args={[width + 2 * T, 0.034 + 2 * T]} /></mesh>
+      <mesh position={[0, 0, 0.0015]}><planeGeometry args={[width, 0.034]} /><meshBasicMaterial color={PAPER.paper2} toneMapped={false} /></mesh>
+      <mesh ref={fill} material={fillMat} position={[0, 0, 0.002]}><planeGeometry args={[width, 0.034]} /></mesh>
+      <mesh ref={knob} position={[0, 0, 0.004]}>
+        <planeGeometry args={[0.03 + 2 * T, 0.07 + 2 * T]} /><primitive object={inkMat} attach="material" />
       </mesh>
-      <mesh ref={knob} material={knobMat} position={[0, 0, 0.004]}><circleGeometry args={[0.022, 20]} /></mesh>
+      <mesh ref={knobFace} material={knobMat} position={[0, 0, 0.0045]}><planeGeometry args={[0.03, 0.07]} /></mesh>
     </group>
   );
 }
