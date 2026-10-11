@@ -400,7 +400,7 @@ function render() {
     <button class="pixel-btn btn-butter" id="btn-edit-persona" style="margin: 6px auto 0; font-size: 9px; padding: 6px 12px; width: fit-content;">EDIT 8-BIT PERSONA</button>
     <div class="hint">Your phone controls the music. Listen to the Stage.</div>
     <div class="hint">Room <b>${esc(roomCode)}</b> · <a href="${location.pathname}" id="change-room">change</a></div>
-    <a href="/stage" class="stage-link">STAGE SCREEN (HOST / LAPTOP)</a></div>`;
+    <a href="/" class="stage-link">STAGE SCREEN (HOST / LAPTOP)</a></div>`;
   document.getElementById('change-room')!.onclick = (e) => { e.preventDefault(); forgetRoom(); renderRoomScreen(); };
   document.getElementById('go')!.onclick = onJoin;
   document.getElementById('btn-edit-persona')!.onclick = () => {

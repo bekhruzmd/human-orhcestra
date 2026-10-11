@@ -21,7 +21,7 @@ npm run demo                  # build + server + HTTPS tunnel
 
 `npm run demo` prints a public `https://….trycloudflare.com` URL. Then:
 
-1. On the laptop open **http://localhost:3000/stage**, and click **"SOUND OFF · click to enable audio"** (browsers require a click).
+1. On the laptop open **http://localhost:3000/**, and click **"SOUND OFF · click to enable audio"** (browsers require a click).
 2. Phones scan the QR on the Stage. The QR uses the tunnel URL automatically.
 3. Plug the headphone splitter into the laptop. Audio plays from the Stage.
 
@@ -29,7 +29,7 @@ npm run demo                  # build + server + HTTPS tunnel
 |---|---|
 | `npm run demo` | production build + server + cloudflared tunnel (what you want at the table) |
 | `npm start` | build + server only (LAN demo: `http://<laptop-ip>:3000`; **no HTTPS, so no shake/tilt on iOS**) |
-| `npm run dev` | Vite dev server (5173, hot reload) + server (3000); Stage at `localhost:5173/stage.html` |
+| `npm run dev` | Vite dev server (5173, hot reload) + server (3000); Stage at `localhost:5173/` |
 | `vercel deploy --prod` | cloud copy at **https://horcha.vercel.app** (see "Vercel deployment") |
 | `npm run tunnel` | tunnel only, if you run the server separately |
 | `npm test` | offline checks: scale-lock + clock-sync accuracy simulation |
@@ -37,11 +37,13 @@ npm run demo                  # build + server + HTTPS tunnel
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run roomtest` / `npm run xrtest` | room-code isolation checks / VR networking against the real server |
 
+The home page (`/`) is the Stage. Phones use `/mobile`; `/stage` remains an alias for the Stage.
+
 ### VR conductor (Meta Quest)
 
 `/xr` is a mixed-reality view of the same session: each instrument floats in your room and lights up as phones play. Open `https://<this-site>/xr` in the Quest Browser, enter the room code shown on the Stage, press **Connect**, then **Enter Mixed Reality**. Observers are read-only; **Conductor** can pause, drop and change tempo. Per-instrument mute and volume are shown but disabled, because the server has no such command. The page is a separate bundle, so phones and the Stage never download the 3D code.
 
-Room codes: each Stage creates its own room (shown on screen and in the QR link, `/?room=ABCD`); phones and the VR page join it by code.
+Room codes: each Stage creates its own room (shown on screen and in the QR link, `/mobile?room=ABCD`); phones and the VR page join it by code.
 
 Stage keys: **N** advances the three-moment Judge demo, **W** opens “How it works,” **H** hides the conductor bar, and **F** toggles fullscreen. Less-used controls, sync test, and demo preflight are under **More**.
 
@@ -191,7 +193,7 @@ Press **🎚️ SAMPLE** on the Stage and choose or drop an audio file (MP3, WAV
 
 ## Judge demo (60–90 seconds)
 
-Start `npm run demo`, open the Stage at `http://localhost:3000/stage`, and enable audio. **More → Demo preflight** shows whether the HTTPS tunnel is reachable; wait for it before asking judges to scan. If the tunnel is unavailable, **Open player here** opens `/` on the same laptop as the Stage at `/stage`.
+Start `npm run demo`, open the Stage at `http://localhost:3000/`, and enable audio. **More → Demo preflight** shows whether the HTTPS tunnel is reachable; wait for it before asking judges to scan. If the tunnel is unavailable, **Open player here** opens `/mobile?room=CODE` on the same laptop as the Stage at `/`.
 
 | Moment | Do | Say |
 |---|---|---|
@@ -229,8 +231,8 @@ shared/protocol.ts   wire messages, transport math (step <-> time)
 shared/music.ts      scales, chord loops, index -> pitch, chord-aware snapping
 server/index.ts      static files, WebSocket, global transport, relay + guardrails
 src/common/          clock.ts, net.ts, beat.ts, engine.ts (Tone), recorder.ts
-src/player/          phone UI (index.html)
-src/stage/           big-screen UI (stage.html), visuals.ts, auto.ts
+src/player/          phone UI (mobile.html)
+src/stage/           big-screen UI (index.html; stage.html alias), visuals.ts, auto.ts
 scripts/             tunnel.mjs, smoke.ts (protocol), simtest.ts (sync), musictest.ts
 ```
 

@@ -402,7 +402,9 @@ $('sync-test').onclick = () => cmd('syncTest', !ts?.syncTest);
 $('how-open').onclick = () => toggleHow(true);
 $('how-close').onclick = () => toggleHow(false);
 $('local-fallback').onclick = () => {
-  window.open(new URL('/', location.origin).toString(), '_blank', 'noopener,noreferrer');
+  const target = new URL('/mobile', location.origin);
+  target.searchParams.set('room', roomCode);
+  window.open(target.toString(), '_blank', 'noopener,noreferrer');
   fallbackUsed = true;
   updatePreflight();
 };
@@ -1223,14 +1225,14 @@ async function refreshJoinUrl() {
       url = publicJoinUrl || (localHost ? info.lanUrls?.[0] ?? location.origin : location.origin);
     } catch { /* keep origin */ }
   }
-  const target = new URL(url);
+  const target = new URL('/mobile', url);
   target.searchParams.set('room', roomCode);
   const withRoom = target.toString();
   if (withRoom !== joinUrl) {
     joinUrl = withRoom;
     $('roomcode').textContent = roomCode;
     await QRCode.toCanvas($<HTMLCanvasElement>('qr'), withRoom, { width: 560, margin: 0, errorCorrectionLevel: 'M', color: { dark: '#2b2540', light: '#ffffff' } });
-    $('url').textContent = url.replace(/^https?:\/\//, '');
+    $('url').textContent = target.toString().split('?')[0].replace(/^https?:\/\//, '');
     $('warn').textContent = url.startsWith('https') ? '' : 'HTTP only: phones can’t use shake/tilt. Run `npm run demo` for HTTPS.';
   }
 }

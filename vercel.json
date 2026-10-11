@@ -4,6 +4,7 @@
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/ws", "destination": "/api/ws" },
+    { "source": "/mobile", "destination": "/mobile.html" },
     { "source": "/stage", "destination": "/stage.html" },
     { "source": "/xr", "destination": "/xr.html" }
   ]

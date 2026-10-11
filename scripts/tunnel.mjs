@@ -27,7 +27,7 @@ cf.stderr.on('data', (buf) => {
   const m = buf.toString().match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
   if (m && !url) {
     url = m[0];
-    console.log(`\n🌐  Public HTTPS URL:  ${url}\n    Stage (open this on the laptop):  ${server}/stage\n    Phones: scan the QR on the Stage.\n`);
+    console.log(`\n🌐  Public HTTPS URL:  ${url}\n    Stage (open this on the laptop):  ${server}/\n    Phones: scan the QR on the Stage.\n`);
   }
 });
 

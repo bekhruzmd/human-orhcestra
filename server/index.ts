@@ -632,8 +632,8 @@ const server = http.createServer((req, res) => {
     })();
     return;
   }
-  // Static files: / -> player (index.html), /stage -> stage.html
-  let rel = url.pathname === '/stage' ? '/stage.html' : url.pathname === '/xr' ? '/xr.html' : url.pathname === '/' ? '/index.html' : url.pathname;
+  // Stage is the home page; phones join at /mobile. Keep /stage as an alias.
+  let rel = url.pathname === '/stage' ? '/stage.html' : url.pathname === '/mobile' ? '/mobile.html' : url.pathname === '/xr' ? '/xr.html' : url.pathname === '/' ? '/index.html' : url.pathname;
   const file = path.join(DIST, path.normalize(rel).replace(/^(\.\.[/\\])+/, ''));
   if (!file.startsWith(DIST)) return void res.writeHead(403).end();
   fs.readFile(file, (err, data) => {
@@ -1183,7 +1183,7 @@ export default server; // Vercel Functions run an exported http.Server (api/ws.t
 if (!ON_VERCEL) {
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`\n🎼  Human Orchestra server on :${PORT}`);
-    console.log(`    Stage:  http://localhost:${PORT}/stage`);
+    console.log(`    Stage:  http://localhost:${PORT}/`);
     for (const u of lanUrls()) console.log(`    LAN:    ${u}   (http: motion sensors need HTTPS, use \`npm run demo\`)`);
   });
 }
